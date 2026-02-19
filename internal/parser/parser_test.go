@@ -290,7 +290,7 @@ func TestParseTimestamp(t *testing.T) {
 		{
 			"RFC3339 UTC",
 			"2024-01-15T10:30:00Z",
-			time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+			testJan15_1030UTC,
 			true,
 		},
 		{
@@ -314,13 +314,13 @@ func TestParseTimestamp(t *testing.T) {
 		{
 			"positive timezone offset",
 			"2024-01-15T15:30:00+05:00",
-			time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+			testJan15_1030UTC,
 			true,
 		},
 		{
 			"negative timezone offset",
 			"2024-01-15T03:30:00-07:00",
-			time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+			testJan15_1030UTC,
 			true,
 		},
 		{
@@ -335,7 +335,7 @@ func TestParseTimestamp(t *testing.T) {
 		{
 			"space-separated datetime",
 			"2024-01-15 10:30:00",
-			time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+			testJan15_1030UTC,
 			true,
 		},
 		{

@@ -20,6 +20,12 @@ const (
 	tsLateS5  = "2024-01-01T10:01:05Z"
 )
 
+// Parsed time.Time values used as expected results in
+// timestamp parsing tests.
+var testJan15_1030UTC = time.Date(
+	2024, 1, 15, 10, 30, 0, 0, time.UTC,
+)
+
 // --- Data Generators ---
 
 func generateLargeString(size int) string {
