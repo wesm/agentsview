@@ -295,22 +295,6 @@ func assertErrorResponse(
 	}
 }
 
-// assertContainsAll checks that got contains every string
-// in wants.
-func assertContainsAll(
-	t *testing.T, got string, wants []string,
-) {
-	t.Helper()
-	for _, want := range wants {
-		if !strings.Contains(got, want) {
-			t.Errorf(
-				"expected to contain %q, got:\n%s",
-				want, got,
-			)
-		}
-	}
-}
-
 // assertTimeoutResponse checks that a response has the expected status,
 // a JSON content type, and a body containing the given substring.
 func assertTimeoutResponse(
@@ -1013,14 +997,21 @@ func TestExportSession_HTMLContent(t *testing.T) {
 	w := te.get(t, "/api/v1/sessions/s1/export")
 	assertStatus(t, w, http.StatusOK)
 
-	assertContainsAll(t, w.Body.String(), []string{
+	body := w.Body.String()
+	for _, want := range []string{
 		"<!DOCTYPE html>",
 		"<header>",
 		"<main>",
 		"message-content",
 		"message-role",
 		"Agent Session",
-	})
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf(
+				"expected body to contain %q", want,
+			)
+		}
+	}
 }
 
 func TestUploadSession(t *testing.T) {

@@ -49,38 +49,6 @@ func stubServer(
 	)
 }
 
-// assertContainsAll checks that got contains every string
-// in wants.
-func assertContainsAll(
-	t *testing.T, got string, wants []string,
-) {
-	t.Helper()
-	for _, want := range wants {
-		if !strings.Contains(got, want) {
-			t.Errorf(
-				"expected to contain %q, got:\n%s",
-				want, got,
-			)
-		}
-	}
-}
-
-// assertContainsNone checks that got does not contain any
-// string in bads.
-func assertContainsNone(
-	t *testing.T, got string, bads []string,
-) {
-	t.Helper()
-	for _, bad := range bads {
-		if strings.Contains(got, bad) {
-			t.Errorf(
-				"expected NOT to contain %q, got:\n%s",
-				bad, got,
-			)
-		}
-	}
-}
-
 // assertContextCancelled checks that err is non-nil and
 // wraps context.Canceled.
 func assertContextCancelled(t *testing.T, err error) {
