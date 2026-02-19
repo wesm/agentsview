@@ -123,48 +123,61 @@ func TestNeedsProjectReparse(t *testing.T) {
 
 func TestExtractTextContent(t *testing.T) {
 	tests := []struct {
-		name        string
-		json        string
-		wantText    string
-		wantThink   bool
-		wantToolUse bool
+		name          string
+		json          string
+		wantText      string
+		wantThink     bool
+		wantToolUse   bool
+		wantToolCalls []ParsedToolCall
 	}{
 		{
 			"plain string",
 			`"Hello world"`,
-			"Hello world", false, false,
+			"Hello world", false, false, nil,
 		},
 		{
 			"text block array",
 			`[{"type":"text","text":"Hi"}]`,
-			"Hi", false, false,
+			"Hi", false, false, nil,
 		},
 		{
 			"thinking block",
 			`[{"type":"thinking","thinking":"Let me think..."}]`,
-			"[Thinking]\nLet me think...", true, false,
+			"[Thinking]\nLet me think...", true, false, nil,
 		},
 		{
 			"tool_use block",
 			`[{"type":"tool_use","name":"Read","input":{"file_path":"test.go"}}]`,
 			"[Read: test.go]", false, true,
+			[]ParsedToolCall{{ToolName: "Read", Category: "Read"}},
 		},
 		{
 			"mixed blocks",
 			`[{"type":"text","text":"Looking at"},{"type":"tool_use","name":"Bash","input":{"command":"ls","description":"list files"}}]`,
 			"Looking at\n[Bash: list files]\n$ ls", false, true,
+			[]ParsedToolCall{{ToolName: "Bash", Category: "Bash"}},
+		},
+		{
+			"multiple tool_use blocks",
+			`[{"type":"tool_use","name":"Read","input":{"file_path":"a.go"}},{"type":"tool_use","name":"Grep","input":{"pattern":"TODO"}}]`,
+			"[Read: a.go]\n[Grep: TODO]", false, true,
+			[]ParsedToolCall{
+				{ToolName: "Read", Category: "Read"},
+				{ToolName: "Grep", Category: "Grep"},
+			},
 		},
 		{
 			"empty array",
 			`[]`,
-			"", false, false,
+			"", false, false, nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := gjson.Parse(tt.json)
-			text, hasThinking, hasToolUse := ExtractTextContent(result)
+			text, hasThinking, hasToolUse, tcs :=
+				ExtractTextContent(result)
 			if text != tt.wantText {
 				t.Errorf("text = %q, want %q", text, tt.wantText)
 			}
@@ -176,6 +189,7 @@ func TestExtractTextContent(t *testing.T) {
 				t.Errorf("hasToolUse = %v, want %v",
 					hasToolUse, tt.wantToolUse)
 			}
+			assertToolCalls(t, tcs, tt.wantToolCalls)
 		})
 	}
 }
@@ -750,6 +764,109 @@ func TestParseCodexSession(t *testing.T) {
 			wantMsgs: 1,
 		},
 		{
+			name: "function calls",
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("fc-1", "/Users/wesm/code/app", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "Run the tests", tsEarlyS1),
+				testjsonl.CodexFunctionCallJSON("shell_command", "Running tests", tsEarlyS5),
+				testjsonl.CodexFunctionCallJSON("apply_patch", "Fixing typo", tsLate),
+			),
+			wantID:   "codex:fc-1",
+			wantMsgs: 3,
+			check: func(t *testing.T, _ *ParsedSession, msgs []ParsedMessage) {
+				t.Helper()
+				// user msg
+				if msgs[0].Role != RoleUser {
+					t.Errorf("msgs[0].Role = %q, want user", msgs[0].Role)
+				}
+				if msgs[0].HasToolUse {
+					t.Error("msgs[0] should not have tool_use")
+				}
+				// shell_command
+				if msgs[1].Role != RoleAssistant {
+					t.Errorf("msgs[1].Role = %q, want assistant", msgs[1].Role)
+				}
+				if !msgs[1].HasToolUse {
+					t.Error("msgs[1] should have tool_use")
+				}
+				assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{
+					{ToolName: "shell_command", Category: "Bash"},
+				})
+				if msgs[1].Content != "[shell_command: Running tests]" {
+					t.Errorf("msgs[1].Content = %q", msgs[1].Content)
+				}
+				// apply_patch
+				if !msgs[2].HasToolUse {
+					t.Error("msgs[2] should have tool_use")
+				}
+				assertToolCalls(t, msgs[2].ToolCalls, []ParsedToolCall{
+					{ToolName: "apply_patch", Category: "Edit"},
+				})
+				// ordinals
+				for i, m := range msgs {
+					if m.Ordinal != i {
+						t.Errorf("msgs[%d].Ordinal = %d", i, m.Ordinal)
+					}
+				}
+			},
+		},
+		{
+			name: "function call no name skipped",
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("fc-2", "/tmp", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1),
+				testjsonl.CodexFunctionCallJSON("", "", tsEarlyS5),
+			),
+			wantID:   "codex:fc-2",
+			wantMsgs: 1,
+		},
+		{
+			name: "mixed content and function calls",
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("fc-3", "/tmp", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "Fix it", tsEarlyS1),
+				testjsonl.CodexMsgJSON("assistant", "Looking at it", tsEarlyS5),
+				testjsonl.CodexFunctionCallJSON("shell_command", "Running rg", tsLate),
+				testjsonl.CodexMsgJSON("assistant", "Found the issue", tsLateS5),
+			),
+			wantID:   "codex:fc-3",
+			wantMsgs: 4,
+			check: func(t *testing.T, _ *ParsedSession, msgs []ParsedMessage) {
+				t.Helper()
+				// ordinals sequential
+				for i, m := range msgs {
+					if m.Ordinal != i {
+						t.Errorf("msgs[%d].Ordinal = %d", i, m.Ordinal)
+					}
+				}
+				// only function_call msg has HasToolUse
+				for i, m := range msgs {
+					wantTool := i == 2
+					if m.HasToolUse != wantTool {
+						t.Errorf("msgs[%d].HasToolUse = %v, want %v",
+							i, m.HasToolUse, wantTool)
+					}
+				}
+			},
+		},
+		{
+			name: "function call without summary",
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("fc-4", "/tmp", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "do it", tsEarlyS1),
+				testjsonl.CodexFunctionCallJSON("exec_command", "", tsEarlyS5),
+			),
+			wantID:   "codex:fc-4",
+			wantMsgs: 2,
+			check: func(t *testing.T, _ *ParsedSession, msgs []ParsedMessage) {
+				t.Helper()
+				if msgs[1].Content != "[exec_command]" {
+					t.Errorf("content = %q, want %q",
+						msgs[1].Content, "[exec_command]")
+				}
+			},
+		},
+		{
 			name: "large message within scanner limit",
 			content: testjsonl.JoinJSONL(
 				testjsonl.CodexSessionMetaJSON("big", "/tmp", "user", tsEarly),
@@ -1050,6 +1167,9 @@ func TestParseGeminiSession(t *testing.T) {
 				if !strings.Contains(msgs[1].Content, "[Read: main.go]") {
 					t.Errorf("missing tool call in content: %q", msgs[1].Content)
 				}
+				assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{
+					{ToolName: "read_file", Category: "Read"},
+				})
 			},
 		},
 		{

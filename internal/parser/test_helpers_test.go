@@ -131,6 +131,27 @@ func assertLogEmpty(t *testing.T, buf *bytes.Buffer) {
 	}
 }
 
+func assertToolCalls(
+	t *testing.T, got, want []ParsedToolCall,
+) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("tool calls count = %d, want %d",
+			len(got), len(want))
+		return
+	}
+	for i := range want {
+		if got[i].ToolName != want[i].ToolName {
+			t.Errorf("tool_calls[%d].ToolName = %q, want %q",
+				i, got[i].ToolName, want[i].ToolName)
+		}
+		if got[i].Category != want[i].Category {
+			t.Errorf("tool_calls[%d].Category = %q, want %q",
+				i, got[i].Category, want[i].Category)
+		}
+	}
+}
+
 func parseClaudeTestFile(
 	t *testing.T, name, content, project string,
 ) (ParsedSession, []ParsedMessage) {

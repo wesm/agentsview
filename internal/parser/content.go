@@ -9,22 +9,26 @@ import (
 
 // ExtractTextContent extracts readable text from message content.
 // content can be a string or a JSON array of blocks.
-func ExtractTextContent(content gjson.Result) (string, bool, bool) {
-	hasThinking := false
-	hasToolUse := false
-
+// Returns the text, hasThinking, hasToolUse, and tool calls.
+func ExtractTextContent(
+	content gjson.Result,
+) (string, bool, bool, []ParsedToolCall) {
 	if content.Type == gjson.String {
-		return content.Str, false, false
+		return content.Str, false, false, nil
 	}
 
 	if !content.IsArray() {
-		return "", false, false
+		return "", false, false, nil
 	}
 
-	var parts []string
+	var (
+		parts       []string
+		toolCalls   []ParsedToolCall
+		hasThinking bool
+		hasToolUse  bool
+	)
 	content.ForEach(func(_, block gjson.Result) bool {
-		blockType := block.Get("type").Str
-		switch blockType {
+		switch block.Get("type").Str {
 		case "text":
 			text := block.Get("text").Str
 			if text != "" {
@@ -38,12 +42,18 @@ func ExtractTextContent(content gjson.Result) (string, bool, bool) {
 			}
 		case "tool_use":
 			hasToolUse = true
+			name := block.Get("name").Str
+			toolCalls = append(toolCalls, ParsedToolCall{
+				ToolName: name,
+				Category: NormalizeToolCategory(name),
+			})
 			parts = append(parts, formatToolUse(block))
 		}
 		return true
 	})
 
-	return strings.Join(parts, "\n"), hasThinking, hasToolUse
+	return strings.Join(parts, "\n"),
+		hasThinking, hasToolUse, toolCalls
 }
 
 var todoIcons = map[string]string{

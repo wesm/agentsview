@@ -60,7 +60,7 @@ func ParseGeminiSession(
 				role = RoleAssistant
 			}
 
-			content, hasThinking, hasToolUse :=
+			content, hasThinking, hasToolUse, tcs :=
 				extractGeminiContent(msg)
 			if strings.TrimSpace(content) == "" {
 				return true
@@ -81,6 +81,7 @@ func ParseGeminiSession(
 				HasThinking:   hasThinking,
 				HasToolUse:    hasToolUse,
 				ContentLength: len(content),
+				ToolCalls:     tcs,
 			})
 			ordinal++
 			return true
@@ -110,10 +111,13 @@ func ParseGeminiSession(
 // message, including its content, thoughts, and tool calls.
 func extractGeminiContent(
 	msg gjson.Result,
-) (string, bool, bool) {
-	var parts []string
-	hasThinking := false
-	hasToolUse := false
+) (string, bool, bool, []ParsedToolCall) {
+	var (
+		parts       []string
+		parsed      []ParsedToolCall
+		hasThinking bool
+		hasToolUse  bool
+	)
 
 	// Extract main content (string or Part[] array)
 	content := msg.Get("content")
@@ -159,12 +163,18 @@ func extractGeminiContent(
 	if toolCalls.IsArray() {
 		toolCalls.ForEach(func(_, tc gjson.Result) bool {
 			hasToolUse = true
+			name := tc.Get("name").Str
+			parsed = append(parsed, ParsedToolCall{
+				ToolName: name,
+				Category: NormalizeToolCategory(name),
+			})
 			parts = append(parts, formatGeminiToolCall(tc))
 			return true
 		})
 	}
 
-	return strings.Join(parts, "\n"), hasThinking, hasToolUse
+	return strings.Join(parts, "\n"),
+		hasThinking, hasToolUse, parsed
 }
 
 func formatGeminiToolCall(tc gjson.Result) string {

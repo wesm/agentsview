@@ -72,3 +72,19 @@ CREATE INDEX IF NOT EXISTS idx_sessions_message_count
     ON sessions(message_count);
 CREATE INDEX IF NOT EXISTS idx_sessions_agent
     ON sessions(agent);
+
+-- Tool calls table
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id         INTEGER PRIMARY KEY,
+    message_id INTEGER NOT NULL
+        REFERENCES messages(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL
+        REFERENCES sessions(id) ON DELETE CASCADE,
+    tool_name  TEXT NOT NULL,
+    category   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_calls_session
+    ON tool_calls(session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_category
+    ON tool_calls(category);

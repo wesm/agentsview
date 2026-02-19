@@ -93,6 +93,27 @@ func CodexMsgJSON(role, text, timestamp string) string {
 	return mustMarshal(m)
 }
 
+// CodexFunctionCallJSON returns a Codex function_call
+// response_item as a JSON string.
+func CodexFunctionCallJSON(
+	name, summary, timestamp string,
+) string {
+	payload := map[string]any{
+		"type":    "function_call",
+		"name":    name,
+		"call_id": "call_test",
+	}
+	if summary != "" {
+		payload["summary"] = summary
+	}
+	m := map[string]any{
+		"type":      "response_item",
+		"timestamp": timestamp,
+		"payload":   payload,
+	}
+	return mustMarshal(m)
+}
+
 // JoinJSONL joins JSON lines with newlines and appends a
 // trailing newline.
 func JoinJSONL(lines ...string) string {
@@ -145,6 +166,17 @@ func (b *SessionBuilder) AddCodexMessage(
 	timestamp, role, text string,
 ) *SessionBuilder {
 	b.lines = append(b.lines, CodexMsgJSON(role, text, timestamp))
+	return b
+}
+
+// AddCodexFunctionCall appends a Codex function_call line.
+func (b *SessionBuilder) AddCodexFunctionCall(
+	timestamp, name, summary string,
+) *SessionBuilder {
+	b.lines = append(
+		b.lines,
+		CodexFunctionCallJSON(name, summary, timestamp),
+	)
 	return b
 }
 

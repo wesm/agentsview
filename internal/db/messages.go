@@ -19,17 +19,27 @@ const (
 	MaxMessageLimit = 1000
 )
 
+// ToolCall represents a single tool invocation stored in
+// the tool_calls table.
+type ToolCall struct {
+	MessageID int64
+	SessionID string
+	ToolName  string
+	Category  string
+}
+
 // Message represents a row in the messages table.
 type Message struct {
-	ID            int64  `json:"id"`
-	SessionID     string `json:"session_id"`
-	Ordinal       int    `json:"ordinal"`
-	Role          string `json:"role"`
-	Content       string `json:"content"`
-	Timestamp     string `json:"timestamp"`
-	HasThinking   bool   `json:"has_thinking"`
-	HasToolUse    bool   `json:"has_tool_use"`
-	ContentLength int    `json:"content_length"`
+	ID            int64      `json:"id"`
+	SessionID     string     `json:"session_id"`
+	Ordinal       int        `json:"ordinal"`
+	Role          string     `json:"role"`
+	Content       string     `json:"content"`
+	Timestamp     string     `json:"timestamp"`
+	HasThinking   bool       `json:"has_thinking"`
+	HasToolUse    bool       `json:"has_tool_use"`
+	ContentLength int        `json:"content_length"`
+	ToolCalls     []ToolCall `json:"-"` // transient, not a DB column
 }
 
 // MinimapEntry is a lightweight message summary for minimap rendering.
@@ -152,27 +162,66 @@ func SampleMinimap(
 }
 
 // insertMessagesTx batch-inserts messages within an existing
-// transaction. The caller must hold db.mu.
+// transaction. Returns a map of ordinal to message ID for
+// resolving tool call foreign keys. The caller must hold db.mu.
 func (db *DB) insertMessagesTx(
 	tx *sql.Tx, msgs []Message,
-) error {
+) (map[int]int64, error) {
 	stmt, err := tx.Prepare(fmt.Sprintf(`
 		INSERT INTO messages (%s)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, insertMessageCols))
 	if err != nil {
-		return fmt.Errorf("preparing insert: %w", err)
+		return nil, fmt.Errorf("preparing insert: %w", err)
 	}
 	defer stmt.Close()
 
+	ordinalToID := make(map[int]int64, len(msgs))
 	for _, m := range msgs {
-		_, err := stmt.Exec(
+		res, err := stmt.Exec(
 			m.SessionID, m.Ordinal, m.Role, m.Content,
 			m.Timestamp, m.HasThinking, m.HasToolUse,
 			m.ContentLength,
 		)
 		if err != nil {
-			return fmt.Errorf(
+			return nil, fmt.Errorf(
 				"inserting message ord=%d: %w", m.Ordinal, err,
+			)
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"last insert id ord=%d: %w", m.Ordinal, err,
+			)
+		}
+		ordinalToID[m.Ordinal] = id
+	}
+	return ordinalToID, nil
+}
+
+// insertToolCallsTx batch-inserts tool calls within an
+// existing transaction.
+func insertToolCallsTx(
+	tx *sql.Tx, calls []ToolCall,
+) error {
+	if len(calls) == 0 {
+		return nil
+	}
+	stmt, err := tx.Prepare(`
+		INSERT INTO tool_calls
+			(message_id, session_id, tool_name, category)
+		VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("preparing tool_calls insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, tc := range calls {
+		if _, err := stmt.Exec(
+			tc.MessageID, tc.SessionID,
+			tc.ToolName, tc.Category,
+		); err != nil {
+			return fmt.Errorf(
+				"inserting tool_call %q: %w", tc.ToolName, err,
 			)
 		}
 	}
@@ -194,7 +243,13 @@ func (db *DB) InsertMessages(msgs []Message) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := db.insertMessagesTx(tx, msgs); err != nil {
+	ordinalToID, err := db.insertMessagesTx(tx, msgs)
+	if err != nil {
+		return err
+	}
+
+	toolCalls := resolveToolCalls(msgs, ordinalToID)
+	if err := insertToolCallsTx(tx, toolCalls); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -225,13 +280,25 @@ func (db *DB) ReplaceSessionMessages(
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.Exec(
+		"DELETE FROM tool_calls WHERE session_id = ?",
+		sessionID,
+	); err != nil {
+		return fmt.Errorf("deleting old tool_calls: %w", err)
+	}
+
+	if _, err := tx.Exec(
 		"DELETE FROM messages WHERE session_id = ?", sessionID,
 	); err != nil {
 		return fmt.Errorf("deleting old messages: %w", err)
 	}
 
 	if len(msgs) > 0 {
-		if err := db.insertMessagesTx(tx, msgs); err != nil {
+		ordinalToID, err := db.insertMessagesTx(tx, msgs)
+		if err != nil {
+			return err
+		}
+		toolCalls := resolveToolCalls(msgs, ordinalToID)
+		if err := insertToolCallsTx(tx, toolCalls); err != nil {
 			return err
 		}
 	}
@@ -289,4 +356,24 @@ func (db *DB) GetMessageByOrdinal(
 		return nil, err
 	}
 	return &m, nil
+}
+
+// resolveToolCalls builds ToolCall rows from messages using
+// the ordinal-to-ID map from insertMessagesTx.
+func resolveToolCalls(
+	msgs []Message, ordinalToID map[int]int64,
+) []ToolCall {
+	var calls []ToolCall
+	for _, m := range msgs {
+		msgID := ordinalToID[m.Ordinal]
+		for _, tc := range m.ToolCalls {
+			calls = append(calls, ToolCall{
+				MessageID: msgID,
+				SessionID: m.SessionID,
+				ToolName:  tc.ToolName,
+				Category:  tc.Category,
+			})
+		}
+	}
+	return calls
 }

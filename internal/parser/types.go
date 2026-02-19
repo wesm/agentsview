@@ -40,6 +40,13 @@ type ParsedSession struct {
 	File         FileInfo
 }
 
+// ParsedToolCall holds a single tool invocation extracted from
+// a message.
+type ParsedToolCall struct {
+	ToolName string // raw name from session data
+	Category string // normalized: Read, Edit, Write, Bash, etc.
+}
+
 // ParsedMessage holds a single extracted message.
 type ParsedMessage struct {
 	Ordinal       int
@@ -49,4 +56,5 @@ type ParsedMessage struct {
 	HasThinking   bool
 	HasToolUse    bool
 	ContentLength int
+	ToolCalls     []ParsedToolCall
 }

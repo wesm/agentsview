@@ -93,6 +93,11 @@ func (b *codexSessionBuilder) handleSessionMeta(
 func (b *codexSessionBuilder) handleResponseItem(
 	payload gjson.Result, ts time.Time,
 ) {
+	if payload.Get("type").Str == "function_call" {
+		b.handleFunctionCall(payload, ts)
+		return
+	}
+
 	role := payload.Get("role").Str
 	if role != "user" && role != "assistant" {
 		return
@@ -121,6 +126,41 @@ func (b *codexSessionBuilder) handleResponseItem(
 		ContentLength: len(content),
 	})
 	b.ordinal++
+}
+
+func (b *codexSessionBuilder) handleFunctionCall(
+	payload gjson.Result, ts time.Time,
+) {
+	name := payload.Get("name").Str
+	if name == "" {
+		return
+	}
+
+	content := formatCodexFunctionCall(name, payload)
+
+	b.messages = append(b.messages, ParsedMessage{
+		Ordinal:       b.ordinal,
+		Role:          RoleAssistant,
+		Content:       content,
+		Timestamp:     ts,
+		HasToolUse:    true,
+		ContentLength: len(content),
+		ToolCalls: []ParsedToolCall{{
+			ToolName: name,
+			Category: NormalizeToolCategory(name),
+		}},
+	})
+	b.ordinal++
+}
+
+func formatCodexFunctionCall(
+	name string, payload gjson.Result,
+) string {
+	summary := payload.Get("summary").Str
+	if summary != "" {
+		return fmt.Sprintf("[%s: %s]", name, summary)
+	}
+	return fmt.Sprintf("[%s]", name)
 }
 
 // extractCodexContent joins all text blocks from a Codex

@@ -1379,6 +1379,164 @@ func TestMigrationRace(t *testing.T) {
 	}
 }
 
+func TestToolCallsInsertedWithMessages(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p", func(s *Session) {
+		s.MessageCount = 2
+	})
+
+	m1 := userMsg("s1", 0, "hello")
+	m2 := asstMsg("s1", 1, "[Read: main.go]")
+	m2.HasToolUse = true
+	m2.ToolCalls = []ToolCall{
+		{SessionID: "s1", ToolName: "Read", Category: "Read"},
+		{SessionID: "s1", ToolName: "Grep", Category: "Grep"},
+	}
+
+	insertMessages(t, d, m1, m2)
+
+	// Query tool_calls directly
+	rows, err := d.Reader().Query(
+		`SELECT message_id, session_id, tool_name, category
+		 FROM tool_calls WHERE session_id = ?
+		 ORDER BY id`, "s1")
+	if err != nil {
+		t.Fatalf("query tool_calls: %v", err)
+	}
+	defer rows.Close()
+
+	var calls []ToolCall
+	for rows.Next() {
+		var tc ToolCall
+		if err := rows.Scan(
+			&tc.MessageID, &tc.SessionID,
+			&tc.ToolName, &tc.Category,
+		); err != nil {
+			t.Fatalf("scan tool_call: %v", err)
+		}
+		calls = append(calls, tc)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("got %d tool_calls, want 2", len(calls))
+	}
+	if calls[0].ToolName != "Read" || calls[0].Category != "Read" {
+		t.Errorf("calls[0] = %+v", calls[0])
+	}
+	if calls[1].ToolName != "Grep" || calls[1].Category != "Grep" {
+		t.Errorf("calls[1] = %+v", calls[1])
+	}
+	if calls[0].MessageID == 0 {
+		t.Error("message_id should be non-zero")
+	}
+	if calls[0].SessionID != "s1" {
+		t.Errorf("session_id = %q, want s1", calls[0].SessionID)
+	}
+}
+
+func TestToolCallsCascadeOnSessionDelete(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+
+	m := asstMsg("s1", 0, "[Bash]")
+	m.HasToolUse = true
+	m.ToolCalls = []ToolCall{
+		{SessionID: "s1", ToolName: "Bash", Category: "Bash"},
+	}
+	insertMessages(t, d, m)
+
+	if err := d.DeleteSession("s1"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	var count int
+	if err := d.Reader().QueryRow(
+		"SELECT COUNT(*) FROM tool_calls WHERE session_id = ?",
+		"s1",
+	).Scan(&count); err != nil {
+		t.Fatalf("count tool_calls: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("tool_calls count = %d, want 0", count)
+	}
+}
+
+func TestReplaceSessionMessagesReplacesToolCalls(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+
+	m := asstMsg("s1", 0, "[Read: a.go]")
+	m.HasToolUse = true
+	m.ToolCalls = []ToolCall{
+		{SessionID: "s1", ToolName: "Read", Category: "Read"},
+	}
+	insertMessages(t, d, m)
+
+	// Replace with different tool calls
+	m2 := asstMsg("s1", 0, "[Bash]")
+	m2.HasToolUse = true
+	m2.ToolCalls = []ToolCall{
+		{SessionID: "s1", ToolName: "Bash", Category: "Bash"},
+		{SessionID: "s1", ToolName: "Write", Category: "Write"},
+	}
+	if err := d.ReplaceSessionMessages("s1", []Message{m2}); err != nil {
+		t.Fatalf("ReplaceSessionMessages: %v", err)
+	}
+
+	var names []string
+	rows, err := d.Reader().Query(
+		`SELECT tool_name FROM tool_calls
+		 WHERE session_id = ? ORDER BY id`, "s1")
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	if len(names) != 2 {
+		t.Fatalf("got %d tool_calls, want 2", len(names))
+	}
+	if names[0] != "Bash" {
+		t.Errorf("names[0] = %q, want Bash", names[0])
+	}
+	if names[1] != "Write" {
+		t.Errorf("names[1] = %q, want Write", names[1])
+	}
+}
+
+func TestToolCallsNoToolCalls(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+	insertMessages(t, d, userMsg("s1", 0, "hello"))
+
+	var count int
+	if err := d.Reader().QueryRow(
+		"SELECT COUNT(*) FROM tool_calls WHERE session_id = ?",
+		"s1",
+	).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("tool_calls count = %d, want 0", count)
+	}
+}
+
 func TestFTSBackfill(t *testing.T) {
 	dCheck := testDB(t)
 	requireFTS(t, dCheck)

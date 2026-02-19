@@ -82,9 +82,8 @@ func ParseClaudeSession(
 
 		if entryType == "user" || entryType == "assistant" {
 			content := gjson.Get(line, "message.content")
-			text, hasThinking, hasToolUse := ExtractTextContent(
-				content,
-			)
+			text, hasThinking, hasToolUse, tcs :=
+				ExtractTextContent(content)
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
@@ -103,6 +102,7 @@ func ParseClaudeSession(
 				HasThinking:   hasThinking,
 				HasToolUse:    hasToolUse,
 				ContentLength: len(text),
+				ToolCalls:     tcs,
 			})
 			ordinal++
 		}

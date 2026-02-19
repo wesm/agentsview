@@ -409,6 +409,9 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 				HasThinking:   m.HasThinking,
 				HasToolUse:    m.HasToolUse,
 				ContentLength: m.ContentLength,
+				ToolCalls: convertToolCalls(
+					pw.sess.ID, m.ToolCalls,
+				),
 			}
 		}
 
@@ -557,4 +560,23 @@ func int64Ptr(n int64) *int64 {
 		return nil
 	}
 	return &n
+}
+
+// convertToolCalls maps parsed tool calls to db.ToolCall
+// structs. MessageID is resolved later during insert.
+func convertToolCalls(
+	sessionID string, parsed []parser.ParsedToolCall,
+) []db.ToolCall {
+	if len(parsed) == 0 {
+		return nil
+	}
+	calls := make([]db.ToolCall, len(parsed))
+	for i, tc := range parsed {
+		calls[i] = db.ToolCall{
+			SessionID: sessionID,
+			ToolName:  tc.ToolName,
+			Category:  tc.Category,
+		}
+	}
+	return calls
 }
