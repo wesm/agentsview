@@ -25,14 +25,6 @@ vi.mock("./router.svelte.js", () => ({
   router: { navigate: vi.fn() },
 }));
 
-// Drain the microtask queue so all chained .then() handlers
-// from mocked API responses settle before assertions.
-async function flushPromises() {
-  for (let i = 0; i < 5; i++) {
-    await new Promise((r) => setTimeout(r, 0));
-  }
-}
-
 function makeSummary(): AnalyticsSummary {
   return {
     total_sessions: 10,
@@ -85,15 +77,25 @@ function resetStore() {
   analytics.to = "2024-01-31";
 }
 
+// Assert the most recent call to a mocked API function used
+// the expected from/to params. Uses lastCall so it reads the
+// right invocation even if the mock was called multiple times.
 function assertParams(
   fn: ReturnType<typeof vi.fn>,
   from: string,
   to: string,
 ) {
-  const params = vi.mocked(fn).mock.calls[0]![0];
+  const mock = vi.mocked(fn);
+  expect(mock).toHaveBeenCalled();
+  const params = mock.mock.lastCall![0];
   expect(params.from).toBe(from);
   expect(params.to).toBe(to);
 }
+
+// Note: selectDate and setDateRange invoke API mocks
+// synchronously (the mock call is recorded before the first
+// await inside fetchSummary/etc.), so no async flushing is
+// needed for call-count or call-param assertions.
 
 describe("AnalyticsStore.selectDate", () => {
   beforeEach(() => {
@@ -102,34 +104,25 @@ describe("AnalyticsStore.selectDate", () => {
     mockAllAPIs();
   });
 
-  it("should set selectedDate on first click", async () => {
+  it("should set selectedDate on first click", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
-
     expect(analytics.selectedDate).toBe("2024-01-15");
   });
 
-  it("should deselect when clicking the same date", async () => {
+  it("should deselect when clicking the same date", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
     analytics.selectDate("2024-01-15");
-    await flushPromises();
-
     expect(analytics.selectedDate).toBeNull();
   });
 
-  it("should switch to a different date", async () => {
+  it("should switch to a different date", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
     analytics.selectDate("2024-01-20");
-    await flushPromises();
-
     expect(analytics.selectedDate).toBe("2024-01-20");
   });
 
-  it("should fetch summary, activity, projects but not heatmap", async () => {
+  it("should fetch summary, activity, projects but not heatmap", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
 
     expect(api.getAnalyticsSummary).toHaveBeenCalledTimes(1);
     expect(api.getAnalyticsActivity).toHaveBeenCalledTimes(1);
@@ -137,9 +130,8 @@ describe("AnalyticsStore.selectDate", () => {
     expect(api.getAnalyticsHeatmap).not.toHaveBeenCalled();
   });
 
-  it("should pass selected date as from/to for filtered panels", async () => {
+  it("should pass selected date as from/to for filtered panels", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
 
     assertParams(
       api.getAnalyticsSummary, "2024-01-15", "2024-01-15",
@@ -152,14 +144,12 @@ describe("AnalyticsStore.selectDate", () => {
     );
   });
 
-  it("should use full range after deselecting", async () => {
+  it("should use full range after deselecting", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
     vi.clearAllMocks();
     mockAllAPIs();
 
     analytics.selectDate("2024-01-15"); // deselect
-    await flushPromises();
 
     assertParams(
       api.getAnalyticsSummary, "2024-01-01", "2024-01-31",
@@ -180,19 +170,14 @@ describe("AnalyticsStore.setDateRange", () => {
     mockAllAPIs();
   });
 
-  it("should clear selectedDate", async () => {
+  it("should clear selectedDate", () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
-
     analytics.setDateRange("2024-02-01", "2024-02-28");
-    await flushPromises();
-
     expect(analytics.selectedDate).toBeNull();
   });
 
-  it("should fetch all panels with new range params", async () => {
+  it("should fetch all panels with new range params", () => {
     analytics.setDateRange("2024-02-01", "2024-02-28");
-    await flushPromises();
 
     expect(api.getAnalyticsSummary).toHaveBeenCalledTimes(1);
     expect(api.getAnalyticsActivity).toHaveBeenCalledTimes(1);
@@ -223,7 +208,6 @@ describe("AnalyticsStore heatmap uses full range", () => {
 
   it("should use base from/to for heatmap even with selectedDate", async () => {
     analytics.selectDate("2024-01-15");
-    await flushPromises();
     vi.clearAllMocks();
     mockAllAPIs();
 
