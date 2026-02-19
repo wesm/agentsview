@@ -79,16 +79,67 @@ func baseFilter() AnalyticsFilter {
 	}
 }
 
+func emptyFilter() AnalyticsFilter {
+	return AnalyticsFilter{
+		From:     "2020-01-01",
+		To:       "2020-01-02",
+		Timezone: "UTC",
+	}
+}
+
+func mustSummary(
+	t *testing.T, d *DB, ctx context.Context, f AnalyticsFilter,
+) AnalyticsSummary {
+	t.Helper()
+	s, err := d.GetAnalyticsSummary(ctx, f)
+	if err != nil {
+		t.Fatalf("GetAnalyticsSummary: %v", err)
+	}
+	return s
+}
+
+func mustActivity(
+	t *testing.T, d *DB, ctx context.Context,
+	f AnalyticsFilter, gran string,
+) ActivityResponse {
+	t.Helper()
+	r, err := d.GetAnalyticsActivity(ctx, f, gran)
+	if err != nil {
+		t.Fatalf("GetAnalyticsActivity: %v", err)
+	}
+	return r
+}
+
+func mustHeatmap(
+	t *testing.T, d *DB, ctx context.Context,
+	f AnalyticsFilter, metric string,
+) HeatmapResponse {
+	t.Helper()
+	r, err := d.GetAnalyticsHeatmap(ctx, f, metric)
+	if err != nil {
+		t.Fatalf("GetAnalyticsHeatmap: %v", err)
+	}
+	return r
+}
+
+func mustProjects(
+	t *testing.T, d *DB, ctx context.Context,
+	f AnalyticsFilter,
+) ProjectsAnalyticsResponse {
+	t.Helper()
+	r, err := d.GetAnalyticsProjects(ctx, f)
+	if err != nil {
+		t.Fatalf("GetAnalyticsProjects: %v", err)
+	}
+	return r
+}
+
 func TestGetAnalyticsSummary(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
 	t.Run("EmptyDB", func(t *testing.T) {
-		f := baseFilter()
-		s, err := d.GetAnalyticsSummary(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSummary: %v", err)
-		}
+		s := mustSummary(t, d, ctx, baseFilter())
 		if s.TotalSessions != 0 {
 			t.Errorf("TotalSessions = %d, want 0", s.TotalSessions)
 		}
@@ -97,11 +148,7 @@ func TestGetAnalyticsSummary(t *testing.T) {
 	seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
-		f := baseFilter()
-		s, err := d.GetAnalyticsSummary(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSummary: %v", err)
-		}
+		s := mustSummary(t, d, ctx, baseFilter())
 		if s.TotalSessions != 5 {
 			t.Errorf("TotalSessions = %d, want 5", s.TotalSessions)
 		}
@@ -149,10 +196,7 @@ func TestGetAnalyticsSummary(t *testing.T) {
 			To:       "2024-06-01",
 			Timezone: "UTC",
 		}
-		s, err := d.GetAnalyticsSummary(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSummary: %v", err)
-		}
+		s := mustSummary(t, d, ctx, f)
 		if s.TotalSessions != 2 {
 			t.Errorf("TotalSessions = %d, want 2", s.TotalSessions)
 		}
@@ -161,25 +205,14 @@ func TestGetAnalyticsSummary(t *testing.T) {
 	t.Run("MachineFilter", func(t *testing.T) {
 		f := baseFilter()
 		f.Machine = "nonexistent"
-		s, err := d.GetAnalyticsSummary(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSummary: %v", err)
-		}
+		s := mustSummary(t, d, ctx, f)
 		if s.TotalSessions != 0 {
 			t.Errorf("TotalSessions = %d, want 0", s.TotalSessions)
 		}
 	})
 
 	t.Run("EmptyDateRange", func(t *testing.T) {
-		f := AnalyticsFilter{
-			From:     "2020-01-01",
-			To:       "2020-01-02",
-			Timezone: "UTC",
-		}
-		s, err := d.GetAnalyticsSummary(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSummary: %v", err)
-		}
+		s := mustSummary(t, d, ctx, emptyFilter())
 		if s.TotalSessions != 0 {
 			t.Errorf("TotalSessions = %d, want 0", s.TotalSessions)
 		}
@@ -192,11 +225,7 @@ func TestGetAnalyticsActivity(t *testing.T) {
 	seedAnalyticsData(t, d)
 
 	t.Run("DayGranularity", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsActivity(ctx, f, "day")
-		if err != nil {
-			t.Fatalf("GetAnalyticsActivity: %v", err)
-		}
+		resp := mustActivity(t, d, ctx, baseFilter(), "day")
 		if resp.Granularity != "day" {
 			t.Errorf("Granularity = %q, want day", resp.Granularity)
 		}
@@ -211,11 +240,7 @@ func TestGetAnalyticsActivity(t *testing.T) {
 	})
 
 	t.Run("WeekGranularity", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsActivity(ctx, f, "week")
-		if err != nil {
-			t.Fatalf("GetAnalyticsActivity: %v", err)
-		}
+		resp := mustActivity(t, d, ctx, baseFilter(), "week")
 		// 2024-06-01 is Saturday, 2024-06-03 is Monday
 		// So we expect 2 weeks: week of May 27 and week of Jun 3
 		if len(resp.Series) != 2 {
@@ -224,22 +249,14 @@ func TestGetAnalyticsActivity(t *testing.T) {
 	})
 
 	t.Run("MonthGranularity", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsActivity(ctx, f, "month")
-		if err != nil {
-			t.Fatalf("GetAnalyticsActivity: %v", err)
-		}
+		resp := mustActivity(t, d, ctx, baseFilter(), "month")
 		if len(resp.Series) != 1 {
 			t.Errorf("len(Series) = %d, want 1", len(resp.Series))
 		}
 	})
 
 	t.Run("HasRoleCounts", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsActivity(ctx, f, "day")
-		if err != nil {
-			t.Fatalf("GetAnalyticsActivity: %v", err)
-		}
+		resp := mustActivity(t, d, ctx, baseFilter(), "day")
 		totalUser := 0
 		totalAsst := 0
 		for _, e := range resp.Series {
@@ -261,11 +278,7 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 	seedAnalyticsData(t, d)
 
 	t.Run("MessageMetric", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsHeatmap(ctx, f, "messages")
-		if err != nil {
-			t.Fatalf("GetAnalyticsHeatmap: %v", err)
-		}
+		resp := mustHeatmap(t, d, ctx, baseFilter(), "messages")
 		if resp.Metric != "messages" {
 			t.Errorf("Metric = %q, want messages", resp.Metric)
 		}
@@ -286,11 +299,7 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 	})
 
 	t.Run("SessionMetric", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsHeatmap(ctx, f, "sessions")
-		if err != nil {
-			t.Fatalf("GetAnalyticsHeatmap: %v", err)
-		}
+		resp := mustHeatmap(t, d, ctx, baseFilter(), "sessions")
 		if resp.Metric != "sessions" {
 			t.Errorf("Metric = %q, want sessions", resp.Metric)
 		}
@@ -302,11 +311,7 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 	})
 
 	t.Run("LevelsAssigned", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsHeatmap(ctx, f, "messages")
-		if err != nil {
-			t.Fatalf("GetAnalyticsHeatmap: %v", err)
-		}
+		resp := mustHeatmap(t, d, ctx, baseFilter(), "messages")
 		// All entries should have levels 0-4
 		for _, e := range resp.Entries {
 			if e.Level < 0 || e.Level > 4 {
@@ -317,15 +322,9 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 	})
 
 	t.Run("EmptyRange", func(t *testing.T) {
-		f := AnalyticsFilter{
-			From:     "2020-01-01",
-			To:       "2020-01-03",
-			Timezone: "UTC",
-		}
-		resp, err := d.GetAnalyticsHeatmap(ctx, f, "messages")
-		if err != nil {
-			t.Fatalf("GetAnalyticsHeatmap: %v", err)
-		}
+		f := emptyFilter()
+		f.To = "2020-01-03"
+		resp := mustHeatmap(t, d, ctx, f, "messages")
 		if len(resp.Entries) != 3 {
 			t.Fatalf("len(Entries) = %d, want 3", len(resp.Entries))
 		}
@@ -346,11 +345,7 @@ func TestGetAnalyticsProjects(t *testing.T) {
 	seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsProjects(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsProjects: %v", err)
-		}
+		resp := mustProjects(t, d, ctx, baseFilter())
 		if len(resp.Projects) != 2 {
 			t.Fatalf("len(Projects) = %d, want 2", len(resp.Projects))
 		}
@@ -374,11 +369,7 @@ func TestGetAnalyticsProjects(t *testing.T) {
 	})
 
 	t.Run("AgentBreakdown", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsProjects(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsProjects: %v", err)
-		}
+		resp := mustProjects(t, d, ctx, baseFilter())
 		alpha := resp.Projects[1]
 		if alpha.Agents["claude"] != 2 {
 			t.Errorf("alpha claude = %d, want 2",
@@ -391,11 +382,7 @@ func TestGetAnalyticsProjects(t *testing.T) {
 	})
 
 	t.Run("MedianMessages", func(t *testing.T) {
-		f := baseFilter()
-		resp, err := d.GetAnalyticsProjects(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsProjects: %v", err)
-		}
+		resp := mustProjects(t, d, ctx, baseFilter())
 		// Alpha counts sorted: [5, 10, 20], median = 10
 		alpha := resp.Projects[1]
 		if alpha.MedianMessages != 10 {
@@ -405,15 +392,7 @@ func TestGetAnalyticsProjects(t *testing.T) {
 	})
 
 	t.Run("EmptyRange", func(t *testing.T) {
-		f := AnalyticsFilter{
-			From:     "2020-01-01",
-			To:       "2020-01-02",
-			Timezone: "UTC",
-		}
-		resp, err := d.GetAnalyticsProjects(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsProjects: %v", err)
-		}
+		resp := mustProjects(t, d, ctx, emptyFilter())
 		if len(resp.Projects) != 0 {
 			t.Errorf("len(Projects) = %d, want 0", len(resp.Projects))
 		}
@@ -495,10 +474,7 @@ func TestMostActiveTieBreak(t *testing.T) {
 		To:       "2024-06-01",
 		Timezone: "UTC",
 	}
-	s, err := d.GetAnalyticsSummary(ctx, f)
-	if err != nil {
-		t.Fatalf("GetAnalyticsSummary: %v", err)
-	}
+	s := mustSummary(t, d, ctx, f)
 
 	// Alphabetically, "alpha" < "zebra"
 	if s.MostActive != "alpha" {
@@ -529,10 +505,7 @@ func TestEvenCountMedianInSummary(t *testing.T) {
 		To:       "2024-06-01",
 		Timezone: "UTC",
 	}
-	s, err := d.GetAnalyticsSummary(ctx, f)
-	if err != nil {
-		t.Fatalf("GetAnalyticsSummary: %v", err)
-	}
+	s := mustSummary(t, d, ctx, f)
 
 	// Sorted: [5, 10, 20, 30] → median = (10+20)/2 = 15
 	if s.MedianMessages != 15 {
@@ -560,10 +533,7 @@ func TestAnalyticsTimezone(t *testing.T) {
 			To:       "2024-06-02",
 			Timezone: "UTC",
 		}
-		resp, err := d.GetAnalyticsHeatmap(ctx, f, "messages")
-		if err != nil {
-			t.Fatalf("GetAnalyticsHeatmap: %v", err)
-		}
+		resp := mustHeatmap(t, d, ctx, f, "messages")
 		// In UTC, this is Jun 1
 		if resp.Entries[0].Value != 10 {
 			t.Errorf("Jun1 UTC value = %d, want 10",
@@ -581,10 +551,7 @@ func TestAnalyticsTimezone(t *testing.T) {
 			To:       "2024-06-02",
 			Timezone: "Asia/Karachi", // UTC+5
 		}
-		resp, err := d.GetAnalyticsHeatmap(ctx, f, "messages")
-		if err != nil {
-			t.Fatalf("GetAnalyticsHeatmap: %v", err)
-		}
+		resp := mustHeatmap(t, d, ctx, f, "messages")
 		// In UTC+5, 23:00Z = 04:00 Jun 2
 		if resp.Entries[0].Value != 0 {
 			t.Errorf("Jun1 PKT value = %d, want 0",
