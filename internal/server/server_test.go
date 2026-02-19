@@ -303,12 +303,7 @@ func assertErrorResponse(
 	wantMsg string,
 ) {
 	t.Helper()
-	var resp map[string]string
-	if err := json.Unmarshal(
-		w.Body.Bytes(), &resp,
-	); err != nil {
-		t.Fatalf("decoding error response: %v", err)
-	}
+	resp := decode[map[string]string](t, w)
 	if got := resp["error"]; got != wantMsg {
 		t.Errorf("error = %q, want %q", got, wantMsg)
 	}
