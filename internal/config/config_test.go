@@ -10,6 +10,20 @@ import (
 	"testing"
 )
 
+func skipIfNotUnix(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip(
+			"skipping: Unix permissions not reliable on Windows",
+		)
+	}
+	if os.Getuid() == 0 {
+		t.Skip(
+			"skipping: running as root bypasses permissions",
+		)
+	}
+}
+
 const (
 	legacyDirName = ".agent-session-viewer"
 	newDirName    = ".agentsview"
@@ -345,9 +359,7 @@ func TestSaveGithubToken_RejectsCorruptConfig(t *testing.T) {
 }
 
 func TestSaveGithubToken_ReturnsErrorOnReadFailure(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission-based test not reliable on Windows")
-	}
+	skipIfNotUnix(t)
 
 	cfg, tmp := configWithTmpDir(t)
 
@@ -357,12 +369,6 @@ func TestSaveGithubToken_ReturnsErrorOnReadFailure(t *testing.T) {
 		path, []byte(`{"k":"v"}`), 0o000,
 	); err != nil {
 		t.Fatal(err)
-	}
-
-	// Verify the file is actually unreadable. If we're running as root
-	// (or in an environment that overrides permissions), we can still read it.
-	if _, err := os.ReadFile(path); err == nil {
-		t.Skip("skipping test: 0o000 file is readable (running as root?)")
 	}
 
 	err := cfg.SaveGithubToken("tok")
