@@ -6,7 +6,7 @@ import (
 )
 
 func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
-	_, _ = setupConfigDir(t)
+	dir, _ := setupConfigDir(t)
 
 	// First load: should generate a secret
 	cfg1, err := LoadMinimal()
@@ -16,9 +16,14 @@ func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
 	if cfg1.CursorSecret == "" {
 		t.Fatal("cursor secret was not generated")
 	}
+	if cfg1.DataDir != dir {
+		t.Fatalf(
+			"DataDir = %q, want %q", cfg1.DataDir, dir,
+		)
+	}
 
 	// Verify file existence and content
-	fileCfg := readConfigFile(t, cfg1.DataDir)
+	fileCfg := readConfigFile(t, dir)
 	if fileCfg.CursorSecret != cfg1.CursorSecret {
 		t.Errorf(
 			"file secret = %q, want %q",
