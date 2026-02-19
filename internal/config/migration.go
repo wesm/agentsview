@@ -8,12 +8,8 @@ import (
 	"path/filepath"
 )
 
-// MigrateFromLegacy migrates data from previous directory names
-// to the current data directory (~/.agentsview). It checks two
-// legacy locations in order of preference:
-//  1. ~/.agentsv (previous rename)
-//  2. ~/.agent-session-viewer (original Python-era name)
-//
+// MigrateFromLegacy copies data from ~/.agent-session-viewer
+// to the current data directory if it doesn't exist yet.
 // Call this once during startup, before opening the database.
 func MigrateFromLegacy(dataDir string) {
 	if _, err := os.Stat(dataDir); err == nil {
@@ -24,55 +20,10 @@ func MigrateFromLegacy(dataDir string) {
 	if err != nil {
 		return
 	}
-
-	// Try ~/.agentsv first (more recent, has compatible schema)
-	agentsvDir := filepath.Join(home, ".agentsv")
-	if _, err := os.Stat(agentsvDir); err == nil {
-		migrateAgentsv(agentsvDir, dataDir)
-		return
-	}
-
-	// Fall back to original legacy dir
 	legacyDir := filepath.Join(home, ".agent-session-viewer")
 	if _, err := os.Stat(legacyDir); err != nil {
 		return // no legacy dir either
 	}
-
-	migrateLegacy(legacyDir, dataDir)
-}
-
-// migrateAgentsv copies data from ~/.agentsv to ~/.agentsview.
-// The schema is identical so we copy sessions.db directly.
-func migrateAgentsv(srcDir, dataDir string) {
-	log.Printf(
-		"Migrating data from %s to %s", srcDir, dataDir,
-	)
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		log.Printf(
-			"migration: cannot create %s: %v", dataDir, err,
-		)
-		return
-	}
-
-	for _, f := range []struct {
-		name string
-		perm os.FileMode
-	}{
-		{"sessions.db", 0o644},
-		{"config.json", 0o600},
-	} {
-		src := filepath.Join(srcDir, f.name)
-		if _, err := os.Stat(src); err == nil {
-			dst := filepath.Join(dataDir, f.name)
-			if err := copyFile(src, dst, f.perm); err != nil {
-				log.Printf("migration: copying %s: %v", f.name, err)
-			}
-		}
-	}
-}
-
-// migrateLegacy copies data from ~/.agent-session-viewer.
-func migrateLegacy(legacyDir, dataDir string) {
 	log.Printf(
 		"Migrating data from %s to %s", legacyDir, dataDir,
 	)

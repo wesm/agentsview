@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	legacyDirName    = ".agent-session-viewer"
-	agentsvDirName   = ".agentsv"
-	newDirName       = ".agentsview"
+	legacyDirName = ".agent-session-viewer"
+	newDirName    = ".agentsview"
 )
 
 // setupLegacyEnv creates a temp directory with a populated legacy
@@ -176,73 +175,6 @@ func TestMigrateFromLegacy(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestMigrateFromAgentsv(t *testing.T) {
-	tmp := t.TempDir()
-	agentsvDir := filepath.Join(tmp, agentsvDirName)
-	newDir := filepath.Join(tmp, newDirName)
-
-	if err := os.MkdirAll(agentsvDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(agentsvDir, "sessions.db"),
-		[]byte("db-content"), 0o644,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(agentsvDir, "config.json"),
-		[]byte(`{"github_token":"tok"}`), 0o600,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("HOME", tmp)
-	MigrateFromLegacy(newDir)
-
-	assertFileContent(
-		t, filepath.Join(newDir, "sessions.db"), "db-content",
-	)
-	assertFileContent(
-		t, filepath.Join(newDir, "config.json"),
-		`{"github_token":"tok"}`,
-	)
-}
-
-func TestMigrateFromAgentsv_PreferredOverLegacy(t *testing.T) {
-	tmp := t.TempDir()
-	agentsvDir := filepath.Join(tmp, agentsvDirName)
-	legacyDir := filepath.Join(tmp, legacyDirName)
-	newDir := filepath.Join(tmp, newDirName)
-
-	// Create both legacy dirs
-	for _, dir := range []string{agentsvDir, legacyDir} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(
-		filepath.Join(agentsvDir, "sessions.db"),
-		[]byte("agentsv-db"), 0o644,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(legacyDir, "sessions-go.db"),
-		[]byte("legacy-db"), 0o644,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("HOME", tmp)
-	MigrateFromLegacy(newDir)
-
-	// Should use .agentsv data, not .agent-session-viewer
-	assertFileContent(
-		t, filepath.Join(newDir, "sessions.db"), "agentsv-db",
-	)
 }
 
 func TestMigrateFromLegacy_FilePermissions(t *testing.T) {
