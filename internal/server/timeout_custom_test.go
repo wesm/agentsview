@@ -62,12 +62,10 @@ func TestWithTimeout_Success(t *testing.T) {
 
 	wrapped.ServeHTTP(w, req)
 
+	assertRecorderStatus(t, w, http.StatusCreated)
+
 	resp := w.Result()
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("expected 201 Created, got %d", resp.StatusCode)
-	}
 
 	if val := resp.Header.Get("X-Custom"); val != "value" {
 		t.Errorf("expected X-Custom header 'value', got %q", val)

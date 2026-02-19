@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -90,4 +92,55 @@ func isTimeoutResponse(
 		return false
 	}
 	return je.Error == "request timed out"
+}
+
+// newTestContext returns a recorder and request for lightweight
+// handler tests. Pass an empty query for no query string.
+func newTestContext(
+	t *testing.T, query string,
+) (*httptest.ResponseRecorder, *http.Request) {
+	t.Helper()
+	target := "/test"
+	if query != "" {
+		target += "?" + query
+	}
+	return httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, target, nil)
+}
+
+// assertRecorderStatus checks that the recorder has the
+// expected HTTP status code.
+func assertRecorderStatus(
+	t *testing.T, w *httptest.ResponseRecorder, code int,
+) {
+	t.Helper()
+	if w.Code != code {
+		t.Fatalf(
+			"expected status %d, got %d: %s",
+			code, w.Code, w.Body.String(),
+		)
+	}
+}
+
+// assertContentType checks that the recorder has the expected
+// Content-Type header.
+func assertContentType(
+	t *testing.T, w *httptest.ResponseRecorder, expected string,
+) {
+	t.Helper()
+	if got := w.Header().Get("Content-Type"); got != expected {
+		t.Errorf(
+			"Content-Type = %q, want %q", got, expected,
+		)
+	}
+}
+
+// expiredCtx returns a context with a deadline in the past.
+func expiredCtx(
+	t *testing.T,
+) (context.Context, context.CancelFunc) {
+	t.Helper()
+	return context.WithDeadline(
+		context.Background(), time.Now().Add(-1*time.Hour),
+	)
 }

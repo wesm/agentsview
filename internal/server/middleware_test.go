@@ -69,12 +69,10 @@ func TestContentTypeWrapper(t *testing.T) {
 			req := httptest.NewRequest("GET", "/", nil)
 			tt.handler(wrapper, req)
 
+			assertRecorderStatus(t, w, tt.wantStatus)
+
 			resp := w.Result()
 			defer resp.Body.Close()
-
-			if resp.StatusCode != tt.wantStatus {
-				t.Errorf("status code = %d, want %d", resp.StatusCode, tt.wantStatus)
-			}
 
 			gotCT := resp.Header.Get("Content-Type")
 			if tt.wantContentType == "" {

@@ -2,18 +2,8 @@ package server
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
-
-func newTestContext(t *testing.T, query string) (*httptest.ResponseRecorder, *http.Request) {
-	t.Helper()
-	target := "/test"
-	if query != "" {
-		target += "?" + query
-	}
-	return httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil)
-}
 
 func TestParseIntParam(t *testing.T) {
 	tests := []struct {

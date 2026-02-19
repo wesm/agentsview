@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,28 +8,6 @@ import (
 
 	"github.com/wesm/agentsview/internal/db"
 )
-
-// assertContentType checks that the recorder has the expected Content-Type.
-func assertContentType(
-	t *testing.T, w *httptest.ResponseRecorder, expected string,
-) {
-	t.Helper()
-	if got := w.Header().Get("Content-Type"); got != expected {
-		t.Errorf(
-			"Content-Type = %q, want %q", got, expected,
-		)
-	}
-}
-
-// expiredCtx returns a context with a deadline in the past.
-func expiredCtx(
-	t *testing.T,
-) (context.Context, context.CancelFunc) {
-	t.Helper()
-	return context.WithDeadline(
-		context.Background(), time.Now().Add(-1*time.Hour),
-	)
-}
 
 func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 	s := testServer(t, 30*time.Second)
@@ -78,11 +55,7 @@ func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 			// Call handler directly, bypassing middleware
 			tt.handler(w, req)
 
-			// Expect 504 Gateway Timeout
-			if w.Code != http.StatusGatewayTimeout {
-				t.Errorf("expected status 504, got %d. Body: %s", w.Code, w.Body.String())
-			}
-
+			assertRecorderStatus(t, w, http.StatusGatewayTimeout)
 			assertContentType(t, w, "application/json")
 		})
 	}
