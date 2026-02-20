@@ -248,8 +248,12 @@
             rx="1"
             class="bar"
             class:empty={bar.value === 0}
-            role="img"
+            role="button"
+            tabindex="-1"
             onclick={() => handleBarClick(bar)}
+            onkeydown={(e) => {
+              if (e.key === "Enter") handleBarClick(bar);
+            }}
             onmouseenter={(e) => handleBarHover(e, bar)}
             onmouseleave={handleBarLeave}
           />
