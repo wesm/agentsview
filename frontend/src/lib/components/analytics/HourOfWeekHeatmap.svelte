@@ -180,6 +180,7 @@
 <style>
   .how-container {
     position: relative;
+    flex: 1;
   }
 
   .chart-title {

@@ -157,6 +157,7 @@
 <style>
   .agent-comparison {
     position: relative;
+    flex: 1;
   }
 
   .chart-title {

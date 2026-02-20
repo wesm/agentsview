@@ -198,6 +198,7 @@
 <style>
   .tool-container {
     position: relative;
+    flex: 1;
   }
 
   .tool-header {

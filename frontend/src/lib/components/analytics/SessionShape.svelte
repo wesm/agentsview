@@ -121,6 +121,7 @@
 <style>
   .shape-container {
     position: relative;
+    flex: 1;
   }
 
   .shape-header {

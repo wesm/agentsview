@@ -289,6 +289,7 @@
 <style>
   .timeline-container {
     position: relative;
+    flex: 1;
   }
 
   .timeline-header {

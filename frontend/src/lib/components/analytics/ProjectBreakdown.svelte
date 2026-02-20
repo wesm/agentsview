@@ -152,6 +152,7 @@
 <style>
   .breakdown-container {
     position: relative;
+    flex: 1;
   }
 
   .breakdown-header {

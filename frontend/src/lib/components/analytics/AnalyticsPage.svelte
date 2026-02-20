@@ -173,6 +173,10 @@
     border-radius: var(--radius-md);
     padding: 12px;
     min-height: 200px;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .chart-panel.wide {

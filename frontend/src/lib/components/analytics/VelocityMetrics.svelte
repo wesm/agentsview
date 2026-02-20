@@ -156,6 +156,7 @@
 <style>
   .velocity-container {
     position: relative;
+    flex: 1;
   }
 
   .velocity-header {

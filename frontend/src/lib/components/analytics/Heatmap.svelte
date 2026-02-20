@@ -232,6 +232,7 @@
 <style>
   .heatmap-container {
     position: relative;
+    flex: 1;
   }
 
   .heatmap-header {
