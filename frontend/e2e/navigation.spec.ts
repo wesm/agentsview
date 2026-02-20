@@ -1,22 +1,18 @@
 import { test, expect } from "@playwright/test";
+import { SessionsPage } from "./pages/sessions-page";
 
 test.describe("Navigation", () => {
-  test("minimap renders with non-zero canvas", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const items = page.locator("button.session-item");
-    await expect(items.first()).toBeVisible({ timeout: 10_000 });
+  let sp: SessionsPage;
 
-    await items.first().click();
+  test.beforeEach(async ({ page }) => {
+    sp = new SessionsPage(page);
+    await sp.goto();
+  });
 
-    // Wait for messages to load so minimap has data
-    const messages = page.locator(".virtual-row");
-    await expect(messages.first()).toBeVisible({
-      timeout: 5_000,
-    });
+  test("minimap renders with non-zero canvas", async () => {
+    await sp.selectFirstSession();
 
-    const canvas = page.locator("canvas");
+    const canvas = sp.page.locator("canvas");
     await expect(canvas).toBeVisible();
 
     const box = await canvas.boundingBox();
@@ -25,49 +21,24 @@ test.describe("Navigation", () => {
     expect(box!.height).toBeGreaterThan(0);
   });
 
-  test("keyboard ] navigates to next session", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const items = page.locator("button.session-item");
-    await expect(items.first()).toBeVisible({ timeout: 10_000 });
+  test("keyboard ] navigates to next session", async () => {
+    await sp.sessionItems.first().click();
+    await expect(sp.sessionItems.first()).toHaveClass(/active/);
 
-    // Select first session
-    await items.first().click();
-    await expect(items.first()).toHaveClass(/active/);
-
-    // Press ] to go to next session
-    await page.keyboard.press("]");
-    await expect(items.nth(1)).toHaveClass(/active/);
+    await sp.page.keyboard.press("]");
+    await expect(sp.sessionItems.nth(1)).toHaveClass(/active/);
   });
 
-  test("keyboard [ navigates to previous session", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const items = page.locator("button.session-item");
-    await expect(items.first()).toBeVisible({ timeout: 10_000 });
+  test("keyboard [ navigates to previous session", async () => {
+    await sp.sessionItems.nth(1).click();
+    await expect(sp.sessionItems.nth(1)).toHaveClass(/active/);
 
-    // Select second session
-    await items.nth(1).click();
-    await expect(items.nth(1)).toHaveClass(/active/);
-
-    // Press [ to go back
-    await page.keyboard.press("[");
-    await expect(items.first()).toHaveClass(/active/);
+    await sp.page.keyboard.press("[");
+    await expect(sp.sessionItems.first()).toHaveClass(/active/);
   });
 
-  test("empty state shows when no session selected", async ({
-    page,
-  }) => {
-    await page.goto("/");
-
-    // Wait for sessions to load
-    const items = page.locator("button.session-item");
-    await expect(items.first()).toBeVisible({ timeout: 10_000 });
-
-    // No session selected — empty state should show
-    const empty = page.locator(".empty-state");
+  test("empty state shows when no session selected", async () => {
+    const empty = sp.page.locator(".empty-state");
     await expect(empty).toBeVisible();
     await expect(empty).toContainText("Select a session");
   });
