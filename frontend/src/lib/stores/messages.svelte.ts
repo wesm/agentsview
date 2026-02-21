@@ -4,6 +4,13 @@ import type { Message } from "../api/types.js";
 const MESSAGE_PAGE_SIZE = 1000;
 const FULL_SESSION_MESSAGE_THRESHOLD = 20_000;
 
+interface FetchPageOptions {
+  from: number;
+  limit: number;
+  direction: "asc" | "desc";
+  signal: AbortSignal;
+}
+
 class MessagesStore {
   messages: Message[] = $state([]);
   loading: boolean = $state(false);
@@ -11,9 +18,11 @@ class MessagesStore {
   messageCount: number = $state(0);
   hasOlder: boolean = $state(false);
   loadingOlder: boolean = $state(false);
+  private abortController: AbortController | null = null;
   private reloadPromise: Promise<void> | null = null;
   private reloadSessionId: string | null = null;
   private pendingReload: boolean = false;
+  private loadOlderPromise: Promise<void> | null = null;
 
   async loadSession(id: string) {
     if (
@@ -22,38 +31,43 @@ class MessagesStore {
     ) {
       return;
     }
+    this.clear();
     this.sessionId = id;
     this.loading = true;
-    this.messages = [];
-    this.messageCount = 0;
-    this.hasOlder = false;
-    this.loadingOlder = false;
-    this.reloadPromise = null;
-    this.reloadSessionId = null;
-    this.pendingReload = false;
+
+    const ac = new AbortController();
+    this.abortController = ac;
 
     try {
       let countHint: number | null = null;
       try {
-        const sess = await api.getSession(id);
-        if (this.sessionId !== id) return;
+        const sess = await api.getSession(id, {
+          signal: ac.signal,
+        });
         countHint = sess.message_count ?? 0;
-      } catch {
-        // Best-effort: if this fails we still attempt loading
-        // messages directly.
+      } catch (err) {
+        if (isAbortError(err)) return;
+        console.warn(
+          "Failed to fetch session metadata:",
+          err,
+        );
       }
 
       if (
         countHint !== null &&
         countHint > FULL_SESSION_MESSAGE_THRESHOLD
       ) {
-        await this.loadProgressively(id);
+        await this.loadProgressively(id, ac.signal);
       } else {
-        await this.loadAllMessages(id, countHint ?? undefined);
+        await this.loadAllMessages(
+          id,
+          ac.signal,
+          countHint ?? undefined,
+        );
       }
-    } catch {
-      // Non-fatal. Active session may have changed or the
-      // source file may be mid-write during sync.
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn("Failed to load session messages:", err);
     } finally {
       if (this.sessionId === id) {
         this.loading = false;
@@ -64,9 +78,10 @@ class MessagesStore {
   reload(): Promise<void> {
     if (!this.sessionId) return Promise.resolve();
 
-    // Use the session ID of the current reload to ensure we don't return
-    // a promise for a previous session.
-    if (this.reloadPromise && this.reloadSessionId === this.sessionId) {
+    if (
+      this.reloadPromise &&
+      this.reloadSessionId === this.sessionId
+    ) {
       this.pendingReload = true;
       return this.reloadPromise;
     }
@@ -89,6 +104,8 @@ class MessagesStore {
   }
 
   clear() {
+    this.abortController?.abort();
+    this.abortController = null;
     this.messages = [];
     this.sessionId = null;
     this.loading = false;
@@ -98,30 +115,69 @@ class MessagesStore {
     this.reloadPromise = null;
     this.reloadSessionId = null;
     this.pendingReload = false;
+    this.loadOlderPromise = null;
+  }
+
+  private async fetchPages(
+    id: string,
+    opts: FetchPageOptions,
+  ): Promise<Message[]> {
+    const loaded: Message[] = [];
+    let from = opts.from;
+
+    for (;;) {
+      const res = await api.getMessages(
+        id,
+        { from, limit: opts.limit, direction: opts.direction },
+        { signal: opts.signal },
+      );
+      if (res.messages.length === 0) break;
+
+      loaded.push(...res.messages);
+
+      if (res.messages.length < opts.limit) break;
+      const last = res.messages[res.messages.length - 1];
+      if (!last) break;
+
+      const nextFrom =
+        opts.direction === "asc"
+          ? last.ordinal + 1
+          : last.ordinal - 1;
+      if (
+        opts.direction === "asc"
+          ? nextFrom <= from
+          : nextFrom >= from
+      ) {
+        break;
+      }
+      from = nextFrom;
+    }
+
+    return loaded;
   }
 
   private async loadAllMessages(
     id: string,
+    signal: AbortSignal,
     messageCountHint?: number,
   ) {
     let from = 0;
     let loaded: Message[] = [];
 
     for (;;) {
-      if (this.sessionId !== id) return;
-      const res = await api.getMessages(id, {
-        from,
-        limit: MESSAGE_PAGE_SIZE,
-        direction: "asc",
-      });
-      if (this.sessionId !== id) return;
+      const res = await api.getMessages(
+        id,
+        { from, limit: MESSAGE_PAGE_SIZE, direction: "asc" },
+        { signal },
+      );
       if (res.messages.length === 0) break;
 
       loaded = [...loaded, ...res.messages];
       this.messages = loaded;
 
       const newest = loaded[loaded.length - 1];
-      this.messageCount = messageCountHint ??
+      this.messageCount =
+        messageCountHint ??
         (newest ? newest.ordinal + 1 : loaded.length);
       this.hasOlder = false;
 
@@ -134,73 +190,88 @@ class MessagesStore {
     }
 
     const newest = this.messages[this.messages.length - 1];
-    this.messageCount = messageCountHint ??
+    this.messageCount =
+      messageCountHint ??
       (newest ? newest.ordinal + 1 : this.messages.length);
     this.hasOlder = false;
   }
 
-  private async loadProgressively(id: string) {
-    const firstRes = await api.getMessages(id, {
-      limit: MESSAGE_PAGE_SIZE,
-      direction: "desc",
-    });
+  private async loadProgressively(
+    id: string,
+    signal: AbortSignal,
+  ) {
+    const firstRes = await api.getMessages(
+      id,
+      { limit: MESSAGE_PAGE_SIZE, direction: "desc" },
+      { signal },
+    );
 
-    if (this.sessionId !== id) return;
-    // Keep in ascending ordinal order in store for simpler append
-    // and stable ordinal math; UI handles newest-first presentation.
     this.messages = [...firstRes.messages].reverse();
     const newest = this.messages[this.messages.length - 1];
     this.messageCount = newest ? newest.ordinal + 1 : 0;
     const oldest = this.messages[0]?.ordinal;
-    if (oldest !== undefined) {
-      this.hasOlder = oldest > 0;
-    } else {
-      this.hasOlder = false;
-    }
+    this.hasOlder =
+      oldest !== undefined ? oldest > 0 : false;
   }
 
-  private async loadFrom(id: string, from: number) {
-    for (;;) {
-      if (this.sessionId !== id) return;
-
-      const res = await api.getMessages(id, {
-        from,
-        limit: MESSAGE_PAGE_SIZE,
-        direction: "asc",
-      });
-
-      if (this.sessionId !== id) return;
-      if (res.messages.length === 0) break;
-
-      this.messages.push(...res.messages);
-
-      if (res.messages.length < MESSAGE_PAGE_SIZE) break;
-      from =
-        res.messages[res.messages.length - 1]!.ordinal + 1;
+  private async loadFrom(
+    id: string,
+    from: number,
+    signal: AbortSignal,
+  ) {
+    const pages = await this.fetchPages(id, {
+      from,
+      limit: MESSAGE_PAGE_SIZE,
+      direction: "asc",
+      signal,
+    });
+    if (pages.length > 0) {
+      this.messages.push(...pages);
     }
   }
 
   async loadOlder() {
     if (
       !this.sessionId ||
-      this.loadingOlder ||
+      this.loadOlderPromise ||
       !this.hasOlder ||
       this.messages.length === 0
-    ) return;
+    ) {
+      return this.loadOlderPromise ?? undefined;
+    }
+
+    this.loadOlderPromise = this.doLoadOlder().finally(
+      () => {
+        this.loadOlderPromise = null;
+      },
+    );
+    return this.loadOlderPromise;
+  }
+
+  private async doLoadOlder() {
     const id = this.sessionId;
+    if (!id || this.messages.length === 0) return;
+
     const oldest = this.messages[0]!.ordinal;
     if (oldest <= 0) {
       this.hasOlder = false;
       return;
     }
 
+    const signal = this.abortController?.signal;
+    if (!signal || signal.aborted) return;
+
     this.loadingOlder = true;
     try {
-      const res = await api.getMessages(id, {
-        from: oldest - 1,
-        limit: MESSAGE_PAGE_SIZE,
-        direction: "desc",
-      });
+      const res = await api.getMessages(
+        id,
+        {
+          from: oldest - 1,
+          limit: MESSAGE_PAGE_SIZE,
+          direction: "desc",
+        },
+        { signal },
+      );
       if (this.sessionId !== id) return;
       if (res.messages.length === 0) {
         this.hasOlder = false;
@@ -224,14 +295,15 @@ class MessagesStore {
     if (oldestLoaded <= targetOrdinal) return;
     if (!this.hasOlder) return;
 
-    // If a scroll-triggered load is active, wait briefly for it
-    // to finish before issuing targeted fetches.
-    while (this.sessionId === id && this.loadingOlder) {
-      await new Promise((r) => setTimeout(r, 16));
+    if (this.loadOlderPromise) {
+      await this.loadOlderPromise;
     }
     if (!this.sessionId || this.sessionId !== id) return;
     if (this.messages.length === 0) return;
     if (this.messages[0]!.ordinal <= targetOrdinal) return;
+
+    const signal = this.abortController?.signal;
+    if (!signal || signal.aborted) return;
 
     this.loadingOlder = true;
     try {
@@ -240,12 +312,15 @@ class MessagesStore {
       const chunks: Message[][] = [];
 
       while (from >= 0) {
-        if (this.sessionId !== id) return;
-        const res = await api.getMessages(id, {
-          from,
-          limit: MESSAGE_PAGE_SIZE,
-          direction: "desc",
-        });
+        const res = await api.getMessages(
+          id,
+          {
+            from,
+            limit: MESSAGE_PAGE_SIZE,
+            direction: "desc",
+          },
+          { signal },
+        );
         if (this.sessionId !== id) return;
         if (res.messages.length === 0) {
           this.hasOlder = false;
@@ -271,9 +346,14 @@ class MessagesStore {
       }
 
       const oldestNow = this.messages[0]?.ordinal;
-      this.hasOlder = oldestNow !== undefined && oldestNow > 0;
-    } catch {
-      // Non-fatal: session may have changed or network error.
+      this.hasOlder =
+        oldestNow !== undefined && oldestNow > 0;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn(
+        "Failed to load older messages for ordinal:",
+        err,
+      );
     } finally {
       if (this.sessionId === id) {
         this.loadingOlder = false;
@@ -282,25 +362,27 @@ class MessagesStore {
   }
 
   private async reloadNow(id: string) {
+    const signal = this.abortController?.signal;
+    if (!signal || signal.aborted) return;
+
     try {
-      const sess = await api.getSession(id);
+      const sess = await api.getSession(id, { signal });
       if (this.sessionId !== id) return;
 
       const newCount = sess.message_count ?? 0;
       const oldCount = this.messageCount;
       if (newCount === oldCount) return;
 
-      // Fast path: append only new messages.
       if (newCount > oldCount && this.messages.length > 0) {
         const lastOrdinal =
           this.messages[this.messages.length - 1]!.ordinal;
-        await this.loadFrom(id, lastOrdinal + 1);
+        await this.loadFrom(id, lastOrdinal + 1, signal);
         if (this.sessionId !== id) return;
 
-        // If incremental fetch fell out of sync, repair once.
-        const newest = this.messages[this.messages.length - 1];
+        const newest =
+          this.messages[this.messages.length - 1];
         if (newest && newest.ordinal !== newCount - 1) {
-          await this.fullReload(id, newCount);
+          await this.fullReload(id, signal, newCount);
           return;
         }
 
@@ -308,17 +390,16 @@ class MessagesStore {
         return;
       }
 
-      // Message count shrank (session rewrite) or we have no local
-      // data yet: do a full reload.
-      await this.fullReload(id, newCount);
-    } catch {
-      // Non-fatal. SSE watch should keep working and retry on the
-      // next update tick.
+      await this.fullReload(id, signal, newCount);
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn("Reload failed:", err);
     }
   }
 
   private async fullReload(
     id: string,
+    signal: AbortSignal,
     messageCountHint?: number,
   ) {
     this.loading = true;
@@ -327,9 +408,13 @@ class MessagesStore {
         messageCountHint !== undefined &&
         messageCountHint > FULL_SESSION_MESSAGE_THRESHOLD
       ) {
-        await this.loadProgressively(id);
+        await this.loadProgressively(id, signal);
       } else {
-        await this.loadAllMessages(id, messageCountHint);
+        await this.loadAllMessages(
+          id,
+          signal,
+          messageCountHint,
+        );
       }
     } finally {
       if (this.sessionId === id) {
@@ -337,6 +422,12 @@ class MessagesStore {
       }
     }
   }
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof DOMException && err.name === "AbortError"
+  );
 }
 
 export const messages = new MessagesStore();

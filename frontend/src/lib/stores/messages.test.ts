@@ -331,7 +331,8 @@ describe('MessagesStore', () => {
     // Verify full reload fetched all messages
     expect(vi.mocked(api.getMessages)).toHaveBeenLastCalledWith(
       's1',
-      expect.objectContaining({ from: 0, limit: 1000, direction: 'asc' })
+      expect.objectContaining({ from: 0, limit: 1000, direction: 'asc' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 

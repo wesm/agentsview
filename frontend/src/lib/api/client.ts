@@ -80,8 +80,11 @@ export function listSessions(
   return fetchJSON(`/sessions${buildQuery({ ...params })}`);
 }
 
-export function getSession(id: string): Promise<Session> {
-  return fetchJSON(`/sessions/${id}`);
+export function getSession(
+  id: string,
+  init?: RequestInit,
+): Promise<Session> {
+  return fetchJSON(`/sessions/${id}`, init);
 }
 
 /* Messages */
@@ -95,9 +98,11 @@ export interface GetMessagesParams {
 export function getMessages(
   sessionId: string,
   params: GetMessagesParams = {},
+  init?: RequestInit,
 ): Promise<MessagesResponse> {
   return fetchJSON(
     `/sessions/${sessionId}/messages${buildQuery({ ...params })}`,
+    init,
   );
 }
 
