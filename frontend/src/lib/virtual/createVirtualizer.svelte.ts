@@ -12,18 +12,6 @@ import {
 type PartialKeys<T, K extends keyof T> = Omit<T, K> &
   Partial<Pick<T, K>>;
 
-// itemSizeCache is private in TanStack Virtual's types but
-// we need it to transfer measurements across recreations.
-type SizeCache = Map<string | number, number>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getSizeCache(v: any): SizeCache {
-  return v?.itemSizeCache as SizeCache;
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setSizeCache(v: any, cache: SizeCache) {
-  v.itemSizeCache = cache;
-}
-
 type ElementOpts = PartialKeys<
   VirtualizerOptions<HTMLElement, HTMLElement>,
   | "observeElementOffset"
@@ -39,18 +27,28 @@ type WindowOpts = PartialKeys<
   | "getScrollElement"
 > & { measureCacheKey?: unknown };
 
-export function createVirtualizer(
-  optsFn: () => ElementOpts,
+type BaseOpts<
+  TScroll extends Element | Window,
+  TItem extends Element,
+> = VirtualizerOptions<TScroll, TItem> & {
+  measureCacheKey?: unknown;
+};
+
+function createBaseVirtualizer<
+  TScroll extends Element | Window,
+  TItem extends Element,
+>(
+  optsFn: () => BaseOpts<TScroll, TItem>,
+  postUpdate?: (
+    instance: Virtualizer<TScroll, TItem>,
+    opts: BaseOpts<TScroll, TItem>,
+  ) => void,
 ) {
   let instance:
-    | Virtualizer<HTMLElement, HTMLElement>
+    | Virtualizer<TScroll, TItem>
     | undefined = undefined;
   let notifyPending = false;
   let lastMeasureCacheKey: unknown = undefined;
-
-  // TanStack Virtual emits onChange with the same instance
-  // reference. Track a version token so consumers re-read
-  // instance without recreating proxy objects.
   let _version = $state(0);
 
   function bumpVersion() {
@@ -62,42 +60,23 @@ export function createVirtualizer(
     }, 0);
   }
 
-  function handleOnChange(
-    vInst: Virtualizer<HTMLElement, HTMLElement>,
-    sync: boolean,
-    onChange: ElementOpts["onChange"] | undefined,
-  ) {
-    instance = vInst;
-    if (sync) {
-      bumpVersion();
-    } else {
-      _version++;
-    }
-    onChange?.(vInst, sync);
-  }
-
   $effect(() => {
     const opts = optsFn();
-    const scrollEl = opts.getScrollElement?.() ?? null;
-    const initialOffset =
-      instance?.scrollOffset ??
-      scrollEl?.scrollTop ??
-      0;
-
-    const resolvedOpts: VirtualizerOptions<
-      HTMLElement,
-      HTMLElement
-    > = {
-      observeElementOffset,
-      observeElementRect,
-      scrollToFn: elementScroll,
+    const resolvedOpts: VirtualizerOptions<TScroll, TItem> = {
       ...opts,
-      initialOffset,
+      initialOffset:
+        instance?.scrollOffset ?? opts.initialOffset ?? 0,
       onChange: (
-        vInst: Virtualizer<HTMLElement, HTMLElement>,
+        vInst: Virtualizer<TScroll, TItem>,
         sync: boolean,
       ) => {
-        handleOnChange(vInst, sync, opts.onChange);
+        instance = vInst;
+        if (sync) {
+          bumpVersion();
+        } else {
+          _version++;
+        }
+        opts.onChange?.(vInst, sync);
       },
     };
 
@@ -111,20 +90,16 @@ export function createVirtualizer(
       };
     }
 
-    // Preserve measurement cache only for the same logical list.
     if (opts.measureCacheKey !== lastMeasureCacheKey) {
-      setSizeCache(instance, new Map());
+      // @ts-expect-error accessing private itemSizeCache
+      instance.itemSizeCache = new Map();
     }
     lastMeasureCacheKey = opts.measureCacheKey;
 
-    // Update options in-place to avoid Virtualizer recreation churn.
     instance.setOptions(resolvedOpts);
     instance._willUpdate();
 
-    // Guard against browser clamp after large count changes.
-    if (scrollEl && scrollEl.scrollTop > 0) {
-      instance.scrollToOffset(scrollEl.scrollTop);
-    }
+    postUpdate?.(instance, opts);
 
     return () => {
       instance?._willUpdate();
@@ -139,89 +114,39 @@ export function createVirtualizer(
   };
 }
 
+export function createVirtualizer(
+  optsFn: () => ElementOpts,
+) {
+  return createBaseVirtualizer<HTMLElement, HTMLElement>(
+    () => {
+      const opts = optsFn();
+      const scrollEl = opts.getScrollElement?.() ?? null;
+      return {
+        observeElementOffset,
+        observeElementRect,
+        scrollToFn: elementScroll,
+        ...opts,
+        initialOffset:
+          scrollEl?.scrollTop ?? opts.initialOffset ?? 0,
+      };
+    },
+    (instance, opts) => {
+      const scrollEl = opts.getScrollElement?.() ?? null;
+      if (scrollEl && scrollEl.scrollTop > 0) {
+        instance.scrollToOffset(scrollEl.scrollTop);
+      }
+    },
+  );
+}
+
 export function createWindowVirtualizer(
   optsFn: () => WindowOpts,
 ) {
-  let instance:
-    | Virtualizer<Window, HTMLElement>
-    | undefined = undefined;
-  let notifyPending = false;
-  let lastMeasureCacheKey: unknown = undefined;
-  let _version = $state(0);
-
-  function bumpVersion() {
-    if (notifyPending) return;
-    notifyPending = true;
-    setTimeout(() => {
-      notifyPending = false;
-      _version++;
-    }, 0);
-  }
-
-  function handleOnChange(
-    vInst: Virtualizer<Window, HTMLElement>,
-    sync: boolean,
-    onChange: WindowOpts["onChange"] | undefined,
-  ) {
-    instance = vInst;
-    if (sync) {
-      bumpVersion();
-    } else {
-      _version++;
-    }
-    onChange?.(vInst, sync);
-  }
-
-  $effect(() => {
-    const opts = optsFn();
-    const initialOffset =
-      instance?.scrollOffset ?? 0;
-
-    const resolvedOpts: VirtualizerOptions<
-      Window,
-      HTMLElement
-    > = {
-      observeElementOffset: observeWindowOffset,
-      observeElementRect: observeWindowRect,
-      scrollToFn: windowScroll,
-      getScrollElement: () => window,
-      ...opts,
-      initialOffset,
-      onChange: (
-        vInst: Virtualizer<Window, HTMLElement>,
-        sync: boolean,
-      ) => {
-        handleOnChange(vInst, sync, opts.onChange);
-      },
-    };
-
-    if (!instance) {
-      const v = new Virtualizer(resolvedOpts);
-      instance = v;
-      lastMeasureCacheKey = opts.measureCacheKey;
-      v._willUpdate();
-      return () => {
-        v._willUpdate();
-      };
-    }
-
-    if (opts.measureCacheKey !== lastMeasureCacheKey) {
-      setSizeCache(instance, new Map());
-    }
-    lastMeasureCacheKey = opts.measureCacheKey;
-
-    instance.setOptions(resolvedOpts);
-    instance._willUpdate();
-
-    return () => {
-      instance?._willUpdate();
-    };
-  });
-
-  return {
-    get instance() {
-      _version;
-      return instance;
-    },
-  };
+  return createBaseVirtualizer<Window, HTMLElement>(() => ({
+    observeElementOffset: observeWindowOffset,
+    observeElementRect: observeWindowRect,
+    scrollToFn: windowScroll,
+    getScrollElement: () => window,
+    ...optsFn(),
+  }));
 }
