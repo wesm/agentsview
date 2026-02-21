@@ -30,7 +30,12 @@
   $effect(() => {
     const id = sessions.activeSessionId;
     untrack(() => {
-      ui.clearSelection();
+      // Preserve selection when a pending scroll is queued
+      // (e.g. search result navigation sets both session +
+      // ordinal before this effect fires).
+      if (ui.pendingScrollOrdinal === null) {
+        ui.clearSelection();
+      }
       if (id) {
         messages.loadSession(id);
         sync.watchSession(id, () => messages.reload());
@@ -70,6 +75,9 @@
       }
 
       messageListRef.scrollToOrdinal(ordinal);
+      // Ensure highlight is set (the session-change effect
+      // may have cleared it before this effect ran).
+      ui.selectedOrdinal = ordinal;
       ui.pendingScrollOrdinal = null;
     });
   });

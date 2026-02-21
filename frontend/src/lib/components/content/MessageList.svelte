@@ -125,7 +125,7 @@
     const desiredCount = displayItemsAsc.length;
     const virtualCount = v.options.count;
     if (
-      attempt < 2 &&
+      attempt < 5 &&
       (virtualCount !== desiredCount || index >= virtualCount)
     ) {
       requestAnimationFrame(() => {
@@ -134,26 +134,27 @@
       return;
     }
 
-    // TanStack's scrollToIndex may continuously re-seek in dynamic mode.
-    // Use one offset seek to avoid visible scroll "fight."
-    const offsetAndAlign = v.getOffsetForIndex(index, "start");
+    // TanStack's scrollToIndex may continuously re-seek
+    // in dynamic mode. Use one offset seek to avoid
+    // visible scroll "fight."
+    const offsetAndAlign =
+      v.getOffsetForIndex(index, "start");
     if (offsetAndAlign) {
       const [offset] = offsetAndAlign;
-      v.scrollToOffset(Math.round(offset), { align: "start" });
+      v.scrollToOffset(
+        Math.round(offset),
+        { align: "start" },
+      );
       return;
     }
 
-    const count = displayItemsAsc.length;
-    if (count <= 1) {
-      v.scrollToOffset(0);
-      return;
-    }
+    // Item not yet measured — use scrollToIndex which will
+    // estimate and then correct once measured.
+    v.scrollToIndex(index, { align: "start" });
+  }
 
-    const ratio = index / (count - 1);
-    const totalSize = v.getTotalSize();
-    const viewport = containerRef?.clientHeight ?? 0;
-    const maxOffset = Math.max(0, totalSize - viewport);
-    v.scrollToOffset(ratio * maxOffset, { align: "start" });
+  function raf(): Promise<void> {
+    return new Promise((r) => requestAnimationFrame(() => r()));
   }
 
   async function scrollToOrdinalInternal(ordinal: number) {
@@ -173,14 +174,16 @@
     await messages.ensureOrdinalLoaded(ordinal);
     if (reqId !== lastScrollRequest) return;
 
-    // Let virtualizer recreation settle after loadOlder mutates count.
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
+    // Let Svelte re-derive displayItemsAsc and the
+    // virtualizer update its count after loading.
+    // Two frames: one for Svelte reactivity, one for
+    // virtualizer resize observation.
+    await raf();
+    await raf();
     if (reqId !== lastScrollRequest) return;
 
-    const loadedIdxAsc = displayItemsAsc.findIndex((item) =>
-      item.ordinals.includes(ordinal),
+    const loadedIdxAsc = displayItemsAsc.findIndex(
+      (item) => item.ordinals.includes(ordinal),
     );
     if (loadedIdxAsc < 0) return;
     const loadedIdx = ui.sortNewestFirst
