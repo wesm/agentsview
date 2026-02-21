@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { isToolOnly } from "./content-parser.js";
 import { buildDisplayItems } from "./display-items.js";
 import type { Message } from "../api/types.js";
 
@@ -19,62 +18,25 @@ function msg(
   };
 }
 
-describe("isToolOnly", () => {
-  it("returns true for assistant with only tool blocks", () => {
-    const m = msg({
-      content: "[Bash]\n$ ls",
-      has_tool_use: true,
-    });
-    expect(isToolOnly(m)).toBe(true);
+function toolMsg(
+  ordinal: number,
+  tool = "Bash",
+  args = "$ ls",
+) {
+  return msg({
+    ordinal,
+    content: `[${tool}]\n${args}`,
+    has_tool_use: true,
   });
+}
 
-  it("returns true for multiple tool blocks", () => {
-    const m = msg({
-      content: "[Read]\nfile.ts\n\n[Edit]\nchanges",
-      has_tool_use: true,
-    });
-    expect(isToolOnly(m)).toBe(true);
-  });
-
-  it("returns false when text accompanies tools", () => {
-    const m = msg({
-      content: "Here are the results.\n\n[Bash]\n$ ls",
-      has_tool_use: true,
-    });
-    expect(isToolOnly(m)).toBe(false);
-  });
-
-  it("returns false for user messages", () => {
-    const m = msg({
-      role: "user",
-      content: "[Bash]\n$ ls",
-      has_tool_use: true,
-    });
-    expect(isToolOnly(m)).toBe(false);
-  });
-
-  it("returns false when has_tool_use is false", () => {
-    const m = msg({
-      content: "[Bash]\n$ ls",
-      has_tool_use: false,
-    });
-    expect(isToolOnly(m)).toBe(false);
-  });
-
-  it("returns false for plain text assistant messages", () => {
-    const m = msg({ content: "Hello, how can I help?" });
-    expect(isToolOnly(m)).toBe(false);
-  });
-
-  it("handles thinking + tool blocks (no text)", () => {
-    const m = msg({
-      content: "[Thinking]\nLet me check\n\n[Bash]\n$ ls",
-      has_tool_use: true,
-      has_thinking: true,
-    });
-    expect(isToolOnly(m)).toBe(true);
-  });
-});
+function textMsg(
+  ordinal: number,
+  content: string,
+  role: "user" | "assistant" = "assistant",
+) {
+  return msg({ ordinal, content, role });
+}
 
 describe("buildDisplayItems", () => {
   it("returns empty array for empty input", () => {
@@ -83,9 +45,9 @@ describe("buildDisplayItems", () => {
 
   it("wraps all text messages as individual items", () => {
     const msgs = [
-      msg({ ordinal: 0, content: "Hello" }),
-      msg({ ordinal: 1, role: "user", content: "Hi" }),
-      msg({ ordinal: 2, content: "How can I help?" }),
+      textMsg(0, "Hello"),
+      textMsg(1, "Hi", "user"),
+      textMsg(2, "How can I help?"),
     ];
     const items = buildDisplayItems(msgs);
     expect(items).toHaveLength(3);
@@ -94,65 +56,41 @@ describe("buildDisplayItems", () => {
 
   it("groups all tool-only messages into one group", () => {
     const msgs = [
-      msg({
-        ordinal: 0,
-        content: "[Bash]\n$ ls",
-        has_tool_use: true,
-      }),
-      msg({
-        ordinal: 1,
-        content: "[Read]\nfile.ts",
-        has_tool_use: true,
-      }),
-      msg({
-        ordinal: 2,
-        content: "[Edit]\nchanges",
-        has_tool_use: true,
-      }),
+      toolMsg(0),
+      toolMsg(1, "Read", "file.ts"),
+      toolMsg(2, "Edit", "changes"),
     ];
     const items = buildDisplayItems(msgs);
     expect(items).toHaveLength(1);
-    expect(items[0]!.kind).toBe("tool-group");
-    if (items[0]!.kind === "tool-group") {
-      expect(items[0]!.messages).toHaveLength(3);
-      expect(items[0]!.ordinals).toEqual([0, 1, 2]);
-    }
+    expect(items[0]).toMatchObject({
+      kind: "tool-group",
+      ordinals: [0, 1, 2],
+    });
+    expect(items[0]).toHaveProperty("messages.length", 3);
   });
 
   it("handles mixed text and tool messages", () => {
     const msgs = [
-      msg({ ordinal: 0, content: "Let me check" }),
-      msg({
-        ordinal: 1,
-        content: "[Bash]\n$ ls",
-        has_tool_use: true,
-      }),
-      msg({
-        ordinal: 2,
-        content: "[Read]\nfile.ts",
-        has_tool_use: true,
-      }),
-      msg({ ordinal: 3, content: "Here are the results" }),
-      msg({
-        ordinal: 4,
-        content: "[Edit]\nchanges",
-        has_tool_use: true,
-      }),
+      textMsg(0, "Let me check"),
+      toolMsg(1),
+      toolMsg(2, "Read", "file.ts"),
+      textMsg(3, "Here are the results"),
+      toolMsg(4, "Edit", "changes"),
     ];
     const items = buildDisplayItems(msgs);
     expect(items).toHaveLength(4);
-    expect(items[0]!.kind).toBe("message");
-    expect(items[1]!.kind).toBe("tool-group");
-    if (items[1]!.kind === "tool-group") {
-      expect(items[1]!.messages).toHaveLength(2);
-      expect(items[1]!.ordinals).toEqual([1, 2]);
-    }
-    expect(items[2]!.kind).toBe("message");
-    expect(items[3]!.kind).toBe("tool-group");
-    if (items[3]!.kind === "tool-group") {
-      expect(items[3]!.messages).toHaveLength(1);
-      expect(items[3]!.ordinals).toEqual([4]);
-    }
+    expect(items[0]).toMatchObject({ kind: "message" });
+    expect(items[1]).toMatchObject({
+      kind: "tool-group",
+      ordinals: [1, 2],
+    });
+    expect(items[1]).toHaveProperty("messages.length", 2);
+    expect(items[2]).toMatchObject({ kind: "message" });
+    expect(items[3]).toMatchObject({
+      kind: "tool-group",
+      ordinals: [4],
+    });
+    expect(items[3]).toHaveProperty("messages.length", 1);
   });
 
   it("keeps messages with text + tools as single messages", () => {
@@ -163,7 +101,7 @@ describe("buildDisplayItems", () => {
     });
     const items = buildDisplayItems([m]);
     expect(items).toHaveLength(1);
-    expect(items[0]!.kind).toBe("message");
+    expect(items[0]).toMatchObject({ kind: "message" });
   });
 
   it("user messages are always individual items", () => {
@@ -177,23 +115,16 @@ describe("buildDisplayItems", () => {
     ];
     const items = buildDisplayItems(msgs);
     expect(items).toHaveLength(1);
-    expect(items[0]!.kind).toBe("message");
+    expect(items[0]).toMatchObject({ kind: "message" });
   });
 
   it("single tool-only message becomes a tool-group", () => {
-    const msgs = [
-      msg({
-        ordinal: 5,
-        content: "[Bash]\n$ ls",
-        has_tool_use: true,
-      }),
-    ];
-    const items = buildDisplayItems(msgs);
+    const items = buildDisplayItems([toolMsg(5)]);
     expect(items).toHaveLength(1);
-    expect(items[0]!.kind).toBe("tool-group");
-    if (items[0]!.kind === "tool-group") {
-      expect(items[0]!.ordinals).toEqual([5]);
-    }
+    expect(items[0]).toMatchObject({
+      kind: "tool-group",
+      ordinals: [5],
+    });
   });
 
   it("uses first message timestamp for tool group", () => {
@@ -212,8 +143,9 @@ describe("buildDisplayItems", () => {
       }),
     ];
     const items = buildDisplayItems(msgs);
-    if (items[0]!.kind === "tool-group") {
-      expect(items[0]!.timestamp).toBe("2025-02-17T21:04:00Z");
-    }
+    expect(items[0]).toMatchObject({
+      kind: "tool-group",
+      timestamp: "2025-02-17T21:04:00Z",
+    });
   });
 });

@@ -145,6 +145,19 @@ describe("isToolOnly", () => {
     expect(isToolOnly(msg)).toBe(true);
   });
 
+  it("returns true for multiple tool blocks", () => {
+    const msg = makeMsg({
+      has_tool_use: true,
+      content: "[Read]\nfile.ts\n\n[Edit]\nchanges",
+    });
+    expect(isToolOnly(msg)).toBe(true);
+  });
+
+  it("returns false for plain text assistant messages", () => {
+    const msg = makeMsg({ content: "Hello, how can I help?" });
+    expect(isToolOnly(msg)).toBe(false);
+  });
+
   it("returns false when text remains after stripping", () => {
     const msg = makeMsg({
       has_tool_use: true,
