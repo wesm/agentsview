@@ -81,10 +81,26 @@ func ParseClaudeSession(
 		entryType := gjson.Get(line, "type").Str
 
 		if entryType == "user" || entryType == "assistant" {
+			// Tier 1: skip system-injected user entries by
+			// JSONL-level flags before extracting content.
+			if entryType == "user" {
+				if gjson.Get(line, "isMeta").Bool() ||
+					gjson.Get(line, "isCompactSummary").Bool() {
+					continue
+				}
+			}
+
 			content := gjson.Get(line, "message.content")
 			text, hasThinking, hasToolUse, tcs :=
 				ExtractTextContent(content)
 			if strings.TrimSpace(text) == "" {
+				continue
+			}
+
+			// Tier 2: skip user messages whose content matches
+			// known system-injected patterns.
+			if entryType == "user" &&
+				isClaudeSystemMessage(text) {
 				continue
 			}
 
@@ -170,4 +186,25 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// isClaudeSystemMessage returns true if the content matches
+// a known system-injected user message pattern.
+func isClaudeSystemMessage(content string) bool {
+	prefixes := [...]string{
+		"This session is being continued",
+		"[Request interrupted",
+		"<task-notification>",
+		"<command-message>",
+		"<command-name>",
+		"<local-command-",
+		"Stop hook feedback:",
+		"Implement the following plan:",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(content, p) {
+			return true
+		}
+	}
+	return false
 }

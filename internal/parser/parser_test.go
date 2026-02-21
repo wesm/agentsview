@@ -524,6 +524,54 @@ func createTestFile(
 	return path
 }
 
+func TestIsClaudeSystemMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"context continuation",
+			"This session is being continued from a previous conversation.",
+			true},
+		{"request interrupted",
+			"[Request interrupted by user]", true},
+		{"task-notification",
+			"<task-notification>some data</task-notification>",
+			true},
+		{"command-message",
+			"<command-message>foo</command-message>", true},
+		{"command-name",
+			"<command-name>commit</command-name>", true},
+		{"local-command tag",
+			"<local-command-result>ok</local-command-result>",
+			true},
+		{"stop hook feedback",
+			"Stop hook feedback: rejected by policy", true},
+		{"implement plan",
+			"Implement the following plan:\n## Steps",
+			true},
+		{"normal user message",
+			"Fix the login bug", false},
+		{"empty string", "", false},
+		{"partial prefix mismatch",
+			"This session was great", false},
+		{"assistant-like content not matched",
+			"Looking at the auth module...", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isClaudeSystemMessage(tt.content)
+			if got != tt.want {
+				t.Errorf(
+					"isClaudeSystemMessage(%q) = %v, want %v",
+					tt.content, got, tt.want,
+				)
+			}
+		})
+	}
+}
+
 func TestParseClaudeSession(t *testing.T) {
 	validContent := testjsonl.JoinJSONL(
 		testjsonl.ClaudeUserJSON("Fix the login bug", tsEarly, "/Users/wesm/code/my-app"),
@@ -660,6 +708,86 @@ func TestParseClaudeSession(t *testing.T) {
 				`{"type":"user","truncated` + "\n" +
 				testjsonl.ClaudeAssistantJSON([]map[string]any{{"type": "text", "text": "last"}}, tsZeroS2) + "\n",
 			wantMsgCount: 2,
+		},
+		{
+			name: "skips isMeta user messages",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeMetaUserJSON("meta context", tsZero, true, false),
+				testjsonl.ClaudeUserJSON("real question", tsZeroS1),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, msgs []ParsedMessage) {
+				t.Helper()
+				if sess.FirstMessage != "real question" {
+					t.Errorf("first_message = %q, want %q",
+						sess.FirstMessage, "real question")
+				}
+			},
+		},
+		{
+			name: "skips isCompactSummary user messages",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeMetaUserJSON("summary of prior turns", tsZero, false, true),
+				testjsonl.ClaudeUserJSON("actual prompt", tsZeroS1),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, msgs []ParsedMessage) {
+				t.Helper()
+				if sess.FirstMessage != "actual prompt" {
+					t.Errorf("first_message = %q, want %q",
+						sess.FirstMessage, "actual prompt")
+				}
+			},
+		},
+		{
+			name: "skips content-heuristic system messages",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("This session is being continued from a previous conversation.", tsZero),
+				testjsonl.ClaudeUserJSON("[Request interrupted by user]", tsZeroS1),
+				testjsonl.ClaudeUserJSON("<task-notification>data</task-notification>", tsZeroS2),
+				testjsonl.ClaudeUserJSON("<command-message>x</command-message>", "2024-01-01T00:00:03Z"),
+				testjsonl.ClaudeUserJSON("<command-name>commit</command-name>", "2024-01-01T00:00:04Z"),
+				testjsonl.ClaudeUserJSON("<local-command-result>ok</local-command-result>", "2024-01-01T00:00:05Z"),
+				testjsonl.ClaudeUserJSON("Stop hook feedback: rejected", "2024-01-01T00:00:06Z"),
+				testjsonl.ClaudeUserJSON("Implement the following plan:\n## Steps", "2024-01-01T00:00:07Z"),
+				testjsonl.ClaudeUserJSON("real user message", "2024-01-01T00:00:08Z"),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, msgs []ParsedMessage) {
+				t.Helper()
+				if msgs[0].Content != "real user message" {
+					t.Errorf("content = %q", msgs[0].Content)
+				}
+				if sess.FirstMessage != "real user message" {
+					t.Errorf("first_message = %q", sess.FirstMessage)
+				}
+			},
+		},
+		{
+			name: "assistant with system-like content not filtered",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("hello", tsZero),
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "text", "text": "This session is being continued from a previous conversation."},
+				}, tsZeroS1),
+			),
+			wantMsgCount: 2,
+		},
+		{
+			name: "firstMsg from first non-system user message",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeMetaUserJSON("context data", tsZero, true, false),
+				testjsonl.ClaudeUserJSON("This session is being continued from a previous conversation.", tsZeroS1),
+				testjsonl.ClaudeUserJSON("Fix the auth bug", tsZeroS2),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.FirstMessage != "Fix the auth bug" {
+					t.Errorf("first_message = %q, want %q",
+						sess.FirstMessage, "Fix the auth bug")
+				}
+			},
 		},
 	}
 

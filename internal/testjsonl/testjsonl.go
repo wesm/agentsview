@@ -25,6 +25,27 @@ func ClaudeUserJSON(
 	return mustMarshal(m)
 }
 
+// ClaudeMetaUserJSON returns a Claude user message with
+// optional isMeta and isCompactSummary flags as a JSON string.
+func ClaudeMetaUserJSON(
+	content, timestamp string, meta, compact bool,
+) string {
+	m := map[string]any{
+		"type":      "user",
+		"timestamp": timestamp,
+		"message": map[string]any{
+			"content": content,
+		},
+	}
+	if meta {
+		m["isMeta"] = true
+	}
+	if compact {
+		m["isCompactSummary"] = true
+	}
+	return mustMarshal(m)
+}
+
 // ClaudeAssistantJSON returns a Claude assistant message as a
 // JSON string.
 func ClaudeAssistantJSON(content any, timestamp string) string {
@@ -136,6 +157,18 @@ func (b *SessionBuilder) AddClaudeUser(
 	timestamp, content string, cwd ...string,
 ) *SessionBuilder {
 	b.lines = append(b.lines, ClaudeUserJSON(content, timestamp, cwd...))
+	return b
+}
+
+// AddClaudeMetaUser appends a Claude user message line with
+// isMeta and/or isCompactSummary flags.
+func (b *SessionBuilder) AddClaudeMetaUser(
+	timestamp, content string, meta, compact bool,
+) *SessionBuilder {
+	b.lines = append(
+		b.lines,
+		ClaudeMetaUserJSON(content, timestamp, meta, compact),
+	)
 	return b
 }
 
