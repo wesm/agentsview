@@ -274,6 +274,50 @@ describe("SessionsStore", () => {
       });
     });
 
+    it("should omit agent when empty in loadMore", async () => {
+      sessions.nextCursor = "cur3";
+      sessions.filters.agent = "";
+
+      mockListSessions();
+      await sessions.loadMore();
+
+      expectListSessionsCalledWith({ agent: undefined });
+    });
+
+    it("should omit date when empty in loadMore", async () => {
+      sessions.nextCursor = "cur3";
+      sessions.filters.date = "";
+
+      mockListSessions();
+      await sessions.loadMore();
+
+      expectListSessionsCalledWith({ date: undefined });
+    });
+
+    it("should omit date_from when empty in loadMore", async () => {
+      sessions.nextCursor = "cur3";
+      sessions.filters.dateFrom = "";
+
+      mockListSessions();
+      await sessions.loadMore();
+
+      expectListSessionsCalledWith({
+        date_from: undefined,
+      });
+    });
+
+    it("should omit date_to when empty in loadMore", async () => {
+      sessions.nextCursor = "cur3";
+      sessions.filters.dateTo = "";
+
+      mockListSessions();
+      await sessions.loadMore();
+
+      expectListSessionsCalledWith({
+        date_to: undefined,
+      });
+    });
+
     it("should pass all filters in loadMore", async () => {
       sessions.nextCursor = "cur3";
       sessions.filters.agent = "codex";
@@ -306,7 +350,7 @@ describe("SessionsStore", () => {
       sessions.setProjectFilter("myproj");
       // Wait for the load() triggered by setProjectFilter
       await vi.waitFor(() => {
-        expect(sessions.loading).toBe(false);
+        expect(api.listSessions).toHaveBeenCalled();
       });
 
       expect(sessions.filters.project).toBe("myproj");
