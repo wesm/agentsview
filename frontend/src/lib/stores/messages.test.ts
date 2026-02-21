@@ -234,32 +234,41 @@ describe('MessagesStore', () => {
 
     // 6. Resolve P1 (Session A).
     // This should NOT interfere with Session B's pending reload.
+    const callsBeforeP1 =
+      vi.mocked(api.getSession).mock.calls.length;
     resolveP1(makeSession('s1', 10));
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Verify: calling reload() again still returns the
-    // same coalesced promise (pending reload intact)
-    const p4 = messages.reload();
-    expect(p4).toBe(p2);
+    // P1 completing must not trigger an auto-reload for
+    // Session B — getSession call count should be unchanged
+    expect(
+      vi.mocked(api.getSession).mock.calls.length,
+    ).toBe(callsBeforeP1);
 
     // 7. Resolve P2 (Session B).
-    // The pending reload should trigger automatically.
+    // The pending reload should trigger automatically and
+    // update state with the new count (6).
     vi.mocked(api.getSession).mockResolvedValue(
       makeSession('s2', 6),
     );
+    vi.mocked(api.getMessages).mockResolvedValue(
+      makeMessagesResponse([]),
+    );
+    const callsBeforeP2 =
+      vi.mocked(api.getSession).mock.calls.length;
     resolveP2(makeSession('s2', 5));
 
-    await p2;
+    // Wait for the automatic pending reload to fire and
+    // call getSession again
+    await vi.waitFor(() => {
+      expect(
+        vi.mocked(api.getSession).mock.calls.length,
+      ).toBeGreaterThan(callsBeforeP2);
+    });
 
-    // After pending reload fires and completes, a new
-    // reload() call should create a fresh promise
-    // (no stale coalescing)
-    vi.mocked(api.getSession).mockResolvedValue(
-      makeSession('s2', 6),
-    );
-    const p5 = messages.reload();
-    expect(p5).not.toBe(p2);
-    await p5;
+    // The auto-reload fetched session with count=6,
+    // confirming it actually ran and updated state
+    expect(messages.messageCount).toBe(6);
   });
 
   it('should fallback to full reload if incremental fetch is out of sync', async () => {
