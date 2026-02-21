@@ -171,16 +171,42 @@ describe("waitForStableValue", () => {
   });
 
   it("treats 0 and -0 as equal via default comparator", async () => {
-    let value: number = 0;
-    const fn = vi.fn(async () => value);
+    // Alternate between 0 and -0 on every poll. Object.is(0, -0)
+    // returns false, so under Object.is the value would never
+    // stabilize. SameValueZero treats them as equal, so it should.
+    let callCount = 0;
+    const fn = vi.fn(() => (callCount++ % 2 === 0 ? 0 : -0));
 
-    const promise = waitForStableValue(fn, 50, 10, 500);
-    await vi.advanceTimersByTimeAsync(10);
-    value = -0;
-    // Should still consider this stable (not reset the timer)
+    const stableMs = 50;
+    const pollMs = 10;
+    const maxMs = 300;
+    const promise = waitForStableValue(fn, stableMs, pollMs, maxMs);
     await vi.advanceTimersByTimeAsync(200);
 
-    // Resolves without throwing — the comparator treated 0 and -0 as equal
     await expect(promise).resolves.toBeDefined();
+  });
+
+  it("0/-0 alternation times out with Object.is comparator", async () => {
+    // Prove the alternating 0/-0 pattern does NOT stabilize when
+    // compared with Object.is, confirming the test above is not
+    // vacuously passing.
+    let callCount = 0;
+    const fn = vi.fn(() => (callCount++ % 2 === 0 ? 0 : -0));
+
+    const stableMs = 50;
+    const pollMs = 10;
+    const maxMs = 300;
+    const promise = waitForStableValue(
+      fn,
+      stableMs,
+      pollMs,
+      maxMs,
+      Object.is,
+    );
+    const rejection = expect(promise).rejects.toThrow(
+      /did not stabilize within 300ms/,
+    );
+    await vi.advanceTimersByTimeAsync(400);
+    await rejection;
   });
 });
