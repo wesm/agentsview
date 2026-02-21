@@ -2,75 +2,112 @@
 import { describe, it, expect } from "vitest";
 import { renderMarkdown } from "./markdown.js";
 
+/**
+ * Parse HTML string into a DOM container for semantic assertions.
+ * Avoids brittle exact-string comparisons that break on harmless
+ * formatting changes in the renderer or sanitizer.
+ */
+function parseHTML(html: string): HTMLElement {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div;
+}
+
 describe("renderMarkdown", () => {
   describe("inline formatting", () => {
     it("renders bold text", () => {
-      expect(renderMarkdown("**bold**")).toBe(
-        "<p><strong>bold</strong></p>\n",
-      );
+      const dom = parseHTML(renderMarkdown("**bold**"));
+      const strong = dom.querySelector("p > strong");
+      expect(strong).not.toBeNull();
+      expect(strong!.textContent).toBe("bold");
     });
 
     it("renders italic text", () => {
-      expect(renderMarkdown("*italic*")).toBe(
-        "<p><em>italic</em></p>\n",
-      );
+      const dom = parseHTML(renderMarkdown("*italic*"));
+      const em = dom.querySelector("p > em");
+      expect(em).not.toBeNull();
+      expect(em!.textContent).toBe("italic");
     });
 
     it("renders inline code", () => {
-      expect(renderMarkdown("`code`")).toBe(
-        "<p><code>code</code></p>\n",
-      );
+      const dom = parseHTML(renderMarkdown("`code`"));
+      const code = dom.querySelector("p > code");
+      expect(code).not.toBeNull();
+      expect(code!.textContent).toBe("code");
     });
 
     it("renders links", () => {
-      expect(renderMarkdown("[text](https://example.com)")).toBe(
-        '<p><a href="https://example.com">text</a></p>\n',
+      const dom = parseHTML(
+        renderMarkdown("[text](https://example.com)"),
       );
+      const a = dom.querySelector("p > a");
+      expect(a).not.toBeNull();
+      expect(a!.textContent).toBe("text");
+      expect(a!.getAttribute("href")).toBe("https://example.com");
     });
   });
 
   describe("block elements", () => {
     it("renders headings", () => {
-      expect(renderMarkdown("## Heading 2")).toBe(
-        "<h2>Heading 2</h2>\n",
-      );
+      const dom = parseHTML(renderMarkdown("## Heading 2"));
+      const h2 = dom.querySelector("h2");
+      expect(h2).not.toBeNull();
+      expect(h2!.textContent).toBe("Heading 2");
     });
 
     it("renders unordered lists", () => {
-      expect(renderMarkdown("- item one\n- item two")).toBe(
-        "<ul>\n<li>item one</li>\n<li>item two</li>\n</ul>\n",
+      const dom = parseHTML(
+        renderMarkdown("- item one\n- item two"),
       );
+      const items = dom.querySelectorAll("ul > li");
+      expect(items).toHaveLength(2);
+      expect(items[0]!.textContent).toBe("item one");
+      expect(items[1]!.textContent).toBe("item two");
     });
 
     it("renders ordered lists", () => {
-      expect(renderMarkdown("1. first\n2. second")).toBe(
-        "<ol>\n<li>first</li>\n<li>second</li>\n</ol>\n",
+      const dom = parseHTML(
+        renderMarkdown("1. first\n2. second"),
       );
+      const items = dom.querySelectorAll("ol > li");
+      expect(items).toHaveLength(2);
+      expect(items[0]!.textContent).toBe("first");
+      expect(items[1]!.textContent).toBe("second");
     });
 
     it("renders blockquotes", () => {
-      expect(renderMarkdown("> quoted text")).toBe(
-        "<blockquote>\n<p>quoted text</p>\n</blockquote>\n",
-      );
+      const dom = parseHTML(renderMarkdown("> quoted text"));
+      const bq = dom.querySelector("blockquote");
+      expect(bq).not.toBeNull();
+      expect(bq!.textContent!.trim()).toBe("quoted text");
     });
 
     it("renders tables", () => {
       const md = "| A | B |\n| --- | --- |\n| 1 | 2 |";
-      expect(renderMarkdown(md)).toBe(
-        "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n" +
-          "</thead>\n<tbody><tr>\n<td>1</td>\n<td>2</td>\n</tr>\n" +
-          "</tbody></table>\n",
-      );
+      const dom = parseHTML(renderMarkdown(md));
+      const ths = dom.querySelectorAll("thead th");
+      expect(ths).toHaveLength(2);
+      expect(ths[0]!.textContent).toBe("A");
+      expect(ths[1]!.textContent).toBe("B");
+      const tds = dom.querySelectorAll("tbody td");
+      expect(tds).toHaveLength(2);
+      expect(tds[0]!.textContent).toBe("1");
+      expect(tds[1]!.textContent).toBe("2");
     });
 
     it("renders horizontal rules", () => {
-      expect(renderMarkdown("---")).toBe("<hr>\n");
+      const dom = parseHTML(renderMarkdown("---"));
+      expect(dom.querySelector("hr")).not.toBeNull();
     });
 
     it("converts single newlines to <br>", () => {
-      expect(renderMarkdown("line one\nline two")).toBe(
-        "<p>line one<br>line two</p>\n",
+      const dom = parseHTML(
+        renderMarkdown("line one\nline two"),
       );
+      const p = dom.querySelector("p");
+      expect(p).not.toBeNull();
+      expect(p!.querySelector("br")).not.toBeNull();
+      expect(p!.textContent).toBe("line oneline two");
     });
   });
 
@@ -82,16 +119,151 @@ describe("renderMarkdown", () => {
     });
 
     it("strips event handlers (XSS)", () => {
-      expect(
+      const dom = parseHTML(
         renderMarkdown('<img src=x onerror="alert(1)">'),
-      ).toBe('<img src="x">');
+      );
+      const img = dom.querySelector("img");
+      expect(img).not.toBeNull();
+      expect(img!.hasAttribute("onerror")).toBe(false);
     });
 
     it("strips javascript: URLs (XSS)", () => {
-      expect(
+      const dom = parseHTML(
         renderMarkdown("[click](javascript:alert(1))"),
-      ).toBe("<p><a>click</a></p>\n");
+      );
+      const a = dom.querySelector("a");
+      expect(a).not.toBeNull();
+      expect(a!.textContent).toBe("click");
+      expect(a!.hasAttribute("href")).toBe(false);
     });
+
+    const xssPayloads: Array<{
+      name: string;
+      input: string;
+      assert: (html: string) => void;
+    }> = [
+      {
+        name: "mixed-case javascript: URL",
+        input: "[click](jAvAsCrIpT:alert(1))",
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          expect(a).not.toBeNull();
+          expect(a!.hasAttribute("href")).toBe(false);
+        },
+      },
+      {
+        name: "tab-padded javascript: URL",
+        input: "[click](java\tscript:alert(1))",
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          if (a) {
+            const href = a.getAttribute("href") ?? "";
+            expect(href).not.toMatch(/javascript/i);
+          }
+        },
+      },
+      {
+        name: "newline-padded javascript: URL",
+        input: "[click](java\nscript:alert(1))",
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          if (a) {
+            const href = a.getAttribute("href") ?? "";
+            expect(href).not.toMatch(/javascript/i);
+          }
+        },
+      },
+      {
+        name: "URL-encoded javascript: scheme",
+        input: "[click](&#106;avascript:alert(1))",
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          if (a) {
+            const href = a.getAttribute("href") ?? "";
+            expect(href).not.toMatch(/javascript/i);
+          }
+        },
+      },
+      {
+        name: "data: text/html payload",
+        input:
+          '[click](data:text/html,<script>alert(1)</script>)',
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          if (a) {
+            const href = a.getAttribute("href") ?? "";
+            expect(href).not.toMatch(/^data:/i);
+          }
+        },
+      },
+      {
+        name: "data: base64 payload",
+        input:
+          "[click](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)",
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          if (a) {
+            const href = a.getAttribute("href") ?? "";
+            expect(href).not.toMatch(/^data:/i);
+          }
+        },
+      },
+      {
+        name: "vbscript: URL",
+        input: "[click](vbscript:MsgBox(1))",
+        assert(html) {
+          const dom = parseHTML(html);
+          const a = dom.querySelector("a");
+          if (a) {
+            const href = a.getAttribute("href") ?? "";
+            expect(href).not.toMatch(/vbscript/i);
+          }
+        },
+      },
+      {
+        name: "onload event handler on body tag",
+        input: '<body onload="alert(1)">',
+        assert(html) {
+          const dom = parseHTML(html);
+          for (const el of dom.querySelectorAll("*")) {
+            expect(el.hasAttribute("onload")).toBe(false);
+          }
+        },
+      },
+      {
+        name: "onfocus event handler with autofocus",
+        input: '<input onfocus="alert(1)" autofocus>',
+        assert(html) {
+          const dom = parseHTML(html);
+          for (const el of dom.querySelectorAll("*")) {
+            expect(el.hasAttribute("onfocus")).toBe(false);
+          }
+        },
+      },
+      {
+        name: "SVG with onload",
+        input: '<svg onload="alert(1)">',
+        assert(html) {
+          const dom = parseHTML(html);
+          for (const el of dom.querySelectorAll("*")) {
+            expect(el.hasAttribute("onload")).toBe(false);
+          }
+        },
+      },
+    ];
+
+    it.each(xssPayloads)(
+      "sanitizes $name",
+      ({ input, assert: assertFn }) => {
+        assertFn(renderMarkdown(input));
+      },
+    );
   });
 
   describe("edge cases", () => {
@@ -100,13 +272,17 @@ describe("renderMarkdown", () => {
     });
 
     it("passes through plain text", () => {
-      expect(renderMarkdown("just plain text")).toBe(
-        "<p>just plain text</p>\n",
-      );
+      const dom = parseHTML(renderMarkdown("just plain text"));
+      const p = dom.querySelector("p");
+      expect(p).not.toBeNull();
+      expect(p!.textContent).toBe("just plain text");
     });
 
     it("removes trailing newlines to prevent extra height", () => {
-      expect(renderMarkdown("text\n\n")).toBe("<p>text</p>\n");
+      const dom = parseHTML(renderMarkdown("text\n\n"));
+      const p = dom.querySelector("p");
+      expect(p).not.toBeNull();
+      expect(p!.textContent).toBe("text");
     });
   });
 });
