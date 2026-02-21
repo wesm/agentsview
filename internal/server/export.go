@@ -460,7 +460,8 @@ main { max-width: 900px; margin: 0 auto; padding: 16px; }
   color: var(--text-primary);
   cursor: pointer; font-size: 11px;
 }
-.toggle-input:checked + .toggle-label {
+#thinking-toggle:checked ~ header label[for="thinking-toggle"],
+#sort-toggle:checked ~ header label[for="sort-toggle"] {
   background: var(--accent-blue); color: #fff;
   border-color: var(--accent-blue);
 }

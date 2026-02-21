@@ -19,8 +19,7 @@ if [ -n "$START_TAG" ] && [ "$START_TAG" != "-" ]; then
 else
     PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
     if [ -z "$PREV_TAG" ]; then
-        FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-        RANGE="$FIRST_COMMIT..HEAD"
+        RANGE=""
         echo "No previous release found. Generating changelog for all commits..." >&2
     else
         RANGE="$PREV_TAG..HEAD"
@@ -28,8 +27,14 @@ else
     fi
 fi
 
-COMMITS=$(git log $RANGE --pretty=format:"- %s (%h)" --no-merges)
-DIFF_STAT=$(git diff --stat $RANGE)
+if [ -n "$RANGE" ]; then
+    COMMITS=$(git log "$RANGE" --pretty=format:"- %s (%h)" --no-merges)
+    DIFF_STAT=$(git diff --stat "$RANGE")
+else
+    COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges)
+    EMPTY_TREE=$(git hash-object -t tree /dev/null)
+    DIFF_STAT=$(git diff --stat "$EMPTY_TREE" HEAD)
+fi
 
 if [ -z "$COMMITS" ]; then
     echo "No commits since last release" >&2

@@ -277,12 +277,11 @@
   .heatmap-scroll {
     overflow-x: auto;
     padding-bottom: 4px;
-    display: flex;
-    justify-content: center;
   }
 
   .heatmap-svg {
     display: block;
+    margin: 0 auto;
   }
 
   .day-label, .month-label {

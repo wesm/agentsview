@@ -68,15 +68,17 @@ verify_checksum() {
     local filename="$3"
 
     if [ ! -f "$checksums_file" ]; then
-        warn "Checksum file not available, skipping verification"
-        return 0
+        if [ "${AGENTSVIEW_SKIP_CHECKSUM:-0}" = "1" ]; then
+            warn "Checksum file not available, skipping verification (AGENTSVIEW_SKIP_CHECKSUM=1)"
+            return 0
+        fi
+        error "Checksum file not available. Set AGENTSVIEW_SKIP_CHECKSUM=1 to bypass."
     fi
 
     local expected
     expected=$(awk -v f="$filename" '{gsub(/^\*/, "", $2); if ($2==f) {print $1; exit}}' "$checksums_file")
     if [ -z "$expected" ]; then
-        warn "No checksum found for $filename, skipping verification"
-        return 0
+        error "No checksum found for $filename in SHA256SUMS"
     fi
 
     local actual
@@ -85,8 +87,7 @@ verify_checksum() {
     elif command -v shasum &>/dev/null; then
         actual=$(shasum -a 256 "$file" | cut -d' ' -f1)
     else
-        warn "No sha256 tool available, skipping verification"
-        return 0
+        error "No sha256 tool available. Install coreutils or set AGENTSVIEW_SKIP_CHECKSUM=1 to bypass."
     fi
 
     if [ "$expected" != "$actual" ]; then
@@ -124,11 +125,8 @@ install_from_release() {
         return 1
     fi
 
-    if download "${base_url}/SHA256SUMS" "$tmpdir/SHA256SUMS" 2>/dev/null; then
-        verify_checksum "$tmpdir/release.tar.gz" "$tmpdir/SHA256SUMS" "$filename"
-    else
-        warn "WARNING: Could not download SHA256SUMS -- integrity not verified"
-    fi
+    download "${base_url}/SHA256SUMS" "$tmpdir/SHA256SUMS" 2>/dev/null || true
+    verify_checksum "$tmpdir/release.tar.gz" "$tmpdir/SHA256SUMS" "$filename"
 
     info "Extracting..."
     tar -xzf "$tmpdir/release.tar.gz" -C "$tmpdir"

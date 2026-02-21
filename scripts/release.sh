@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-VERSION="$1"
+VERSION="${1:-}"
 EXTRA_INSTRUCTIONS="${2:-}"
 
 if [ -z "$VERSION" ]; then
@@ -27,11 +27,6 @@ fi
 
 if ! git diff-index --quiet HEAD --; then
     echo "Error: You have uncommitted changes. Please commit or stash them first."
-    exit 1
-fi
-
-if ! command -v gh &> /dev/null; then
-    echo "Error: gh CLI is required. Install from https://cli.github.com/"
     exit 1
 fi
 

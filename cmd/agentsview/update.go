@@ -58,6 +58,19 @@ func runUpdate(args []string) {
 		if *check {
 			return
 		}
+		// Cache-only results lack download metadata; re-fetch.
+		if info.NeedsRefetch() {
+			info, err = update.CheckForUpdate(
+				version, true, dataDir,
+			)
+			if err != nil {
+				log.Fatalf("checking for updates: %v", err)
+			}
+			if info == nil {
+				fmt.Println("Up to date.")
+				return
+			}
+		}
 	} else {
 		fmt.Printf(
 			"Update available: %s -> %s",

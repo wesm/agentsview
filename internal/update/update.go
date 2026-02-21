@@ -50,6 +50,15 @@ type UpdateInfo struct {
 	Size           int64
 	Checksum       string
 	IsDevBuild     bool
+	// cacheOnly is set when the info came from cache and lacks
+	// download metadata. The caller must re-fetch for installs.
+	cacheOnly bool
+}
+
+// NeedsRefetch returns true when the info came from cache
+// and lacks the download URL/checksum needed for an install.
+func (u *UpdateInfo) NeedsRefetch() bool {
+	return u.cacheOnly
 }
 
 // findAssets locates the platform binary and checksums file.
@@ -288,7 +297,12 @@ func installBinaryTo(srcPath, dstPath string) error {
 	}
 
 	if err := copyFile(srcPath, dstPath); err != nil {
-		_ = os.Rename(backupPath, dstPath)
+		if restoreErr := os.Rename(backupPath, dstPath); restoreErr != nil {
+			return fmt.Errorf(
+				"install: %w (rollback also failed: %v)",
+				err, restoreErr,
+			)
+		}
 		return fmt.Errorf("install: %w", err)
 	}
 
@@ -645,10 +659,14 @@ func checkCache(
 	latestVersion := strings.TrimPrefix(cached.Version, "v")
 
 	if isDevBuild {
+		// Cache only records the version, not full asset metadata.
+		// Return nil so the caller re-fetches with full info when
+		// an install (not just --check) is needed.
 		return &UpdateInfo{
 			CurrentVersion: currentVersion,
 			LatestVersion:  cached.Version,
 			IsDevBuild:     true,
+			cacheOnly:      true,
 		}, true
 	}
 
