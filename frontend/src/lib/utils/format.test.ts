@@ -2,79 +2,63 @@ import { describe, it, expect } from "vitest";
 import { sanitizeSnippet } from "./format.js";
 
 describe("sanitizeSnippet", () => {
-  it("preserves <mark> tags", () => {
-    const input = "hello <mark>world</mark> end";
-    expect(sanitizeSnippet(input)).toBe(
+  it.each([
+    [
+      "preserves <mark> tags",
       "hello <mark>world</mark> end",
-    );
-  });
-
-  it("escapes other HTML tags", () => {
-    const input = '<script>alert("xss")</script>';
-    expect(sanitizeSnippet(input)).toBe(
+      "hello <mark>world</mark> end",
+    ],
+    [
+      "escapes other HTML tags",
+      '<script>alert("xss")</script>',
       '&lt;script&gt;alert("xss")&lt;/script&gt;',
-    );
-  });
-
-  it("escapes img tags", () => {
-    const input = '<img src=x onerror=alert(1)>';
-    expect(sanitizeSnippet(input)).toBe(
+    ],
+    [
+      "escapes img tags",
+      "<img src=x onerror=alert(1)>",
       "&lt;img src=x onerror=alert(1)&gt;",
-    );
-  });
-
-  it("handles mixed mark and other tags", () => {
-    const input =
-      '<b>bold</b> <mark>highlighted</mark> <i>italic</i>';
-    expect(sanitizeSnippet(input)).toBe(
-      "&lt;b&gt;bold&lt;/b&gt; " +
-        "<mark>highlighted</mark> " +
-        "&lt;i&gt;italic&lt;/i&gt;",
-    );
-  });
-
-  it("handles case-insensitive mark tags", () => {
-    const input = "<MARK>upper</MARK> <Mark>mixed</Mark>";
-    expect(sanitizeSnippet(input)).toBe(
+    ],
+    [
+      "handles mixed mark and other tags",
+      '<b>bold</b> <mark>highlighted</mark> <i>italic</i>',
+      "&lt;b&gt;bold&lt;/b&gt; <mark>highlighted</mark> &lt;i&gt;italic&lt;/i&gt;",
+    ],
+    [
+      "handles case-insensitive mark tags",
+      "<MARK>upper</MARK> <Mark>mixed</Mark>",
       "<mark>upper</mark> <mark>mixed</mark>",
-    );
-  });
-
-  it("handles multiple mark spans", () => {
-    const input =
-      "<mark>first</mark> gap <mark>second</mark>";
-    expect(sanitizeSnippet(input)).toBe(
+    ],
+    [
+      "handles multiple mark spans",
       "<mark>first</mark> gap <mark>second</mark>",
-    );
-  });
-
-  it("returns empty string for empty input", () => {
-    expect(sanitizeSnippet("")).toBe("");
-  });
-
-  it("handles plain text without tags", () => {
-    const input = "no tags here";
-    expect(sanitizeSnippet(input)).toBe("no tags here");
-  });
-
-  it("escapes angle brackets in content", () => {
-    const input = "x < y > z";
-    expect(sanitizeSnippet(input)).toBe("x &lt; y &gt; z");
-  });
-
-  it("handles nested mark tags gracefully", () => {
-    const input = "<mark>outer <mark>inner</mark></mark>";
-    expect(sanitizeSnippet(input)).toBe(
+      "<mark>first</mark> gap <mark>second</mark>",
+    ],
+    [
+      "returns empty string for empty input",
+      "",
+      "",
+    ],
+    [
+      "handles plain text without tags",
+      "no tags here",
+      "no tags here",
+    ],
+    [
+      "escapes angle brackets in content",
+      "x < y > z",
+      "x &lt; y &gt; z",
+    ],
+    [
+      "handles nested mark tags gracefully",
       "<mark>outer <mark>inner</mark></mark>",
-    );
-  });
-
-  it("escapes event handler attributes in mark-like tags", () => {
-    const input = '<mark onload=alert(1)>text</mark>';
-    // The opening tag has attributes so it won't match <mark>
-    // exactly — it should be escaped
-    expect(sanitizeSnippet(input)).toBe(
+      "<mark>outer <mark>inner</mark></mark>",
+    ],
+    [
+      "escapes event handler attributes in mark-like tags",
+      "<mark onload=alert(1)>text</mark>",
       "&lt;mark onload=alert(1)&gt;text</mark>",
-    );
+    ],
+  ])("%s", (_name, input, expected) => {
+    expect(sanitizeSnippet(input)).toBe(expected);
   });
 });
