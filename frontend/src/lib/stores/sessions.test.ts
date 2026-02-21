@@ -348,9 +348,11 @@ describe("SessionsStore", () => {
       sessions.activeSessionId = "old-session";
 
       sessions.setProjectFilter("myproj");
-      // Wait for the load() triggered by setProjectFilter
+      // Wait for load() triggered by setProjectFilter to complete,
+      // not just start — verifies loading clears after the fetch.
       await vi.waitFor(() => {
         expect(api.listSessions).toHaveBeenCalled();
+        expect(sessions.loading).toBe(false);
       });
 
       expect(sessions.filters.project).toBe("myproj");
