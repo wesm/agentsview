@@ -6,7 +6,7 @@ import type {
   VelocityResponse,
 } from "../api/types.js";
 
-interface AnalyticsData {
+export interface AnalyticsData {
   from: string;
   to: string;
   summary: AnalyticsSummary | null;
@@ -35,6 +35,19 @@ function escapeCSV(value: string): string {
 
 function row(cells: (string | number)[]): string {
   return cells.map((c) => escapeCSV(String(c))).join(",");
+}
+
+function buildTableSection<T>(
+  title: string,
+  headers: string[],
+  items: T[],
+  mapper: (item: T) => (string | number)[],
+): string {
+  return [
+    title,
+    row(headers),
+    ...items.map((item) => row(mapper(item))),
+  ].join("\n");
 }
 
 function buildSummarySection(
@@ -68,9 +81,9 @@ function buildSummarySection(
 function buildActivitySection(
   activity: ActivityResponse,
 ): string {
-  const lines = [
+  return buildTableSection(
     "Activity",
-    row([
+    [
       "Date",
       "Sessions",
       "Messages",
@@ -78,62 +91,52 @@ function buildActivitySection(
       "Assistant Messages",
       "Tool Calls",
       "Thinking Messages",
-    ]),
-  ];
-  for (const e of activity.series) {
-    lines.push(
-      row([
-        e.date,
-        e.sessions,
-        e.messages,
-        e.user_messages,
-        e.assistant_messages,
-        e.tool_calls,
-        e.thinking_messages,
-      ]),
-    );
-  }
-  return lines.join("\n");
+    ],
+    activity.series,
+    (e) => [
+      e.date,
+      e.sessions,
+      e.messages,
+      e.user_messages,
+      e.assistant_messages,
+      e.tool_calls,
+      e.thinking_messages,
+    ],
+  );
 }
 
 function buildProjectsSection(
   projects: ProjectsAnalyticsResponse,
 ): string {
-  const lines = [
+  return buildTableSection(
     "Projects",
-    row([
+    [
       "Name",
       "Sessions",
       "Messages",
       "Avg Messages",
       "Median Messages",
-    ]),
-  ];
-  for (const p of projects.projects) {
-    lines.push(
-      row([
-        p.name,
-        p.sessions,
-        p.messages,
-        p.avg_messages,
-        p.median_messages,
-      ]),
-    );
-  }
-  return lines.join("\n");
+    ],
+    projects.projects,
+    (p) => [
+      p.name,
+      p.sessions,
+      p.messages,
+      p.avg_messages,
+      p.median_messages,
+    ],
+  );
 }
 
 function buildToolsSection(
   tools: ToolsAnalyticsResponse,
 ): string {
-  const lines = [
+  return buildTableSection(
     "Tool Usage",
-    row(["Category", "Count", "Percentage"]),
-  ];
-  for (const c of tools.by_category) {
-    lines.push(row([c.category, c.count, c.pct + "%"]));
-  }
-  return lines.join("\n");
+    ["Category", "Count", "Percentage"],
+    tools.by_category,
+    (c) => [c.category, c.count, `${c.pct}%`],
+  );
 }
 
 function buildVelocitySection(
@@ -168,36 +171,40 @@ function buildVelocitySection(
   return lines.join("\n");
 }
 
-export function exportAnalyticsCSV(data: AnalyticsData) {
-  const sections: string[] = [];
+export function generateAnalyticsCSV(
+  data: AnalyticsData,
+): string {
+  return [
+    data.summary && buildSummarySection(data.summary),
+    data.activity && buildActivitySection(data.activity),
+    data.projects && buildProjectsSection(data.projects),
+    data.tools && buildToolsSection(data.tools),
+    data.velocity && buildVelocitySection(data.velocity),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
 
-  if (data.summary) {
-    sections.push(buildSummarySection(data.summary));
-  }
-  if (data.activity) {
-    sections.push(buildActivitySection(data.activity));
-  }
-  if (data.projects) {
-    sections.push(buildProjectsSection(data.projects));
-  }
-  if (data.tools) {
-    sections.push(buildToolsSection(data.tools));
-  }
-  if (data.velocity) {
-    sections.push(buildVelocitySection(data.velocity));
-  }
-
-  if (sections.length === 0) return;
-
-  const csv = sections.join("\n\n");
+export function downloadCSV(
+  csv: string,
+  filename: string,
+): void {
+  if (!csv) return;
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
-  const filename =
-    `analytics-${data.from}-to-${data.to}.csv`;
-
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
+export function exportAnalyticsCSV(
+  data: AnalyticsData,
+): void {
+  const csv = generateAnalyticsCSV(data);
+  downloadCSV(
+    csv,
+    `analytics-${data.from}-to-${data.to}.csv`,
+  );
 }
