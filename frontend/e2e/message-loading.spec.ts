@@ -21,7 +21,9 @@ test.describe("Message loading", () => {
     await sp.selectFirstSession();
 
     // Wait for at least one message request to have fired
-    expect(messageRequests.length).toBeGreaterThan(0);
+    await expect
+      .poll(() => messageRequests.length, { timeout: 5_000 })
+      .toBeGreaterThan(0);
     const settled = await stableValue(
       () => messageRequests.length,
       500,
@@ -90,7 +92,7 @@ async function stableValue(
   durationMs: number,
   pollMs: number = 100,
 ): Promise<boolean> {
-  const deadline = Date.now() + durationMs * 1.5;
+  const deadline = Date.now() + durationMs * 3;
   let last = fn();
   let stableStart = Date.now();
 
@@ -128,7 +130,7 @@ async function waitForRowCountStable(
   // Wait for count to stop changing
   let lastCount = await page.locator(".virtual-row").count();
   let stableStart = Date.now();
-  const deadline = Date.now() + durationMs * 1.5;
+  const deadline = Date.now() + durationMs * 3;
 
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 200));
@@ -141,4 +143,8 @@ async function waitForRowCountStable(
       return;
     }
   }
+  throw new Error(
+    `Row count did not stabilize within ${durationMs * 3}ms` +
+      ` (last count: ${lastCount})`,
+  );
 }

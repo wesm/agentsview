@@ -26,11 +26,17 @@ export class RuntimeErrorMonitor {
 
   /** Errors matching the given pattern. */
   matching(pattern: RegExp): string[] {
-    return this.errors.filter((m) => pattern.test(m));
+    return this.errors.filter((m) => {
+      pattern.lastIndex = 0;
+      return pattern.test(m);
+    });
   }
 
   /** Errors not matching the given pattern. */
   excluding(pattern: RegExp): string[] {
-    return this.errors.filter((m) => !pattern.test(m));
+    return this.errors.filter((m) => {
+      pattern.lastIndex = 0;
+      return !pattern.test(m);
+    });
   }
 }

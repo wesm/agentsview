@@ -14,6 +14,7 @@ test.describe("Session list", () => {
   });
 
   test("session count header is visible", async () => {
+    await expect(sp.sessionListHeader).toBeVisible();
     await expect(sp.sessionListHeader).toContainText("sessions");
   });
 

@@ -18,6 +18,6 @@ export default defineConfig({
     command: "bash ../scripts/e2e-server.sh",
     port: 8090,
     reuseExistingServer: false,
-    timeout: 15_000,
+    timeout: 30_000,
   },
 });

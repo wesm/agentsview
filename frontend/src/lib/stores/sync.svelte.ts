@@ -11,7 +11,9 @@ const HASH_PREFIX_LEN = 7;
 
 /**
  * Compare two commit hashes, tolerating short vs full SHA.
- * Returns true when both are known and their prefixes differ.
+ * Returns true when both are known and they disagree.
+ * Uses prefix comparison only when one hash is shorter
+ * than the other (i.e. an abbreviation).
  */
 export function commitsDisagree(
   a: string,
@@ -19,9 +21,12 @@ export function commitsDisagree(
 ): boolean {
   if (a === "unknown" || b === "unknown") return false;
   if (a === b) return false;
-  const pa = a.slice(0, HASH_PREFIX_LEN);
-  const pb = b.slice(0, HASH_PREFIX_LEN);
-  return pa !== pb;
+  const minLen = Math.min(a.length, b.length);
+  if (minLen < HASH_PREFIX_LEN) return true;
+  if (a.length !== b.length) {
+    return a.slice(0, minLen) !== b.slice(0, minLen);
+  }
+  return true;
 }
 
 class SyncStore {

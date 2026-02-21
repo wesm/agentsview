@@ -64,6 +64,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_machine
     ON sessions(machine);
 CREATE INDEX IF NOT EXISTS idx_messages_session_ordinal
     ON messages(session_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_messages_session_role
+    ON messages(session_id, role);
 
 -- Analytics indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_started

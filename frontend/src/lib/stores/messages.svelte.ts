@@ -272,6 +272,8 @@ class MessagesStore {
 
       const oldestNow = this.messages[0]?.ordinal;
       this.hasOlder = oldestNow !== undefined && oldestNow > 0;
+    } catch {
+      // Non-fatal: session may have changed or network error.
     } finally {
       if (this.sessionId === id) {
         this.loadingOlder = false;
@@ -298,7 +300,7 @@ class MessagesStore {
         // If incremental fetch fell out of sync, repair once.
         const newest = this.messages[this.messages.length - 1];
         if (newest && newest.ordinal !== newCount - 1) {
-          await this.fullReload(id);
+          await this.fullReload(id, newCount);
           return;
         }
 

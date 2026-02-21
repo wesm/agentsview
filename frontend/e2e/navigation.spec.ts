@@ -28,5 +28,11 @@ test.describe("Navigation", () => {
   test("analytics page shows when no session selected", async () => {
     const analytics = sp.page.locator(".analytics-page");
     await expect(analytics).toBeVisible();
+    await expect(
+      sp.page.locator(".analytics-toolbar"),
+    ).toBeVisible();
+    await expect(
+      sp.page.locator(".export-btn"),
+    ).toContainText("Export CSV");
   });
 });

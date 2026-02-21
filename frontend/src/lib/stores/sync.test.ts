@@ -36,4 +36,22 @@ describe("commitsDisagree", () => {
       ),
     ).toBe(true);
   });
+
+  it("returns true for full SHAs sharing 7-char prefix", () => {
+    expect(
+      commitsDisagree(
+        "abc1234aaaaaaaaaaaa",
+        "abc1234bbbbbbbbbbb",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for identical full SHAs", () => {
+    expect(
+      commitsDisagree(
+        "abc1234aaaaaaaaaaaa",
+        "abc1234aaaaaaaaaaaa",
+      ),
+    ).toBe(false);
+  });
 });
