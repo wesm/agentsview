@@ -183,6 +183,51 @@ describe("SearchStore", () => {
     expect(searchStore.results.length).toBe(2);
   });
 
+  it("should discard results from request that resolves during debounce window", async () => {
+    const firstReq = createDeferred<SearchResponse>();
+
+    // First search: resolves after query changes but before debounce fires
+    vi.mocked(api.search).mockImplementationOnce(
+      (_q, _p, init) =>
+        new Promise((resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(abortError());
+          });
+          firstReq.promise.then(resolve, reject);
+        }),
+    );
+
+    // Second search: resolves immediately
+    vi.mocked(api.search).mockResolvedValueOnce(
+      makeSearchResponse("beta", 2),
+    );
+
+    // Fire first search
+    searchStore.search("alpha");
+    vi.advanceTimersByTime(DEBOUNCE_MS);
+
+    // Query changes to "beta" — this aborts the first request
+    // immediately, before the debounce fires
+    searchStore.search("beta");
+
+    // First request tries to resolve during the debounce window
+    // but its signal is already aborted
+    firstReq.resolve(makeSearchResponse("alpha", 5));
+    await Promise.resolve();
+
+    // Alpha results must not appear
+    expect(searchStore.results.length).toBe(0);
+
+    // Now let the debounce fire for "beta"
+    vi.advanceTimersByTime(DEBOUNCE_MS);
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    // Results should be from "beta"
+    expect(searchStore.results.length).toBe(2);
+    expect(searchStore.isSearching).toBe(false);
+  });
+
   it("should pass signal to api.search", async () => {
     vi.mocked(api.search).mockResolvedValueOnce(
       makeSearchResponse("test", 1),

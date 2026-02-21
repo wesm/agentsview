@@ -29,6 +29,8 @@ class SearchStore {
       return;
     }
 
+    this.abortController?.abort();
+    this.abortController = null;
     this.debouncedSearch(q, this.project);
   }
 
