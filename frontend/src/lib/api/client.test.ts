@@ -243,6 +243,13 @@ describe("query serialization", () => {
       await search("hello", { project: "" });
       expect(lastUrl()).toBe("/api/v1/search?q=hello");
     });
+
+    it("rejects empty query string", () => {
+      expect(() => search("")).toThrow(
+        "search query must not be empty",
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe("analytics query serialization", () => {

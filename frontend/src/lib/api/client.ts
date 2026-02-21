@@ -134,6 +134,9 @@ export function search(
   } = {},
   init?: RequestInit,
 ): Promise<SearchResponse> {
+  if (!query) {
+    throw new Error("search query must not be empty");
+  }
   return fetchJSON(
     `/search${buildQuery({ q: query, ...params })}`,
     init,
