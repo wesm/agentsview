@@ -68,6 +68,16 @@ describe("sanitizeSnippet", () => {
       "<mark>real</mark> &lt;mark&gt;fake&lt;/mark&gt;",
       "<mark>real</mark> &lt;mark&gt;fake&lt;/mark&gt;",
     ],
+    [
+      "does not promote text matching old placeholder tokens",
+      "text \x00MARK_O\x00 and \x00MARK_C\x00 here",
+      "text \x00MARK_O\x00 and \x00MARK_C\x00 here",
+    ],
+    [
+      "does not promote nonce-shaped sequences into mark tags",
+      "text \x000\x00O\x000\x00 and \x000\x00C\x000\x00 here",
+      "text \x000\x00O\x000\x00 and \x000\x00C\x000\x00 here",
+    ],
   ])("%s", (_name, input, expected) => {
     expect(sanitizeSnippet(input)).toBe(expected);
   });

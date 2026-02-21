@@ -57,21 +57,26 @@ export function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+let nonceCounter = 0;
+
 /**
  * Sanitize an HTML snippet from FTS search results.
  * Only allows <mark> tags for highlighting; strips everything else.
  */
 export function sanitizeSnippet(html: string): string {
-  const OPEN = "\x00MARK_O\x00";
-  const CLOSE = "\x00MARK_C\x00";
-  const OPEN_RE = /\x00MARK_O\x00/g;
-  const CLOSE_RE = /\x00MARK_C\x00/g;
+  let nonce: string;
+  do {
+    nonce = `\x00${(nonceCounter++).toString(36)}\x00`;
+  } while (html.includes(nonce));
+
+  const OPEN = `${nonce}O${nonce}`;
+  const CLOSE = `${nonce}C${nonce}`;
 
   return html
     .replace(/<mark>/gi, OPEN)
     .replace(/<\/mark>/gi, CLOSE)
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(OPEN_RE, "<mark>")
-    .replace(CLOSE_RE, "</mark>");
+    .replaceAll(OPEN, "<mark>")
+    .replaceAll(CLOSE, "</mark>");
 }
