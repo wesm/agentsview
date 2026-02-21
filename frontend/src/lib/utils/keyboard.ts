@@ -19,6 +19,16 @@ interface ShortcutOptions {
   navigateMessage: (delta: number) => void;
 }
 
+function handleEscape(): void {
+  if (ui.activeModal !== null) {
+    ui.activeModal = null;
+    return;
+  }
+  if (sessions.activeSessionId && !isInputFocused()) {
+    sessions.deselectSession();
+  }
+}
+
 /**
  * Register global keyboard shortcuts.
  * Returns a cleanup function to remove the listener.
@@ -41,72 +51,45 @@ export function registerShortcuts(
 
     // Esc — always works
     if (e.key === "Escape") {
-      if (ui.activeModal !== null) {
-        ui.activeModal = null;
-      } else if (
-        sessions.activeSessionId &&
-        !isInputFocused()
-      ) {
-        sessions.deselectSession();
-      }
+      handleEscape();
       return;
     }
 
     // All other shortcuts: skip when modal open or input focused
     if (ui.activeModal !== null || isInputFocused()) return;
 
-    switch (e.key) {
-      case "j":
-      case "ArrowDown":
-        e.preventDefault();
-        opts.navigateMessage(1);
-        break;
-      case "k":
-      case "ArrowUp":
-        e.preventDefault();
-        opts.navigateMessage(-1);
-        break;
-      case "]":
-        e.preventDefault();
-        sessions.navigateSession(1);
-        break;
-      case "[":
-        e.preventDefault();
-        sessions.navigateSession(-1);
-        break;
-      case "o":
-        e.preventDefault();
-        ui.toggleSort();
-        break;
-      case "t":
-        e.preventDefault();
-        ui.toggleThinking();
-        break;
-      case "r":
-        e.preventDefault();
-        sync.triggerSync(() => {
-          sessions.load();
-        });
-        break;
-      case "e":
-        e.preventDefault();
+    const keyActions: Record<string, () => void> = {
+      j: () => opts.navigateMessage(1),
+      ArrowDown: () => opts.navigateMessage(1),
+      k: () => opts.navigateMessage(-1),
+      ArrowUp: () => opts.navigateMessage(-1),
+      "]": () => sessions.navigateSession(1),
+      "[": () => sessions.navigateSession(-1),
+      o: () => ui.toggleSort(),
+      t: () => ui.toggleThinking(),
+      r: () => sync.triggerSync(() => sessions.load()),
+      e: () => {
         if (sessions.activeSessionId) {
           window.open(
             getExportUrl(sessions.activeSessionId),
             "_blank",
           );
         }
-        break;
-      case "p":
-        e.preventDefault();
+      },
+      p: () => {
         if (sessions.activeSessionId) {
           ui.activeModal = "publish";
         }
-        break;
-      case "?":
-        e.preventDefault();
+      },
+      "?": () => {
         ui.activeModal = "shortcuts";
-        break;
+      },
+    };
+
+    const action = keyActions[e.key];
+    if (action) {
+      e.preventDefault();
+      action();
     }
   }
 
