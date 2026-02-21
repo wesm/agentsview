@@ -84,6 +84,13 @@ describe("UIStore", () => {
       ui.scrollToOrdinal(10);
       expect(ui.selectedOrdinal).toBe(10);
       expect(ui.pendingScrollOrdinal).toBe(10);
+      expect(ui.pendingScrollSession).toBeNull();
+    });
+
+    it("should store session ID when provided", () => {
+      ui.scrollToOrdinal(5, "sess-123");
+      expect(ui.pendingScrollOrdinal).toBe(5);
+      expect(ui.pendingScrollSession).toBe("sess-123");
     });
 
     it("should allow clearing pending independently", () => {

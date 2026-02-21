@@ -91,7 +91,7 @@
 
   function selectSearchResult(r: SearchResult) {
     sessions.selectSession(r.session_id);
-    ui.scrollToOrdinal(r.ordinal);
+    ui.scrollToOrdinal(r.ordinal, r.session_id);
     close();
   }
 

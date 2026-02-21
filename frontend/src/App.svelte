@@ -31,10 +31,18 @@
     const id = sessions.activeSessionId;
     untrack(() => {
       // Preserve selection when a pending scroll is queued
-      // (e.g. search result navigation sets both session +
-      // ordinal before this effect fires).
-      if (ui.pendingScrollOrdinal === null) {
+      // for this specific session (e.g. search result
+      // navigation sets session + ordinal before this effect
+      // fires). Clear if the pending scroll targets a
+      // different session or there is no pending scroll.
+      const pendingMatchesSession =
+        ui.pendingScrollOrdinal !== null &&
+        (ui.pendingScrollSession === null ||
+          ui.pendingScrollSession === id);
+      if (!pendingMatchesSession) {
         ui.clearSelection();
+        ui.pendingScrollOrdinal = null;
+        ui.pendingScrollSession = null;
       }
       if (id) {
         messages.loadSession(id);
@@ -79,6 +87,7 @@
       // may have cleared it before this effect ran).
       ui.selectedOrdinal = ordinal;
       ui.pendingScrollOrdinal = null;
+      ui.pendingScrollSession = null;
     });
   });
 

@@ -1974,7 +1974,7 @@ func (db *DB) GetAnalyticsTopSessions(
 		first_message, message_count,
 		started_at, ended_at
 		FROM sessions WHERE ` + where +
-		` ORDER BY ` + orderExpr + ` LIMIT 50`
+		` ORDER BY ` + orderExpr + ` LIMIT 200`
 
 	rows, err := db.reader.QueryContext(ctx, query, args...)
 	if err != nil {

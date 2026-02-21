@@ -180,8 +180,14 @@
             class:active-label={analytics.selectedHour === h}
             text-anchor="middle"
             role="button"
-            tabindex="-1"
+            tabindex="0"
             onclick={() => handleHourClick(h)}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleHourClick(h);
+              }
+            }}
           >
             {h}
           </text>
@@ -195,8 +201,14 @@
             class:active-label={analytics.selectedDow === row.dayIdx}
             text-anchor="end"
             role="button"
-            tabindex="-1"
+            tabindex="0"
             onclick={() => handleDayClick(row.dayIdx)}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleDayClick(row.dayIdx);
+              }
+            }}
           >
             {row.day}
           </text>
@@ -212,12 +224,18 @@
               class="how-cell"
               class:dimmed={isDimmed(row.dayIdx, cell.hour)}
               role="button"
-              tabindex="-1"
+              tabindex="0"
               onmouseenter={(e) =>
                 handleCellHover(e, row.day, cell.hour, cell.value)}
               onmouseleave={handleCellLeave}
               onclick={() =>
                 handleCellClick(row.dayIdx, cell.hour)}
+              onkeydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleCellClick(row.dayIdx, cell.hour);
+                }
+              }}
             />
           {/each}
         {/each}

@@ -23,6 +23,7 @@ class UIStore {
   activeModal: ModalType = $state(null);
   selectedOrdinal: number | null = $state(null);
   pendingScrollOrdinal: number | null = $state(null);
+  pendingScrollSession: string | null = $state(null);
 
   constructor() {
     $effect.root(() => {
@@ -64,9 +65,10 @@ class UIStore {
     this.selectedOrdinal = null;
   }
 
-  scrollToOrdinal(ordinal: number) {
+  scrollToOrdinal(ordinal: number, sessionId?: string) {
     this.selectedOrdinal = ordinal;
     this.pendingScrollOrdinal = ordinal;
+    this.pendingScrollSession = sessionId ?? null;
   }
 
   closeAll() {

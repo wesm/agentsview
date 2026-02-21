@@ -28,6 +28,16 @@ function parseFullDocument(html: string): Document {
  * mixed/nested obfuscation like `%26#106%3Bavascript:` or
  * `&#106;avascript:` is fully resolved and detected.
  */
+function tolerantDecodeURI(s: string): string {
+  return s.replace(/%[0-9A-Fa-f]{2}/g, (m) => {
+    try {
+      return decodeURIComponent(m);
+    } catch {
+      return m;
+    }
+  });
+}
+
 function normalizeHref(raw: string): string {
   const txt = document.createElement("textarea");
   let prev = raw;
@@ -38,12 +48,8 @@ function normalizeHref(raw: string): string {
     let cur = txt.value;
     // Strip control characters
     cur = cur.replace(/[\x00-\x1f\x7f]/g, "");
-    // Percent decode
-    try {
-      cur = decodeURIComponent(cur);
-    } catch {
-      // malformed percent sequences — keep as-is
-    }
+    // Tolerant percent decode (valid %xx chunks only)
+    cur = tolerantDecodeURI(cur);
     if (cur === prev) break;
     prev = cur;
   }
@@ -73,7 +79,7 @@ function assertNoAnchorScheme(
   // may not surface as <a> elements (e.g. stripped tags).
   // Matches quoted and unquoted href attribute values.
   const hrefPattern =
-    /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+    /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
   let match: RegExpExecArray | null;
   while ((match = hrefPattern.exec(html)) !== null) {
     const value = match[1] ?? match[2] ?? match[3] ?? "";
