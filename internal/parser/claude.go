@@ -191,6 +191,7 @@ func truncate(s string, maxLen int) string {
 // isClaudeSystemMessage returns true if the content matches
 // a known system-injected user message pattern.
 func isClaudeSystemMessage(content string) bool {
+	trimmed := strings.TrimSpace(content)
 	prefixes := [...]string{
 		"This session is being continued",
 		"[Request interrupted",
@@ -199,10 +200,9 @@ func isClaudeSystemMessage(content string) bool {
 		"<command-name>",
 		"<local-command-",
 		"Stop hook feedback:",
-		"Implement the following plan:",
 	}
 	for _, p := range prefixes {
-		if strings.HasPrefix(content, p) {
+		if strings.HasPrefix(trimmed, p) {
 			return true
 		}
 	}
