@@ -1,11 +1,11 @@
 <script lang="ts">
   import { analytics } from "../../stores/analytics.svelte.js";
 
-  const CELL_SIZE = 14;
-  const CELL_GAP = 2;
+  const CELL_SIZE = 21;
+  const CELL_GAP = 3;
   const CELL_STEP = CELL_SIZE + CELL_GAP;
-  const ROW_LABEL_WIDTH = 32;
-  const COL_LABEL_HEIGHT = 18;
+  const ROW_LABEL_WIDTH = 36;
+  const COL_LABEL_HEIGHT = 22;
   const DAY_LABELS = [
     "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
   ];
