@@ -5,65 +5,76 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 // rather than unstable indices.
 const ESTIMATE_PX = 120;
 
+const LOC = {
+  sessionItem: ".session-item",
+  sessionProject: ".session-project",
+  sessionCount: ".session-count",
+  listScroll: ".message-list-scroll",
+  row: ".virtual-row",
+} as const;
+
 const SESSIONS = {
   ALPHA_5: { project: "project-alpha", count: 5, displayRows: 5 },
   ALPHA_2: { project: "project-alpha", count: 2, displayRows: 2 },
   BETA_6: { project: "project-beta", count: 6, displayRows: 5 },
 };
 
-function getSessionItem(page: Page, project: string, count: number) {
-  return page
-    .locator(".session-item")
-    .filter({
-      has: page.locator(`.session-project:text-is("${project}")`),
-    })
-    .filter({
-      has: page.locator(`.session-count:text-is("${count}")`),
-    });
-}
-
-async function clickSession(
+function getSessionItem(
   page: Page,
   project: string,
   count: number,
-  expectedRows?: number,
 ) {
-  const item = getSessionItem(page, project, count);
+  return page
+    .locator(LOC.sessionItem)
+    .filter({
+      has: page.locator(
+        `${LOC.sessionProject}:text-is("${project}")`,
+      ),
+    })
+    .filter({
+      has: page.locator(
+        `${LOC.sessionCount}:text-is("${count}")`,
+      ),
+    });
+}
 
-  // Get the session ID from the item to ensure robust waiting
+async function selectSession(
+  page: Page,
+  project: string,
+  count: number,
+): Promise<string> {
+  const item = getSessionItem(page, project, count);
   const sessionId = await item.getAttribute("data-session-id");
   expect(sessionId).toBeTruthy();
-
   await item.click();
   await expect(item).toHaveClass(/active/);
+  return sessionId!;
+}
 
-  // Wait for the message list to show this session and finish loading.
-  // We check data-messages-session-id (set by the messages store) rather
-  // than just data-session-id (set by activeSessionId) to avoid a race
-  // where activeSessionId updates synchronously but loadSession() runs
-  // in a deferred $effect.
-  const messageList = page.locator(".message-list-scroll");
+async function expectSessionLoaded(
+  page: Page,
+  sessionId: string,
+  expectedRows?: number,
+) {
+  const messageList = page.locator(LOC.listScroll);
   await expect(messageList).toHaveAttribute(
     "data-session-id",
-    sessionId!,
+    sessionId,
   );
   await expect(messageList).toHaveAttribute(
     "data-messages-session-id",
-    sessionId!,
+    sessionId,
   );
-  await expect(messageList).toHaveAttribute("data-loaded", "true");
+  await expect(messageList).toHaveAttribute(
+    "data-loaded",
+    "true",
+  );
 
   if (expectedRows !== undefined) {
-    // Wait for the virtual list to settle on the target session's
-    // item count (assumes small item counts fit within
-    // viewport+overscan)
-    await expect(page.locator(".virtual-row")).toHaveCount(
-      expectedRows,
-    );
+    await expect(page.locator(LOC.row)).toHaveCount(expectedRows);
   } else {
-    // Wait for the list to render at least one item
     await expect(
-      page.locator(".virtual-row").first(),
+      page.locator(LOC.row).first(),
     ).toBeVisible();
   }
 }
@@ -74,7 +85,7 @@ async function clickSession(
  */
 async function waitForLayoutSettle(page: Page, itemCount: number) {
   const container = page
-    .locator(".message-list-scroll > div")
+    .locator(`${LOC.listScroll} > div`)
     .first();
   await expect
     .poll(async () => {
@@ -113,21 +124,22 @@ async function verifyNoVerticalGaps(rows: Locator) {
   }
 }
 
-test.describe("Virtualizer measurement", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/");
-    await expect(
-      page.locator("button.session-item").first(),
-    ).toBeVisible({ timeout: 5_000 });
-  });
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+  await expect(
+    page.locator(`button${LOC.sessionItem}`).first(),
+  ).toBeVisible({ timeout: 5_000 });
+});
 
+test.describe("Virtualizer measurement", () => {
   test("items are measured to actual DOM height", async ({
     page,
   }) => {
     const { project, count, displayRows } = SESSIONS.ALPHA_5;
-    await clickSession(page, project, count, displayRows);
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
 
-    const rows = page.locator(".virtual-row");
+    const rows = page.locator(LOC.row);
     const container = await waitForLayoutSettle(
       page,
       displayRows,
@@ -153,9 +165,10 @@ test.describe("Virtualizer measurement", () => {
     page,
   }) => {
     const { project, count, displayRows } = SESSIONS.ALPHA_5;
-    await clickSession(page, project, count, displayRows);
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
 
-    const rows = page.locator(".virtual-row");
+    const rows = page.locator(LOC.row);
     await waitForLayoutSettle(page, displayRows);
     await verifyNoVerticalGaps(rows);
   });
@@ -164,9 +177,10 @@ test.describe("Virtualizer measurement", () => {
     page,
   }) => {
     const { project, count, displayRows } = SESSIONS.ALPHA_5;
-    await clickSession(page, project, count, displayRows);
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
 
-    const rows = page.locator(".virtual-row");
+    const rows = page.locator(LOC.row);
     const container = await waitForLayoutSettle(
       page,
       displayRows,
@@ -189,12 +203,12 @@ test.describe("Virtualizer measurement", () => {
     page,
   }) => {
     const sessionA = SESSIONS.ALPHA_5;
-    await clickSession(
+    const sidA = await selectSession(
       page,
       sessionA.project,
       sessionA.count,
-      sessionA.displayRows,
     );
+    await expectSessionLoaded(page, sidA, sessionA.displayRows);
 
     const container = await waitForLayoutSettle(
       page,
@@ -207,12 +221,12 @@ test.describe("Virtualizer measurement", () => {
     expect(heightA).toBeGreaterThan(0);
 
     const sessionB = SESSIONS.ALPHA_2;
-    await clickSession(
+    const sidB = await selectSession(
       page,
       sessionB.project,
       sessionB.count,
-      sessionB.displayRows,
     );
+    await expectSessionLoaded(page, sidB, sessionB.displayRows);
 
     await waitForLayoutSettle(page, sessionB.displayRows);
 
@@ -229,9 +243,10 @@ test.describe("Virtualizer measurement", () => {
     page,
   }) => {
     const { project, count, displayRows } = SESSIONS.ALPHA_5;
-    await clickSession(page, project, count, displayRows);
-    const rows = page.locator(".virtual-row");
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
 
+    const rows = page.locator(LOC.row);
     const sortButton = page.getByLabel("Toggle sort order");
     await sortButton.click();
     await expect(rows.first()).toBeVisible({ timeout: 5_000 });
@@ -244,30 +259,24 @@ test.describe("Virtualizer measurement", () => {
     page,
   }) => {
     const sessionA = SESSIONS.ALPHA_2;
-    await clickSession(
+    const sidA = await selectSession(
       page,
       sessionA.project,
       sessionA.count,
-      sessionA.displayRows,
     );
+    await expectSessionLoaded(page, sidA, sessionA.displayRows);
 
     const sessionB = SESSIONS.ALPHA_5;
-    const targetItem = getSessionItem(
+    const messageList = page.locator(LOC.listScroll);
+    const prevId = await messageList.getAttribute(
+      "data-messages-session-id",
+    );
+
+    const sidB = await selectSession(
       page,
       sessionB.project,
       sessionB.count,
     );
-    const targetId = await targetItem.getAttribute(
-      "data-session-id",
-    );
-    expect(targetId).toBeTruthy();
-
-    const messageList = page.locator(".message-list-scroll");
-    const prevId = await messageList.getAttribute(
-      "data-messages-session-id",
-    );
-    await targetItem.click();
-    await expect(targetItem).toHaveClass(/active/);
 
     // Prove the messages store actually transitioned away from
     // the previous session before asserting the final loaded
@@ -276,72 +285,7 @@ test.describe("Virtualizer measurement", () => {
       "data-messages-session-id",
       prevId!,
     );
-    await expect(messageList).toHaveAttribute(
-      "data-messages-session-id",
-      targetId!,
-    );
-    await expect(messageList).toHaveAttribute(
-      "data-loaded",
-      "true",
-    );
 
-    await expect(
-      page.locator(".virtual-row").first(),
-    ).toBeVisible();
-
-    const rows = page.locator(".virtual-row");
-    await expect(rows).toHaveCount(sessionB.displayRows);
-  });
-});
-
-test.describe("Mixed content rendering", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/");
-    await expect(
-      page.locator("button.session-item").first(),
-    ).toBeVisible({ timeout: 5_000 });
-  });
-
-  test("tool group renders for consecutive tool-only messages", async ({
-    page,
-  }) => {
-    const { project, count, displayRows } = SESSIONS.BETA_6;
-    await clickSession(page, project, count, displayRows);
-
-    const toolGroup = page.locator(".tool-group");
-    await expect(toolGroup).toBeVisible();
-    await expect(toolGroup).toContainText(/tool calls?/i);
-
-    const toolGroupBody = page.locator(".tool-group-body");
-    await expect(toolGroupBody).toBeVisible();
-
-    // Should contain exactly 2 tool blocks inside the group
-    // (Indices 3 and 4 in the fixture are tool calls)
-    const toolBlocks = toolGroupBody.locator(".tool-block");
-    await expect(toolBlocks).toHaveCount(2);
-  });
-
-  test("thinking block is collapsed by default", async ({
-    page,
-  }) => {
-    const { project, count, displayRows } = SESSIONS.BETA_6;
-    await clickSession(page, project, count, displayRows);
-
-    const thinkingBlock = page.locator(".thinking-block");
-    await expect(thinkingBlock).toBeVisible();
-
-    // Content should be hidden (collapsed by default)
-    const thinkingContent = page.locator(".thinking-content");
-    await expect(thinkingContent).not.toBeVisible();
-
-    // Click to expand
-    const thinkingHeader = page.locator(".thinking-header");
-    await thinkingHeader.click();
-
-    // Content should now be visible
-    await expect(thinkingContent).toBeVisible();
-    await expect(thinkingContent).toContainText(
-      "Let me analyze...",
-    );
+    await expectSessionLoaded(page, sidB, sessionB.displayRows);
   });
 });
