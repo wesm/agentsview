@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { triggerSync } from "./client.js";
+import {
+  triggerSync,
+  listSessions,
+  search,
+  getAnalyticsSummary,
+  getAnalyticsActivity,
+  getAnalyticsHeatmap,
+  getAnalyticsTopSessions,
+} from "./client.js";
 import type { SyncHandle } from "./client.js";
 import type { SyncProgress } from "./types.js";
 
@@ -143,5 +151,142 @@ describe("triggerSync SSE parsing", () => {
 
     expect(progress.length).toBe(1);
     expect(progress[0]!.phase).toBe("scanning");
+  });
+});
+
+describe("query serialization", () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function lastUrl(): string {
+    const call = fetchSpy.mock.calls[0] as [string, ...unknown[]];
+    return call[0];
+  }
+
+  describe("buildQuery edge cases via listSessions", () => {
+    const cases: {
+      name: string;
+      params: Record<string, string | number | undefined>;
+      expected: string;
+    }[] = [
+      {
+        name: "omits undefined values",
+        params: {
+          project: undefined,
+          machine: "m1",
+        },
+        expected: "/api/v1/sessions?machine=m1",
+      },
+      {
+        name: "omits empty string values",
+        params: { project: "", machine: "m1" },
+        expected: "/api/v1/sessions?machine=m1",
+      },
+      {
+        name: "includes numeric zero",
+        params: { min_messages: 0 },
+        expected: "/api/v1/sessions?min_messages=0",
+      },
+      {
+        name: "includes positive numbers",
+        params: { limit: 25, min_messages: 5 },
+        expected:
+          "/api/v1/sessions?limit=25&min_messages=5",
+      },
+      {
+        name: "produces no query string when all empty",
+        params: {
+          project: "",
+          machine: "",
+          agent: "",
+        },
+        expected: "/api/v1/sessions",
+      },
+      {
+        name: "produces no query string when all undefined",
+        params: {
+          project: undefined,
+          machine: undefined,
+        },
+        expected: "/api/v1/sessions",
+      },
+    ];
+
+    for (const { name, params, expected } of cases) {
+      it(name, async () => {
+        await listSessions(params);
+        expect(lastUrl()).toBe(expected);
+      });
+    }
+  });
+
+  describe("search query serialization", () => {
+    it("includes query and non-empty params", async () => {
+      await search("hello", { project: "proj1", limit: 10 });
+      expect(lastUrl()).toBe(
+        "/api/v1/search?q=hello&project=proj1&limit=10",
+      );
+    });
+
+    it("omits empty project filter", async () => {
+      await search("hello", { project: "" });
+      expect(lastUrl()).toBe("/api/v1/search?q=hello");
+    });
+  });
+
+  describe("analytics query serialization", () => {
+    it("omits empty string params from summary", async () => {
+      await getAnalyticsSummary({
+        from: "2024-01-01",
+        project: "",
+        machine: "",
+      });
+      expect(lastUrl()).toBe(
+        "/api/v1/analytics/summary?from=2024-01-01",
+      );
+    });
+
+    it("includes all non-empty analytics params", async () => {
+      await getAnalyticsActivity({
+        from: "2024-01-01",
+        to: "2024-12-31",
+        granularity: "week",
+      });
+      expect(lastUrl()).toBe(
+        "/api/v1/analytics/activity" +
+          "?from=2024-01-01&to=2024-12-31&granularity=week",
+      );
+    });
+
+    it("omits empty metric from heatmap", async () => {
+      await getAnalyticsHeatmap({
+        from: "2024-01-01",
+        metric: "" as "messages" | "sessions",
+      });
+      expect(lastUrl()).toBe(
+        "/api/v1/analytics/heatmap?from=2024-01-01",
+      );
+    });
+
+    it("omits empty metric from top-sessions", async () => {
+      await getAnalyticsTopSessions({
+        from: "2024-01-01",
+        metric: "" as "messages" | "duration",
+      });
+      expect(lastUrl()).toBe(
+        "/api/v1/analytics/top-sessions?from=2024-01-01",
+      );
+    });
   });
 });
