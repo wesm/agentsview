@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { sanitizeSnippet } from "./format.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { sanitizeSnippet, _resetNonceCounter } from "./format.js";
 
 describe("sanitizeSnippet", () => {
+  beforeEach(() => {
+    _resetNonceCounter(0);
+  });
+
   it.each([
     [
       "preserves <mark> tags",
@@ -74,7 +78,7 @@ describe("sanitizeSnippet", () => {
       "text \x00MARK_O\x00 and \x00MARK_C\x00 here",
     ],
     [
-      "does not promote nonce-shaped sequences into mark tags",
+      "skips nonce when input contains the candidate placeholder",
       "text \x000\x00O\x000\x00 and \x000\x00C\x000\x00 here",
       "text \x000\x00O\x000\x00 and \x000\x00C\x000\x00 here",
     ],

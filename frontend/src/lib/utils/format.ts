@@ -59,6 +59,11 @@ export function formatNumber(n: number): string {
 
 let nonceCounter = 0;
 
+/** Reset the nonce counter. Exported for testing only. */
+export function _resetNonceCounter(value = 0): void {
+  nonceCounter = value;
+}
+
 /**
  * Sanitize an HTML snippet from FTS search results.
  * Only allows <mark> tags for highlighting; strips everything else.
