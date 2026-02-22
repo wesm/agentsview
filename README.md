@@ -2,29 +2,13 @@
 
 A local web application for browsing, searching, and analyzing
 AI agent coding sessions. Supports Claude Code, Codex, and
-Gemini CLI.
+Gemini CLI. A next-generation rewrite of
+[agent-session-viewer](https://github.com/wesm/agent-session-viewer)
+in Go.
 
-![Analytics dashboard](https://agentsview.io/screenshots/dashboard.png)
-
-## Why?
-
-AI coding agents generate large volumes of session data across
-projects. agentsview indexes these sessions into a local SQLite
-database with full-text search, providing a web interface to
-find past conversations, review agent behavior, and track usage
-patterns over time.
-
-## Features
-
-- **Full-text search** across all message content, instantly
-- **Analytics dashboard** with activity heatmaps, tool usage,
-  velocity metrics, and project breakdowns
-- **Multi-agent support** for Claude Code, Codex, and Gemini CLI
-- **Live updates** via SSE as active sessions receive new messages
-- **Keyboard-first** navigation (vim-style `j`/`k`/`[`/`]`)
-- **Export and publish** sessions as HTML or to GitHub Gist
-- **Local-first** -- all data stays on your machine, single binary,
-  no accounts
+<p align="center">
+  <img src="https://agentsview.io/screenshots/dashboard.png" alt="Analytics dashboard" width="720">
+</p>
 
 ## Install
 
@@ -49,6 +33,26 @@ cd agentsview
 make build
 make install  # installs to ~/.local/bin
 ```
+
+## Why?
+
+AI coding agents generate large volumes of session data across
+projects. agentsview indexes these sessions into a local SQLite
+database with full-text search, providing a web interface to
+find past conversations, review agent behavior, and track usage
+patterns over time.
+
+## Features
+
+- **Full-text search** across all message content, instantly
+- **Analytics dashboard** with activity heatmaps, tool usage,
+  velocity metrics, and project breakdowns
+- **Multi-agent support** for Claude Code, Codex, and Gemini CLI
+- **Live updates** via SSE as active sessions receive new messages
+- **Keyboard-first** navigation (vim-style `j`/`k`/`[`/`]`)
+- **Export and publish** sessions as HTML or to GitHub Gist
+- **Local-first** -- all data stays on your machine, single binary,
+  no accounts
 
 ## Usage
 
