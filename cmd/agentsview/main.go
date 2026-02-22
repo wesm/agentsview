@@ -204,8 +204,8 @@ func printSyncProgress(p sync.Progress) {
 func startFileWatcher(
 	cfg config.Config, engine *sync.Engine,
 ) func() {
-	onChange := func(_ []string) {
-		engine.SyncAll(nil)
+	onChange := func(paths []string) {
+		engine.SyncPaths(paths)
 	}
 	watcher, err := sync.NewWatcher(watcherDebounce, onChange)
 	if err != nil {

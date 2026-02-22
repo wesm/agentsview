@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -441,6 +442,175 @@ func TestSyncEngineNoTrailingNewline(t *testing.T) {
 			t.Errorf("message_count = %d, want 1", sess.MessageCount)
 		}
 	})
+}
+
+func TestSyncPathsClaude(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "test-proj", "paths-test.jsonl", content,
+	)
+
+	// Initial full sync
+	runSyncAndAssert(t, env.engine, 1, 0)
+
+	assertSessionState(
+		t, env.db, "paths-test",
+		func(sess *db.Session) {
+			if sess.MessageCount != 1 {
+				t.Fatalf(
+					"initial message_count = %d, want 1",
+					sess.MessageCount,
+				)
+			}
+		},
+	)
+
+	// Append a message (changes size and hash)
+	appended := content + testjsonl.NewSessionBuilder().
+		AddClaudeAssistant(tsZeroS5, "reply").
+		String()
+	os.WriteFile(path, []byte(appended), 0o644)
+
+	// SyncPaths with just the changed file
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "paths-test",
+		func(sess *db.Session) {
+			if sess.MessageCount != 2 {
+				t.Errorf(
+					"message_count = %d, want 2",
+					sess.MessageCount,
+				)
+			}
+		},
+	)
+}
+
+func TestSyncPathsOnlyProcessesChanged(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content1 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "msg1").
+		String()
+	content2 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "msg2").
+		String()
+
+	path1 := env.writeClaudeSession(
+		t, "proj", "session-1.jsonl", content1,
+	)
+	env.writeClaudeSession(
+		t, "proj", "session-2.jsonl", content2,
+	)
+
+	// Initial full sync
+	runSyncAndAssert(t, env.engine, 2, 0)
+
+	// Only modify session-1
+	appended := content1 + testjsonl.NewSessionBuilder().
+		AddClaudeAssistant(tsZeroS5, "reply").
+		String()
+	os.WriteFile(path1, []byte(appended), 0o644)
+
+	// SyncPaths with just session-1
+	env.engine.SyncPaths([]string{path1})
+
+	// session-1 should have 2 messages
+	assertSessionState(
+		t, env.db, "session-1",
+		func(sess *db.Session) {
+			if sess.MessageCount != 2 {
+				t.Errorf(
+					"session-1 message_count = %d, want 2",
+					sess.MessageCount,
+				)
+			}
+		},
+	)
+	// session-2 should still have 1 message (untouched)
+	assertSessionState(
+		t, env.db, "session-2",
+		func(sess *db.Session) {
+			if sess.MessageCount != 1 {
+				t.Errorf(
+					"session-2 message_count = %d, want 1",
+					sess.MessageCount,
+				)
+			}
+		},
+	)
+}
+
+func TestSyncPathsIgnoresNonSessionFiles(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// SyncPaths with non-session paths: no panic, no error
+	env.engine.SyncPaths([]string{
+		filepath.Join(env.claudeDir, "some-dir"),
+		filepath.Join(env.claudeDir, "proj", "README.md"),
+		"/tmp/random-file.txt",
+	})
+}
+
+func TestSyncPathsCodex(t *testing.T) {
+	env := setupTestEnv(t)
+
+	uuid := "c3d4e5f6-3456-7890-abcd-ef1234567890"
+	content := testjsonl.NewSessionBuilder().
+		AddCodexMeta(
+			tsEarly, uuid,
+			"/home/user/code/api", "user",
+		).
+		AddCodexMessage(tsEarlyS1, "user", "Add tests").
+		String()
+
+	path := env.writeCodexSession(
+		t, filepath.Join("2024", "01", "15"),
+		"rollout-20240115-"+uuid+".jsonl", content,
+	)
+
+	// SyncPaths should process this Codex file
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "codex:"+uuid,
+		func(sess *db.Session) {
+			if sess.Agent != "codex" {
+				t.Errorf("agent = %q, want codex",
+					sess.Agent)
+			}
+		},
+	)
+}
+
+func TestSyncPathsIgnoresAgentFiles(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	// Create an agent-* file (should be ignored)
+	path := env.writeClaudeSession(
+		t, "proj", "agent-abc.jsonl", content,
+	)
+
+	// SyncPaths should ignore agent-* files
+	env.engine.SyncPaths([]string{path})
+
+	// No session should exist for agent-abc
+	sess, _ := env.db.GetSession(
+		context.Background(), "agent-abc",
+	)
+	if sess != nil {
+		t.Error("agent-* file should be ignored")
+	}
 }
 
 func TestSyncEngineCodexNoTrailingNewline(t *testing.T) {

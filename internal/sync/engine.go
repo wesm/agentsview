@@ -72,6 +72,120 @@ type syncJob struct {
 	path string
 }
 
+// SyncPaths syncs only the specified changed file paths
+// instead of discovering and hashing all session files.
+// Paths that don't match known session file patterns are
+// silently ignored.
+func (e *Engine) SyncPaths(paths []string) {
+	files := e.classifyPaths(paths)
+	if len(files) == 0 {
+		return
+	}
+
+	results := e.startWorkers(files)
+	stats := e.collectAndBatch(results, len(files), nil)
+
+	e.mu.Lock()
+	e.lastSync = time.Now()
+	e.mu.Unlock()
+
+	if stats.Synced > 0 {
+		log.Printf(
+			"sync: %d file(s) updated", stats.Synced,
+		)
+	}
+}
+
+// classifyPaths maps changed file system paths to
+// DiscoveredFile structs, filtering out paths that don't
+// match known session file patterns.
+func (e *Engine) classifyPaths(
+	paths []string,
+) []DiscoveredFile {
+	var geminiProjects map[string]string
+	var files []DiscoveredFile
+	for _, p := range paths {
+		if df, ok := e.classifyOnePath(
+			p, &geminiProjects,
+		); ok {
+			files = append(files, df)
+		}
+	}
+	return files
+}
+
+func (e *Engine) classifyOnePath(
+	path string,
+	geminiProjects *map[string]string,
+) (DiscoveredFile, bool) {
+	sep := string(filepath.Separator)
+
+	// Claude: <claudeDir>/<project>/<session>.jsonl
+	if e.claudeDir != "" &&
+		strings.HasPrefix(path, e.claudeDir+sep) {
+		if !strings.HasSuffix(path, ".jsonl") {
+			return DiscoveredFile{}, false
+		}
+		stem := strings.TrimSuffix(
+			filepath.Base(path), ".jsonl",
+		)
+		if strings.HasPrefix(stem, "agent-") {
+			return DiscoveredFile{}, false
+		}
+		rel := path[len(e.claudeDir)+1:]
+		parts := strings.SplitN(rel, sep, 2)
+		if len(parts) != 2 {
+			return DiscoveredFile{}, false
+		}
+		return DiscoveredFile{
+			Path:    path,
+			Project: parts[0],
+			Agent:   parser.AgentClaude,
+		}, true
+	}
+
+	// Codex: <codexDir>/.../<rollout>.jsonl
+	if e.codexDir != "" &&
+		strings.HasPrefix(path, e.codexDir+sep) {
+		if !strings.HasSuffix(path, ".jsonl") {
+			return DiscoveredFile{}, false
+		}
+		return DiscoveredFile{
+			Path:  path,
+			Agent: parser.AgentCodex,
+		}, true
+	}
+
+	// Gemini: <geminiDir>/tmp/<hash>/chats/session-*.json
+	if e.geminiDir != "" &&
+		strings.HasPrefix(path, e.geminiDir+sep) {
+		name := filepath.Base(path)
+		if !strings.HasPrefix(name, "session-") ||
+			!strings.HasSuffix(name, ".json") {
+			return DiscoveredFile{}, false
+		}
+		hashDir := filepath.Dir(filepath.Dir(path))
+		hash := filepath.Base(hashDir)
+
+		if *geminiProjects == nil {
+			*geminiProjects = buildGeminiProjectMap(
+				e.geminiDir,
+			)
+		}
+		project := (*geminiProjects)[hash]
+		if project == "" {
+			project = "unknown"
+		}
+		return DiscoveredFile{
+			Path:    path,
+			Project: project,
+			Agent:   parser.AgentGemini,
+		}, true
+	}
+
+	return DiscoveredFile{}, false
+}
+
 // SyncAll discovers and syncs all session files from all agents.
 func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	claude := DiscoverClaudeProjects(e.claudeDir)
