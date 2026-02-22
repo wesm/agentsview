@@ -136,7 +136,6 @@ class AnalyticsStore {
   clearDate() {
     this.selectedDate = null;
     this.fetchSummary();
-    this.fetchActivity();
     this.fetchProjects();
     this.fetchSessionShape();
     this.fetchVelocity();
@@ -264,11 +263,14 @@ class AnalyticsStore {
     );
   }
 
+  // Activity always uses the full date range so the timeline
+  // stays visible as context when a date is selected (the
+  // selected bar is highlighted instead of re-fetching).
   async fetchActivity() {
     await this.executeFetch(
       "activity",
       () => getAnalyticsActivity({
-        ...this.filterParams(),
+        ...this.baseParams(),
         granularity: this.granularity,
       }),
       (data) => { this.activity = data; },
@@ -365,7 +367,6 @@ class AnalyticsStore {
       this.selectedDate = date;
     }
     this.fetchSummary();
-    this.fetchActivity();
     this.fetchProjects();
     this.fetchSessionShape();
     this.fetchVelocity();

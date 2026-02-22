@@ -247,6 +247,8 @@
             rx="1"
             class="bar"
             class:empty={bar.value === 0}
+            class:selected={analytics.selectedDate === bar.date}
+            class:dimmed={analytics.selectedDate !== null && analytics.selectedDate !== bar.date}
             role="button"
             tabindex="0"
             onclick={() => handleBarClick(bar)}
@@ -352,10 +354,23 @@
     fill: var(--accent-blue);
     opacity: 0.8;
     cursor: pointer;
+    transition: opacity 0.15s;
   }
 
   .bar:hover {
     opacity: 1;
+  }
+
+  .bar.selected {
+    opacity: 1;
+  }
+
+  .bar.dimmed {
+    opacity: 0.2;
+  }
+
+  .bar.dimmed:hover {
+    opacity: 0.5;
   }
 
   .bar.empty {

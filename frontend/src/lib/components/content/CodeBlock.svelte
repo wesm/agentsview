@@ -16,27 +16,28 @@
 
 <style>
   .code-block {
-    background: var(--bg-inset);
-    border: 1px solid var(--border-muted);
-    border-radius: var(--radius-sm);
+    background: var(--code-bg);
+    border-radius: var(--radius-md);
     margin: 4px 0;
     overflow: hidden;
   }
 
   .code-lang {
-    padding: 2px 8px;
-    font-size: 10px;
+    padding: 4px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
     font-weight: 500;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border-muted);
+    color: var(--code-text);
+    opacity: 0.5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .code-content {
-    padding: 8px;
+    padding: 12px 16px;
     font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--code-text);
     overflow-x: auto;
   }
 

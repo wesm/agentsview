@@ -15,7 +15,7 @@
     <span class="thinking-chevron" class:open={!collapsed}>
       &#9656;
     </span>
-    <span class="thinking-label">THINKING</span>
+    <span class="thinking-label">Thinking</span>
   </button>
   {#if !collapsed}
     <div class="thinking-content">{content}</div>
@@ -24,7 +24,7 @@
 
 <style>
   .thinking-block {
-    border-left: 3px solid var(--accent-purple);
+    border-left: 2px solid var(--accent-purple);
     background: var(--thinking-bg);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     margin: 0;
@@ -33,24 +33,27 @@
   .thinking-header {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
+    gap: 6px;
+    padding: 6px 10px;
     width: 100%;
     text-align: left;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
+    color: var(--accent-purple);
+    letter-spacing: 0.01em;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: background 0.1s;
   }
 
   .thinking-header:hover {
-    color: var(--text-secondary);
+    background: var(--bg-surface-hover);
   }
 
   .thinking-chevron {
     display: inline-block;
     font-size: 10px;
     transition: transform 0.15s;
+    color: var(--text-muted);
   }
 
   .thinking-chevron.open {
@@ -58,12 +61,13 @@
   }
 
   .thinking-content {
-    padding: 4px 12px 8px;
-    font-size: 12px;
+    padding: 8px 14px 12px;
+    font-size: 13px;
     font-style: italic;
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-wrap: break-word;
-    line-height: 1.6;
+    line-height: 1.65;
+    border-top: 1px solid var(--border-muted);
   }
 </style>

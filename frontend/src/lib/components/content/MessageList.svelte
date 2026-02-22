@@ -225,15 +225,15 @@
 {#if !sessions.activeSessionId}
   <div class="empty-state">
     <div class="empty-icon">
-      <svg width="32" height="32" viewBox="0 0 16 16" fill="var(--text-muted)">
+      <svg width="36" height="36" viewBox="0 0 16 16" fill="var(--text-muted)">
         <path d="M14 1a1 1 0 011 1v8a1 1 0 01-1 1h-2.5a2 2 0 00-1.6.8L8 14.333 6.1 11.8a2 2 0 00-1.6-.8H2a1 1 0 01-1-1V2a1 1 0 011-1h12z"/>
       </svg>
     </div>
-    <p>Select a session to view messages</p>
+    <p class="empty-text">Select a session to view messages</p>
   </div>
 {:else if messages.loading && messages.messages.length === 0}
   <div class="empty-state">
-    <p>Loading messages...</p>
+    <p class="empty-text">Loading messages...</p>
   </div>
 {:else}
   <div
@@ -282,12 +282,12 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 4px 0;
+    padding: 8px 0;
     overflow-anchor: none;
   }
 
   .virtual-row {
-    padding: 4px 8px;
+    padding: 5px 12px;
     overflow-anchor: none;
   }
 
@@ -304,11 +304,15 @@
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    font-size: 13px;
-    gap: 8px;
+    gap: 12px;
   }
 
   .empty-icon {
-    opacity: 0.3;
+    opacity: 0.25;
+  }
+
+  .empty-text {
+    font-size: 14px;
+    font-weight: 500;
   }
 </style>

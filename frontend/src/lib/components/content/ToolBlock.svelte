@@ -8,7 +8,7 @@
   let collapsed: boolean = $state(true);
 
   let previewLine = $derived(
-    content.split("\n")[0]?.slice(0, 80) ?? "",
+    content.split("\n")[0]?.slice(0, 100) ?? "",
   );
 </script>
 
@@ -34,7 +34,7 @@
 
 <style>
   .tool-block {
-    border-left: 3px solid var(--accent-amber);
+    border-left: 2px solid var(--accent-amber);
     background: var(--tool-bg);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     margin: 0;
@@ -43,16 +43,19 @@
   .tool-header {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
+    gap: 6px;
+    padding: 6px 10px;
     width: 100%;
     text-align: left;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary);
     min-width: 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: background 0.1s;
   }
 
   .tool-header:hover {
+    background: var(--bg-surface-hover);
     color: var(--text-primary);
   }
 
@@ -61,6 +64,7 @@
     font-size: 10px;
     transition: transform 0.15s;
     flex-shrink: 0;
+    color: var(--text-muted);
   }
 
   .tool-chevron.open {
@@ -68,18 +72,17 @@
   }
 
   .tool-label {
-    font-weight: 600;
-    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
     color: var(--accent-amber);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .tool-preview {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -88,11 +91,12 @@
   }
 
   .tool-content {
-    padding: 4px 12px 8px;
+    padding: 8px 14px 10px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary);
     line-height: 1.5;
     overflow-x: auto;
+    border-top: 1px solid var(--border-muted);
   }
 </style>
