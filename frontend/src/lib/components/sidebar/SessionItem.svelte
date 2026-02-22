@@ -6,11 +6,22 @@
   interface Props {
     session: Session;
     continuationCount?: number;
+    groupSessionIds?: string[];
   }
 
-  let { session, continuationCount = 1 }: Props = $props();
+  let {
+    session,
+    continuationCount = 1,
+    groupSessionIds,
+  }: Props = $props();
 
-  let isActive = $derived(sessions.activeSessionId === session.id);
+  let isActive = $derived(
+    groupSessionIds
+      ? groupSessionIds.includes(
+          sessions.activeSessionId ?? "",
+        )
+      : sessions.activeSessionId === session.id,
+  );
 
   let agentColor = $derived(
     session.agent === "codex"

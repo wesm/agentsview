@@ -550,6 +550,50 @@ describe("buildSessionGroups", () => {
     expect(g.primarySessionId).toBe("s2");
   });
 
+  it("selects primary by ended_at not started_at", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T05:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: "2024-01-02T01:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("selects primary by ended_at when started_at later", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: "2024-01-02T01:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
   it("sorts sessions within group by startedAt asc", () => {
     const sessions = [
       makeSession({

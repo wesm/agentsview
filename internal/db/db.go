@@ -209,10 +209,12 @@ func (db *DB) init() error {
 	); err != nil {
 		return fmt.Errorf("adding slug column: %w", err)
 	}
-	_, _ = db.writer.Exec(
+	if _, err := db.writer.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_sessions_project_slug
 		 ON sessions(project, slug) WHERE slug IS NOT NULL`,
-	)
+	); err != nil {
+		return fmt.Errorf("creating slug index: %w", err)
+	}
 
 	return nil
 }

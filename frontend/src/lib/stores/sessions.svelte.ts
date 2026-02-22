@@ -306,8 +306,18 @@ export function buildSessionGroups(
     }
     group.firstMessage =
       group.sessions[0]?.first_message ?? null;
+
+    let bestIdx = 0;
+    let bestEnd = group.sessions[0]?.ended_at ?? "";
+    for (let i = 1; i < group.sessions.length; i++) {
+      const end = group.sessions[i]?.ended_at ?? "";
+      if (end > bestEnd) {
+        bestEnd = end;
+        bestIdx = i;
+      }
+    }
     group.primarySessionId =
-      group.sessions[group.sessions.length - 1]!.id;
+      group.sessions[bestIdx]!.id;
   }
 
   return insertionOrder.map((k) => groupMap.get(k)!);

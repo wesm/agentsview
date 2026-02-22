@@ -116,11 +116,16 @@
         style="position: absolute; top: 0; left: 0; width: 100%; height: {row.size}px; transform: translateY({row.start}px);"
       >
         {#if group}
-          {@const primary = group.sessions[group.sessions.length - 1]}
+          {@const primary = group.sessions.find(
+            (s) => s.id === group.primarySessionId,
+          ) ?? group.sessions[0]}
           {#if primary}
             <SessionItem
               session={primary}
               continuationCount={group.sessions.length}
+              groupSessionIds={group.sessions.length > 1
+                ? group.sessions.map((s) => s.id)
+                : undefined}
             />
           {/if}
         {/if}
