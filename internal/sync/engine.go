@@ -87,6 +87,7 @@ func (e *Engine) SyncPaths(paths []string) {
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
+	e.lastSyncStats = stats
 	e.mu.Unlock()
 
 	if stats.Synced > 0 {
@@ -114,6 +115,23 @@ func (e *Engine) classifyPaths(
 	return files
 }
 
+// isUnder checks whether path is strictly inside dir after
+// cleaning both paths. Returns the relative path on success.
+func isUnder(dir, path string) (string, bool) {
+	dir = filepath.Clean(dir)
+	path = filepath.Clean(path)
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return "", false
+	}
+	sep := string(filepath.Separator)
+	if rel == "." || rel == ".." ||
+		strings.HasPrefix(rel, ".."+sep) {
+		return "", false
+	}
+	return rel, true
+}
+
 func (e *Engine) classifyOnePath(
 	path string,
 	geminiProjects *map[string]string,
@@ -121,66 +139,81 @@ func (e *Engine) classifyOnePath(
 	sep := string(filepath.Separator)
 
 	// Claude: <claudeDir>/<project>/<session>.jsonl
-	if e.claudeDir != "" &&
-		strings.HasPrefix(path, e.claudeDir+sep) {
-		if !strings.HasSuffix(path, ".jsonl") {
-			return DiscoveredFile{}, false
+	if e.claudeDir != "" {
+		if rel, ok := isUnder(e.claudeDir, path); ok {
+			if !strings.HasSuffix(path, ".jsonl") {
+				return DiscoveredFile{}, false
+			}
+			stem := strings.TrimSuffix(
+				filepath.Base(path), ".jsonl",
+			)
+			if strings.HasPrefix(stem, "agent-") {
+				return DiscoveredFile{}, false
+			}
+			parts := strings.SplitN(rel, sep, 2)
+			if len(parts) != 2 {
+				return DiscoveredFile{}, false
+			}
+			return DiscoveredFile{
+				Path:    path,
+				Project: parts[0],
+				Agent:   parser.AgentClaude,
+			}, true
 		}
-		stem := strings.TrimSuffix(
-			filepath.Base(path), ".jsonl",
-		)
-		if strings.HasPrefix(stem, "agent-") {
-			return DiscoveredFile{}, false
-		}
-		rel := path[len(e.claudeDir)+1:]
-		parts := strings.SplitN(rel, sep, 2)
-		if len(parts) != 2 {
-			return DiscoveredFile{}, false
-		}
-		return DiscoveredFile{
-			Path:    path,
-			Project: parts[0],
-			Agent:   parser.AgentClaude,
-		}, true
 	}
 
-	// Codex: <codexDir>/.../<rollout>.jsonl
-	if e.codexDir != "" &&
-		strings.HasPrefix(path, e.codexDir+sep) {
-		if !strings.HasSuffix(path, ".jsonl") {
-			return DiscoveredFile{}, false
+	// Codex: <codexDir>/<year>/<month>/<day>/<file>.jsonl
+	if e.codexDir != "" {
+		if rel, ok := isUnder(e.codexDir, path); ok {
+			parts := strings.Split(rel, sep)
+			if len(parts) != 4 {
+				return DiscoveredFile{}, false
+			}
+			if !isDigits(parts[0]) ||
+				!isDigits(parts[1]) ||
+				!isDigits(parts[2]) {
+				return DiscoveredFile{}, false
+			}
+			if !strings.HasSuffix(parts[3], ".jsonl") {
+				return DiscoveredFile{}, false
+			}
+			return DiscoveredFile{
+				Path:  path,
+				Agent: parser.AgentCodex,
+			}, true
 		}
-		return DiscoveredFile{
-			Path:  path,
-			Agent: parser.AgentCodex,
-		}, true
 	}
 
 	// Gemini: <geminiDir>/tmp/<hash>/chats/session-*.json
-	if e.geminiDir != "" &&
-		strings.HasPrefix(path, e.geminiDir+sep) {
-		name := filepath.Base(path)
-		if !strings.HasPrefix(name, "session-") ||
-			!strings.HasSuffix(name, ".json") {
-			return DiscoveredFile{}, false
+	if e.geminiDir != "" {
+		if rel, ok := isUnder(e.geminiDir, path); ok {
+			parts := strings.Split(rel, sep)
+			if len(parts) != 4 ||
+				parts[0] != "tmp" ||
+				parts[2] != "chats" {
+				return DiscoveredFile{}, false
+			}
+			name := parts[3]
+			if !strings.HasPrefix(name, "session-") ||
+				!strings.HasSuffix(name, ".json") {
+				return DiscoveredFile{}, false
+			}
+			hash := parts[1]
+			if *geminiProjects == nil {
+				*geminiProjects = buildGeminiProjectMap(
+					e.geminiDir,
+				)
+			}
+			project := (*geminiProjects)[hash]
+			if project == "" {
+				project = "unknown"
+			}
+			return DiscoveredFile{
+				Path:    path,
+				Project: project,
+				Agent:   parser.AgentGemini,
+			}, true
 		}
-		hashDir := filepath.Dir(filepath.Dir(path))
-		hash := filepath.Base(hashDir)
-
-		if *geminiProjects == nil {
-			*geminiProjects = buildGeminiProjectMap(
-				e.geminiDir,
-			)
-		}
-		project := (*geminiProjects)[hash]
-		if project == "" {
-			project = "unknown"
-		}
-		return DiscoveredFile{
-			Path:    path,
-			Project: project,
-			Agent:   parser.AgentGemini,
-		}, true
 	}
 
 	return DiscoveredFile{}, false

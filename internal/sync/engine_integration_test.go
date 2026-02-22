@@ -16,6 +16,7 @@ import (
 type testEnv struct {
 	claudeDir string
 	codexDir  string
+	geminiDir string
 	db        *db.DB
 	engine    *sync.Engine
 }
@@ -29,11 +30,13 @@ func setupTestEnv(t *testing.T) *testEnv {
 	env := &testEnv{
 		claudeDir: t.TempDir(),
 		codexDir:  t.TempDir(),
+		geminiDir: t.TempDir(),
 		db:        dbtest.OpenTestDB(t),
 	}
 
 	env.engine = sync.NewEngine(
-		env.db, env.claudeDir, env.codexDir, "", "local",
+		env.db, env.claudeDir, env.codexDir,
+		env.geminiDir, "local",
 	)
 	return env
 }
@@ -72,6 +75,15 @@ func (e *testEnv) writeCodexSession(
 		t, e.codexDir,
 		filepath.Join(dayPath, filename), content,
 	)
+}
+
+// writeGeminiSession creates a JSON session file under the
+// Gemini directory at the given relative path.
+func (e *testEnv) writeGeminiSession(
+	t *testing.T, relPath, content string,
+) string {
+	t.Helper()
+	return e.writeSession(t, e.geminiDir, relPath, content)
 }
 
 func TestSyncEngineIntegration(t *testing.T) {
@@ -635,4 +647,179 @@ func TestSyncEngineCodexNoTrailingNewline(t *testing.T) {
 			t.Errorf("message_count = %d, want 1", sess.MessageCount)
 		}
 	})
+}
+
+func TestSyncPathsTrailingSlashDirs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Dirs with trailing slashes should still work after
+	// filepath.Clean normalisation in isUnder.
+	claudeDir := t.TempDir() + "/"
+	codexDir := t.TempDir() + "/"
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(
+		database, claudeDir, codexDir, "", "local",
+	)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	claudePath := filepath.Join(
+		claudeDir, "proj", "trailing.jsonl",
+	)
+	dbtest.WriteTestFile(t, claudePath, []byte(content))
+
+	engine.SyncPaths([]string{claudePath})
+
+	assertSessionState(
+		t, database, "trailing",
+		func(sess *db.Session) {
+			if sess.MessageCount != 1 {
+				t.Errorf(
+					"message_count = %d, want 1",
+					sess.MessageCount,
+				)
+			}
+		},
+	)
+}
+
+func TestSyncPathsGemini(t *testing.T) {
+	env := setupTestEnv(t)
+
+	sessionID := "gem-test-uuid"
+	hash := "abcdef1234567890"
+	content := testjsonl.GeminiSessionJSON(
+		sessionID, hash, tsEarly, tsEarlyS5,
+		[]map[string]any{
+			testjsonl.GeminiUserMsg(
+				"m1", tsEarly, "Hello Gemini",
+			),
+			testjsonl.GeminiAssistantMsg(
+				"m2", tsEarlyS5, "Hi there!", nil,
+			),
+		},
+	)
+
+	path := env.writeGeminiSession(
+		t,
+		filepath.Join(
+			"tmp", hash, "chats",
+			"session-001.json",
+		),
+		content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "gemini:"+sessionID,
+		func(sess *db.Session) {
+			if sess.Agent != "gemini" {
+				t.Errorf("agent = %q, want gemini",
+					sess.Agent)
+			}
+			if sess.MessageCount != 2 {
+				t.Errorf(
+					"message_count = %d, want 2",
+					sess.MessageCount,
+				)
+			}
+		},
+	)
+}
+
+func TestSyncPathsCodexRejectsFlat(t *testing.T) {
+	env := setupTestEnv(t)
+
+	uuid := "d4e5f6a7-4567-8901-bcde-f12345678901"
+	content := testjsonl.NewSessionBuilder().
+		AddCodexMeta(
+			tsEarly, uuid,
+			"/home/user/code/api", "user",
+		).
+		AddCodexMessage(tsEarlyS1, "user", "Add tests").
+		String()
+
+	// Write directly under codexDir (no year/month/day)
+	path := env.writeSession(
+		t, env.codexDir,
+		"rollout-flat-"+uuid+".jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	sess, _ := env.db.GetSession(
+		context.Background(), "codex:"+uuid,
+	)
+	if sess != nil {
+		t.Error(
+			"flat Codex file should be ignored " +
+				"(no year/month/day structure)",
+		)
+	}
+}
+
+func TestSyncPathsGeminiRejectsWrongStructure(t *testing.T) {
+	env := setupTestEnv(t)
+
+	sessionID := "gem-wrong-struct"
+	content := testjsonl.GeminiSessionJSON(
+		sessionID, "somehash", tsEarly, tsEarlyS5,
+		[]map[string]any{
+			testjsonl.GeminiUserMsg(
+				"m1", tsEarly, "Hello",
+			),
+		},
+	)
+
+	// Write session-*.json directly under geminiDir (wrong)
+	path1 := env.writeGeminiSession(
+		t, "session-wrong.json", content,
+	)
+	// Write under tmp/<hash> but without /chats/ dir
+	path2 := env.writeGeminiSession(
+		t,
+		filepath.Join("tmp", "abc123", "session-bad.json"),
+		content,
+	)
+
+	env.engine.SyncPaths([]string{path1, path2})
+
+	sess, _ := env.db.GetSession(
+		context.Background(), "gemini:"+sessionID,
+	)
+	if sess != nil {
+		t.Error(
+			"Gemini file outside tmp/<hash>/chats " +
+				"should be ignored",
+		)
+	}
+}
+
+func TestSyncPathsStatsUpdated(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "proj", "stats-test.jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	stats := env.engine.LastSyncStats()
+	if stats.Synced != 1 {
+		t.Errorf("LastSyncStats.Synced = %d, want 1",
+			stats.Synced)
+	}
+	lastSync := env.engine.LastSync()
+	if lastSync.IsZero() {
+		t.Error("LastSync should be set after SyncPaths")
+	}
 }
