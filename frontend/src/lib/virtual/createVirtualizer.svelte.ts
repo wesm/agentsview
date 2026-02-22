@@ -42,6 +42,7 @@ function createBaseVirtualizer<
   postUpdate?: (
     instance: Virtualizer<TScroll, TItem>,
     opts: BaseOpts<TScroll, TItem>,
+    reset: boolean,
   ) => void,
 ) {
   let instance:
@@ -49,6 +50,7 @@ function createBaseVirtualizer<
     | undefined = undefined;
   let notifyPending = false;
   let lastMeasureCacheKey: unknown = undefined;
+  let cacheKeyChanged = false;
   let _version = $state(0);
 
   function bumpVersion() {
@@ -62,10 +64,14 @@ function createBaseVirtualizer<
 
   $effect(() => {
     const opts = optsFn();
+    const willReset =
+      opts.measureCacheKey !== lastMeasureCacheKey &&
+      instance !== undefined;
     const resolvedOpts: VirtualizerOptions<TScroll, TItem> = {
       ...opts,
-      initialOffset:
-        instance?.scrollOffset ?? opts.initialOffset,
+      initialOffset: willReset
+        ? 0
+        : (instance?.scrollOffset ?? opts.initialOffset),
       onChange: (
         vInst: Virtualizer<TScroll, TItem>,
         sync: boolean,
@@ -90,16 +96,18 @@ function createBaseVirtualizer<
       };
     }
 
+    cacheKeyChanged = false;
     if (opts.measureCacheKey !== lastMeasureCacheKey) {
       // @ts-expect-error accessing private itemSizeCache
       instance.itemSizeCache = new Map();
+      cacheKeyChanged = true;
     }
     lastMeasureCacheKey = opts.measureCacheKey;
 
     instance.setOptions(resolvedOpts);
     instance._willUpdate();
 
-    postUpdate?.(instance, opts);
+    postUpdate?.(instance, opts, cacheKeyChanged);
 
     return () => {
       instance?._willUpdate();
@@ -129,9 +137,14 @@ export function createVirtualizer(
         initialOffset: scrollEl?.scrollTop ?? 0,
       };
     },
-    (instance, opts) => {
+    (instance, opts, reset) => {
       const scrollEl = opts.getScrollElement?.() ?? null;
-      if (scrollEl && scrollEl.scrollTop > 0) {
+      if (!scrollEl) return;
+      if (reset) {
+        scrollEl.scrollTop = 0;
+        return;
+      }
+      if (scrollEl.scrollTop > 0) {
         instance.scrollToOffset(scrollEl.scrollTop);
       }
     },
