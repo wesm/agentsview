@@ -39,6 +39,13 @@ function abortError(): DOMException {
   return new DOMException("The operation was aborted", "AbortError");
 }
 
+/** Flush multiple microtask ticks for async chains + reactivity. */
+async function flushMicrotasks(ticks = 4) {
+  for (let i = 0; i < ticks; i++) {
+    await Promise.resolve();
+  }
+}
+
 const DEBOUNCE_MS = 300;
 
 describe("SearchStore", () => {
@@ -177,7 +184,7 @@ describe("SearchStore", () => {
 
     // Resolve second search
     secondReq.resolve(makeSearchResponse("second", 2));
-    await Promise.resolve();
+    await flushMicrotasks();
 
     expect(searchStore.isSearching).toBe(false);
     expect(searchStore.results.length).toBe(2);
