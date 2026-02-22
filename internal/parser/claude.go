@@ -34,12 +34,13 @@ func ParseClaudeSession(
 	defer f.Close()
 
 	var (
-		messages  []ParsedMessage
-		firstMsg  string
-		slug      string
-		startedAt time.Time
-		endedAt   time.Time
-		ordinal   int
+		messages        []ParsedMessage
+		firstMsg        string
+		parentSessionID string
+		foundParentSID  bool
+		startedAt       time.Time
+		endedAt         time.Time
+		ordinal         int
 	)
 
 	scanner := bufio.NewScanner(f)
@@ -79,13 +80,17 @@ func ParseClaudeSession(
 			endedAt = ts
 		}
 
-		if slug == "" {
-			if s := gjson.Get(line, "slug").Str; s != "" {
-				slug = s
+		entryType := gjson.Get(line, "type").Str
+
+		if !foundParentSID &&
+			(entryType == "user" || entryType == "assistant") {
+			if sid := gjson.Get(line, "sessionId").Str; sid != "" {
+				foundParentSID = true
+				if sid != sessionID {
+					parentSessionID = sid
+				}
 			}
 		}
-
-		entryType := gjson.Get(line, "type").Str
 
 		if entryType == "user" || entryType == "assistant" {
 			// Tier 1: skip system-injected user entries by
@@ -137,15 +142,15 @@ func ParseClaudeSession(
 	}
 
 	sess := ParsedSession{
-		ID:           sessionID,
-		Project:      project,
-		Machine:      machine,
-		Agent:        AgentClaude,
-		Slug:         slug,
-		FirstMessage: firstMsg,
-		StartedAt:    startedAt,
-		EndedAt:      endedAt,
-		MessageCount: len(messages),
+		ID:              sessionID,
+		Project:         project,
+		Machine:         machine,
+		Agent:           AgentClaude,
+		ParentSessionID: parentSessionID,
+		FirstMessage:    firstMsg,
+		StartedAt:       startedAt,
+		EndedAt:         endedAt,
+		MessageCount:    len(messages),
 		File: FileInfo{
 			Path:  path,
 			Size:  info.Size(),

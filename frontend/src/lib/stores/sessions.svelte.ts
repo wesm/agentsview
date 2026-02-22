@@ -5,7 +5,6 @@ const SESSION_PAGE_SIZE = 500;
 
 export interface SessionGroup {
   key: string;
-  slug: string | null;
   project: string;
   sessions: Session[];
   primarySessionId: string;
@@ -263,22 +262,63 @@ function recencyKey(s: Session): string {
   return s.ended_at ?? s.started_at ?? s.created_at;
 }
 
+/**
+ * Walk parent_session_id chains to find the root session.
+ * If a link is missing from the loaded set, the walk stops
+ * there, forming a separate group for each disconnected
+ * subchain.
+ */
+function findRoot(
+  id: string,
+  byId: Map<string, Session>,
+  rootCache: Map<string, string>,
+): string {
+  const cached = rootCache.get(id);
+  if (cached !== undefined) return cached;
+
+  // Walk up, capping at set size to guard cycles.
+  const visited = new Set<string>();
+  let cur = id;
+  while (true) {
+    if (visited.has(cur)) break; // cycle guard
+    visited.add(cur);
+    const s = byId.get(cur);
+    if (!s?.parent_session_id) break;
+    const parent = s.parent_session_id;
+    if (!byId.has(parent)) break; // missing link
+    cur = parent;
+  }
+
+  // cur is the root — cache for every node we visited.
+  for (const v of visited) {
+    rootCache.set(v, cur);
+  }
+  return cur;
+}
+
 export function buildSessionGroups(
   sessions: Session[],
 ): SessionGroup[] {
+  const byId = new Map<string, Session>();
+  for (const s of sessions) {
+    byId.set(s.id, s);
+  }
+
+  const rootCache = new Map<string, string>();
   const groupMap = new Map<string, SessionGroup>();
   const insertionOrder: string[] = [];
 
   for (const s of sessions) {
-    const slug = s.slug ?? null;
-    const key =
-      slug != null ? `${s.project}\0${slug}` : s.id;
+    const root = findRoot(s.id, byId, rootCache);
+    // Sessions without a parent_session_id that aren't
+    // pointed to by anyone get root == their own id, so
+    // they form a single-session group naturally.
+    const key = root;
 
     let group = groupMap.get(key);
     if (!group) {
       group = {
         key,
-        slug,
         project: s.project,
         sessions: [],
         primarySessionId: s.id,

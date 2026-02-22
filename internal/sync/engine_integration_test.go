@@ -824,35 +824,35 @@ func TestSyncPathsStatsUpdated(t *testing.T) {
 	}
 }
 
-func TestSyncPathsClaudeSlug(t *testing.T) {
+func TestSyncPathsClaudeParentSessionID(t *testing.T) {
 	env := setupTestEnv(t)
 
 	content := testjsonl.NewSessionBuilder().
-		AddClaudeUserWithSlug(
-			tsZero, "Hello", "rippling-soaring-dijkstra",
+		AddClaudeUserWithSessionID(
+			tsZero, "Hello", "parent-uuid",
 		).
 		AddClaudeAssistant(tsZeroS5, "Hi there!").
 		String()
 
 	path := env.writeClaudeSession(
-		t, "test-proj", "slug-test.jsonl", content,
+		t, "test-proj", "child-test.jsonl", content,
 	)
 
 	env.engine.SyncPaths([]string{path})
 
 	assertSessionState(
-		t, env.db, "slug-test",
+		t, env.db, "child-test",
 		func(sess *db.Session) {
-			if sess.Slug == nil ||
-				*sess.Slug != "rippling-soaring-dijkstra" {
-				t.Errorf("slug = %v, want %q",
-					sess.Slug, "rippling-soaring-dijkstra")
+			if sess.ParentSessionID == nil ||
+				*sess.ParentSessionID != "parent-uuid" {
+				t.Errorf("parent_session_id = %v, want %q",
+					sess.ParentSessionID, "parent-uuid")
 			}
 		},
 	)
 }
 
-func TestSyncPathsClaudeNoSlug(t *testing.T) {
+func TestSyncPathsClaudeNoParentSessionID(t *testing.T) {
 	env := setupTestEnv(t)
 
 	content := testjsonl.NewSessionBuilder().
@@ -860,16 +860,17 @@ func TestSyncPathsClaudeNoSlug(t *testing.T) {
 		String()
 
 	path := env.writeClaudeSession(
-		t, "test-proj", "no-slug-test.jsonl", content,
+		t, "test-proj", "no-parent-test.jsonl", content,
 	)
 
 	env.engine.SyncPaths([]string{path})
 
 	assertSessionState(
-		t, env.db, "no-slug-test",
+		t, env.db, "no-parent-test",
 		func(sess *db.Session) {
-			if sess.Slug != nil {
-				t.Errorf("slug = %v, want nil", sess.Slug)
+			if sess.ParentSessionID != nil {
+				t.Errorf("parent_session_id = %v, want nil",
+					sess.ParentSessionID)
 			}
 		},
 	)

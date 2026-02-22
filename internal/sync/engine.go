@@ -520,16 +520,16 @@ type pendingWrite struct {
 func (e *Engine) writeBatch(batch []pendingWrite) {
 	for _, pw := range batch {
 		s := db.Session{
-			ID:           pw.sess.ID,
-			Project:      pw.sess.Project,
-			Machine:      pw.sess.Machine,
-			Agent:        string(pw.sess.Agent),
-			MessageCount: pw.sess.MessageCount,
-			Slug:         strPtr(pw.sess.Slug),
-			FilePath:     strPtr(pw.sess.File.Path),
-			FileSize:     int64Ptr(pw.sess.File.Size),
-			FileMtime:    int64Ptr(pw.sess.File.Mtime),
-			FileHash:     strPtr(pw.sess.File.Hash),
+			ID:              pw.sess.ID,
+			Project:         pw.sess.Project,
+			Machine:         pw.sess.Machine,
+			Agent:           string(pw.sess.Agent),
+			MessageCount:    pw.sess.MessageCount,
+			ParentSessionID: strPtr(pw.sess.ParentSessionID),
+			FilePath:        strPtr(pw.sess.File.Path),
+			FileSize:        int64Ptr(pw.sess.File.Size),
+			FileMtime:       int64Ptr(pw.sess.File.Mtime),
+			FileHash:        strPtr(pw.sess.File.Hash),
 		}
 		if pw.sess.FirstMessage != "" {
 			s.FirstMessage = &pw.sess.FirstMessage

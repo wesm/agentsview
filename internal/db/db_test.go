@@ -276,31 +276,33 @@ func TestSessionCRUD(t *testing.T) {
 	requireSessionGone(t, d, "nonexistent")
 }
 
-func TestSessionSlug(t *testing.T) {
+func TestSessionParentSessionID(t *testing.T) {
 	d := testDB(t)
 
-	t.Run("UpsertWithSlug", func(t *testing.T) {
-		insertSession(t, d, "slug-1", "proj", func(s *Session) {
-			s.Slug = Ptr("rippling-soaring-dijkstra")
+	t.Run("UpsertWithParent", func(t *testing.T) {
+		insertSession(t, d, "child-1", "proj", func(s *Session) {
+			s.ParentSessionID = Ptr("parent-uuid")
 		})
 
-		got := requireSessionExists(t, d, "slug-1")
-		if got.Slug == nil || *got.Slug != "rippling-soaring-dijkstra" {
-			t.Errorf("slug = %v, want %q",
-				got.Slug, "rippling-soaring-dijkstra")
+		got := requireSessionExists(t, d, "child-1")
+		if got.ParentSessionID == nil ||
+			*got.ParentSessionID != "parent-uuid" {
+			t.Errorf("parent_session_id = %v, want %q",
+				got.ParentSessionID, "parent-uuid")
 		}
 	})
 
-	t.Run("WithoutSlug", func(t *testing.T) {
-		insertSession(t, d, "slug-2", "proj")
+	t.Run("WithoutParent", func(t *testing.T) {
+		insertSession(t, d, "child-2", "proj")
 
-		got := requireSessionExists(t, d, "slug-2")
-		if got.Slug != nil {
-			t.Errorf("slug = %v, want nil", got.Slug)
+		got := requireSessionExists(t, d, "child-2")
+		if got.ParentSessionID != nil {
+			t.Errorf("parent_session_id = %v, want nil",
+				got.ParentSessionID)
 		}
 	})
 
-	t.Run("SlugInListSessions", func(t *testing.T) {
+	t.Run("ParentInListSessions", func(t *testing.T) {
 		page, err := d.ListSessions(
 			context.Background(),
 			filterWith(func(f *SessionFilter) {
@@ -312,22 +314,23 @@ func TestSessionSlug(t *testing.T) {
 		}
 		found := false
 		for _, s := range page.Sessions {
-			if s.ID == "slug-1" {
+			if s.ID == "child-1" {
 				found = true
-				if s.Slug == nil || *s.Slug != "rippling-soaring-dijkstra" {
-					t.Errorf("slug = %v, want %q",
-						s.Slug, "rippling-soaring-dijkstra")
+				if s.ParentSessionID == nil ||
+					*s.ParentSessionID != "parent-uuid" {
+					t.Errorf("parent_session_id = %v, want %q",
+						s.ParentSessionID, "parent-uuid")
 				}
 			}
 		}
 		if !found {
-			t.Error("slug-1 not found in list")
+			t.Error("child-1 not found in list")
 		}
 	})
 
-	t.Run("SlugInGetSessionFull", func(t *testing.T) {
+	t.Run("ParentInGetSessionFull", func(t *testing.T) {
 		got, err := d.GetSessionFull(
-			context.Background(), "slug-1",
+			context.Background(), "child-1",
 		)
 		if err != nil {
 			t.Fatalf("GetSessionFull: %v", err)
@@ -335,9 +338,10 @@ func TestSessionSlug(t *testing.T) {
 		if got == nil {
 			t.Fatal("session not found")
 		}
-		if got.Slug == nil || *got.Slug != "rippling-soaring-dijkstra" {
-			t.Errorf("slug = %v, want %q",
-				got.Slug, "rippling-soaring-dijkstra")
+		if got.ParentSessionID == nil ||
+			*got.ParentSessionID != "parent-uuid" {
+			t.Errorf("parent_session_id = %v, want %q",
+				got.ParentSessionID, "parent-uuid")
 		}
 	})
 }

@@ -441,19 +441,18 @@ function makeSession(
 }
 
 describe("buildSessionGroups", () => {
-  it("groups sessions with same project+slug", () => {
+  it("groups two-session chain", () => {
     const sessions = [
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-01T00:00:00Z",
         ended_at: "2024-01-01T01:00:00Z",
       }),
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-01T02:00:00Z",
         ended_at: "2024-01-01T03:00:00Z",
       }),
@@ -462,10 +461,9 @@ describe("buildSessionGroups", () => {
     const groups = buildSessionGroups(sessions);
     expect(groups).toHaveLength(1);
     expect(groups[0]!.sessions).toHaveLength(2);
-    expect(groups[0]!.slug).toBe("abc");
   });
 
-  it("keeps sessions without slug ungrouped", () => {
+  it("keeps sessions without parent ungrouped", () => {
     const sessions = [
       makeSession({ id: "s1", project: "proj" }),
       makeSession({ id: "s2", project: "proj" }),
@@ -477,44 +475,58 @@ describe("buildSessionGroups", () => {
     expect(groups[1]!.sessions).toHaveLength(1);
   });
 
-  it("separates same slug from different projects", () => {
+  it("missing middle link creates separate groups", () => {
+    // Chain: s1 -> s2 -> s3, but s2 is not in the loaded set
     const sessions = [
       makeSession({
         id: "s1",
-        project: "proj-a",
-        slug: "abc",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
       }),
-      makeSession({
-        id: "s2",
-        project: "proj-b",
-        slug: "abc",
-      }),
-    ];
-
-    const groups = buildSessionGroups(sessions);
-    expect(groups).toHaveLength(2);
-  });
-
-  it("preserves sort order from input (latest first)", () => {
-    const sessions = [
       makeSession({
         id: "s3",
         project: "proj",
-        slug: "xyz",
-        ended_at: "2024-01-03T00:00:00Z",
-      }),
-      makeSession({
-        id: "s1",
-        project: "proj",
-        slug: "abc",
-        ended_at: "2024-01-01T00:00:00Z",
+        parent_session_id: "s2",
+        started_at: "2024-01-03T00:00:00Z",
       }),
     ];
 
     const groups = buildSessionGroups(sessions);
+    // s3 can't walk to s1 because s2 is missing
     expect(groups).toHaveLength(2);
-    expect(groups[0]!.slug).toBe("xyz");
-    expect(groups[1]!.slug).toBe("abc");
+  });
+
+  it("three-session chain groups correctly", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T01:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T02:00:00Z",
+        ended_at: "2024-01-01T03:00:00Z",
+      }),
+      makeSession({
+        id: "s3",
+        project: "proj",
+        parent_session_id: "s2",
+        started_at: "2024-01-01T04:00:00Z",
+        ended_at: "2024-01-01T05:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.sessions).toHaveLength(3);
+    // Sorted by started_at asc
+    expect(groups[0]!.sessions[0]!.id).toBe("s1");
+    expect(groups[0]!.sessions[1]!.id).toBe("s2");
+    expect(groups[0]!.sessions[2]!.id).toBe("s3");
   });
 
   it("computes correct group metadata", () => {
@@ -522,7 +534,6 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         message_count: 10,
         first_message: "first session msg",
         started_at: "2024-01-01T00:00:00Z",
@@ -531,7 +542,7 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         message_count: 5,
         first_message: "second session msg",
         started_at: "2024-01-01T02:00:00Z",
@@ -555,14 +566,13 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-01T00:00:00Z",
         ended_at: "2024-01-01T05:00:00Z",
       }),
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-02T00:00:00Z",
         ended_at: "2024-01-02T01:00:00Z",
       }),
@@ -577,14 +587,13 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-02T00:00:00Z",
         ended_at: "2024-01-02T01:00:00Z",
       }),
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-01T00:00:00Z",
         ended_at: "2024-01-03T00:00:00Z",
       }),
@@ -599,14 +608,13 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-01T00:00:00Z",
         ended_at: "2024-01-01T05:00:00Z",
       }),
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-02T00:00:00Z",
         ended_at: null,
       }),
@@ -622,14 +630,13 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-01T00:00:00Z",
         ended_at: "2024-01-03T00:00:00Z",
       }),
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-02T00:00:00Z",
         ended_at: null,
       }),
@@ -645,7 +652,6 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: null,
         ended_at: null,
         created_at: "2024-01-01T00:00:00Z",
@@ -653,7 +659,7 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: null,
         ended_at: null,
         created_at: "2024-01-02T00:00:00Z",
@@ -669,14 +675,13 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-02T00:00:00Z",
         ended_at: "2024-01-03T00:00:00Z",
       }),
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-01T00:00:00Z",
         ended_at: "2024-01-03T00:00:00Z",
       }),
@@ -693,13 +698,12 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s2",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         started_at: "2024-01-02T00:00:00Z",
       }),
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         started_at: "2024-01-01T00:00:00Z",
       }),
     ];
@@ -719,7 +723,6 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s1",
         project: "proj",
-        slug: "abc",
         ended_at: "2024-01-03T00:00:00Z",
       }),
       makeSession({
@@ -730,7 +733,7 @@ describe("buildSessionGroups", () => {
       makeSession({
         id: "s3",
         project: "proj",
-        slug: "abc",
+        parent_session_id: "s1",
         ended_at: "2024-01-01T00:00:00Z",
       }),
     ];
@@ -738,8 +741,6 @@ describe("buildSessionGroups", () => {
     const groups = buildSessionGroups(sessions);
     expect(groups).toHaveLength(2);
     expect(groups[0]!.sessions).toHaveLength(2);
-    expect(groups[0]!.slug).toBe("abc");
     expect(groups[1]!.sessions).toHaveLength(1);
-    expect(groups[1]!.slug).toBeNull();
   });
 });

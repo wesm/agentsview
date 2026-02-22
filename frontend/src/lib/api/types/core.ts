@@ -15,7 +15,7 @@ export interface Session {
   started_at: string | null;
   ended_at: string | null;
   message_count: number;
-  slug?: string;
+  parent_session_id?: string;
   file_path?: string;
   file_size?: number;
   file_mtime?: number;

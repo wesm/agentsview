@@ -203,17 +203,36 @@ func (db *DB) init() error {
 		return fmt.Errorf("adding file_hash column: %w", err)
 	}
 
-	// Migration: add slug column for session continuity grouping.
+	// Migration: add parent_session_id column for session
+	// continuity chaining.
 	if err := db.ensureColumn(
-		"sessions", "slug", "TEXT",
+		"sessions", "parent_session_id", "TEXT",
 	); err != nil {
-		return fmt.Errorf("adding slug column: %w", err)
+		return fmt.Errorf(
+			"adding parent_session_id column: %w", err,
+		)
 	}
 	if _, err := db.writer.Exec(
-		`CREATE INDEX IF NOT EXISTS idx_sessions_project_slug
-		 ON sessions(project, slug) WHERE slug IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_parent
+		 ON sessions(parent_session_id)
+		 WHERE parent_session_id IS NOT NULL`,
 	); err != nil {
-		return fmt.Errorf("creating slug index: %w", err)
+		return fmt.Errorf(
+			"creating parent_session_id index: %w", err,
+		)
+	}
+
+	// Force re-sync of Claude sessions that haven't been parsed
+	// for parent_session_id yet. Idempotent: on subsequent starts
+	// the WHERE matches 0 rows.
+	if _, err := db.writer.Exec(
+		`UPDATE sessions SET file_hash = NULL
+		 WHERE agent = 'claude'
+		   AND parent_session_id IS NULL`,
+	); err != nil {
+		return fmt.Errorf(
+			"clearing hashes for re-sync: %w", err,
+		)
 	}
 
 	return nil

@@ -25,15 +25,15 @@ func ClaudeUserJSON(
 	return mustMarshal(m)
 }
 
-// ClaudeUserWithSlugJSON returns a Claude user message with
-// a slug field as a JSON string.
-func ClaudeUserWithSlugJSON(
-	content, timestamp, slug string, cwd ...string,
+// ClaudeUserWithSessionIDJSON returns a Claude user message
+// with a sessionId field as a JSON string.
+func ClaudeUserWithSessionIDJSON(
+	content, timestamp, sessionID string, cwd ...string,
 ) string {
 	m := map[string]any{
 		"type":      "user",
 		"timestamp": timestamp,
-		"slug":      slug,
+		"sessionId": sessionID,
 		"message": map[string]any{
 			"content": content,
 		},
@@ -222,14 +222,16 @@ func (b *SessionBuilder) AddClaudeUser(
 	return b
 }
 
-// AddClaudeUserWithSlug appends a Claude user message line
-// with a slug field.
-func (b *SessionBuilder) AddClaudeUserWithSlug(
-	timestamp, content, slug string, cwd ...string,
+// AddClaudeUserWithSessionID appends a Claude user message
+// line with a sessionId field.
+func (b *SessionBuilder) AddClaudeUserWithSessionID(
+	timestamp, content, sessionID string, cwd ...string,
 ) *SessionBuilder {
 	b.lines = append(
 		b.lines,
-		ClaudeUserWithSlugJSON(content, timestamp, slug, cwd...),
+		ClaudeUserWithSessionIDJSON(
+			content, timestamp, sessionID, cwd...,
+		),
 	)
 	return b
 }
