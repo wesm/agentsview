@@ -40,15 +40,15 @@
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
   onMount(() => {
-    analytics.project = sessions.filters.project;
-    analytics.fetchAll();
     refreshTimer = setInterval(
       () => analytics.fetchAll(),
       REFRESH_INTERVAL_MS,
     );
   });
 
-  // Sync header project filter to analytics dashboard.
+  // Sync header project filter to analytics dashboard and
+  // handle the initial fetch. Runs on mount (setting the
+  // initial project) and whenever the header project changes.
   // Uses untrack on analytics.project so that local
   // drill-downs (clicking a project bar) don't re-trigger.
   $effect(() => {
@@ -56,8 +56,8 @@
     const current = untrack(() => analytics.project);
     if (current !== headerProject) {
       analytics.project = headerProject;
-      analytics.fetchAll();
     }
+    analytics.fetchAll();
   });
 
   onDestroy(() => {

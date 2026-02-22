@@ -257,6 +257,51 @@ describe("AnalyticsStore heatmap uses full range", () => {
   });
 });
 
+describe("AnalyticsStore activity uses full range", () => {
+  it("should use base from/to for activity even with selectedDate", async () => {
+    analytics.selectDate("2024-01-15");
+    vi.clearAllMocks();
+
+    await analytics.fetchActivity();
+
+    expect(api.getAnalyticsActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from: "2024-01-01", to: "2024-01-31" }),
+    );
+  });
+});
+
+describe("AnalyticsStore.clearDate", () => {
+  it("should clear selectedDate and fetch filtered panels", () => {
+    analytics.selectDate("2024-01-15");
+    vi.clearAllMocks();
+
+    analytics.clearDate();
+
+    expect(analytics.selectedDate).toBeNull();
+    expect(api.getAnalyticsSummary).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsProjects).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsSessionShape).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsVelocity).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsTools).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsTopSessions).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsActivity).not.toHaveBeenCalled();
+    expect(api.getAnalyticsHeatmap).not.toHaveBeenCalled();
+  });
+
+  it("should use full range after clearing date", () => {
+    analytics.selectDate("2024-01-15");
+    vi.clearAllMocks();
+
+    analytics.clearDate();
+
+    const expected = expect.objectContaining({
+      from: "2024-01-01", to: "2024-01-31",
+    });
+    expect(api.getAnalyticsSummary).toHaveBeenLastCalledWith(expected);
+    expect(api.getAnalyticsProjects).toHaveBeenLastCalledWith(expected);
+  });
+});
+
 describe("AnalyticsStore.setProject", () => {
   it("should toggle project on first click", () => {
     analytics.setProject("alpha");
