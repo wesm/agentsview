@@ -136,7 +136,6 @@ class AnalyticsStore {
   clearDate() {
     this.selectedDate = null;
     this.fetchSummary();
-    this.fetchActivity();
     this.fetchProjects();
     this.fetchSessionShape();
     this.fetchVelocity();
@@ -365,7 +364,6 @@ class AnalyticsStore {
       this.selectedDate = date;
     }
     this.fetchSummary();
-    this.fetchActivity();
     this.fetchProjects();
     this.fetchSessionShape();
     this.fetchVelocity();

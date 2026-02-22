@@ -169,15 +169,15 @@ describe("AnalyticsStore.selectDate", () => {
     expect(analytics.selectedDate).toBe("2024-01-20");
   });
 
-  it("should fetch filtered panels but not heatmap/hourOfWeek", () => {
+  it("should fetch filtered panels but not activity/heatmap/hourOfWeek", () => {
     analytics.selectDate("2024-01-15");
 
     expect(api.getAnalyticsSummary).toHaveBeenCalledTimes(1);
-    expect(api.getAnalyticsActivity).toHaveBeenCalledTimes(1);
     expect(api.getAnalyticsProjects).toHaveBeenCalledTimes(1);
     expect(api.getAnalyticsSessionShape).toHaveBeenCalledTimes(1);
     expect(api.getAnalyticsVelocity).toHaveBeenCalledTimes(1);
     expect(api.getAnalyticsTools).toHaveBeenCalledTimes(1);
+    expect(api.getAnalyticsActivity).not.toHaveBeenCalled();
     expect(api.getAnalyticsHeatmap).not.toHaveBeenCalled();
     expect(api.getAnalyticsHourOfWeek).not.toHaveBeenCalled();
   });
@@ -188,9 +188,7 @@ describe("AnalyticsStore.selectDate", () => {
     expect(api.getAnalyticsSummary).toHaveBeenLastCalledWith(
       expect.objectContaining({ from: "2024-01-15", to: "2024-01-15" }),
     );
-    expect(api.getAnalyticsActivity).toHaveBeenLastCalledWith(
-      expect.objectContaining({ from: "2024-01-15", to: "2024-01-15" }),
-    );
+    expect(api.getAnalyticsActivity).not.toHaveBeenCalled();
     expect(api.getAnalyticsProjects).toHaveBeenLastCalledWith(
       expect.objectContaining({ from: "2024-01-15", to: "2024-01-15" }),
     );
@@ -207,8 +205,7 @@ describe("AnalyticsStore.selectDate", () => {
     });
     expect(api.getAnalyticsSummary).toHaveBeenCalled();
     expect(api.getAnalyticsSummary).toHaveBeenLastCalledWith(expected);
-    expect(api.getAnalyticsActivity).toHaveBeenCalled();
-    expect(api.getAnalyticsActivity).toHaveBeenLastCalledWith(expected);
+    expect(api.getAnalyticsActivity).not.toHaveBeenCalled();
     expect(api.getAnalyticsProjects).toHaveBeenCalled();
     expect(api.getAnalyticsProjects).toHaveBeenLastCalledWith(expected);
   });
