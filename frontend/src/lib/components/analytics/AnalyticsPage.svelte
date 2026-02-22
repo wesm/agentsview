@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import DateRangePicker from "./DateRangePicker.svelte";
   import SummaryCards from "./SummaryCards.svelte";
   import Heatmap from "./Heatmap.svelte";
@@ -13,6 +13,7 @@
   import TopSessions from "./TopSessions.svelte";
   import ActiveFilters from "./ActiveFilters.svelte";
   import { analytics } from "../../stores/analytics.svelte.js";
+  import { sessions } from "../../stores/sessions.svelte.js";
   import { exportAnalyticsCSV } from "../../utils/csv-export.js";
 
   function shortTz(tz: string): string {
@@ -39,11 +40,24 @@
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
   onMount(() => {
+    analytics.project = sessions.filters.project;
     analytics.fetchAll();
     refreshTimer = setInterval(
       () => analytics.fetchAll(),
       REFRESH_INTERVAL_MS,
     );
+  });
+
+  // Sync header project filter to analytics dashboard.
+  // Uses untrack on analytics.project so that local
+  // drill-downs (clicking a project bar) don't re-trigger.
+  $effect(() => {
+    const headerProject = sessions.filters.project;
+    const current = untrack(() => analytics.project);
+    if (current !== headerProject) {
+      analytics.project = headerProject;
+      analytics.fetchAll();
+    }
   });
 
   onDestroy(() => {
