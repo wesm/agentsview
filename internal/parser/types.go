@@ -33,6 +33,7 @@ type ParsedSession struct {
 	Project      string
 	Machine      string
 	Agent        AgentType
+	Slug         string
 	FirstMessage string
 	StartedAt    time.Time
 	EndedAt      time.Time

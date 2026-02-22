@@ -769,6 +769,49 @@ func TestParseClaudeSession(t *testing.T) {
 			},
 		},
 		{
+			name: "slug extracted from user record",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserWithSlugJSON("hello", tsZero, "rippling-soaring-dijkstra"),
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "text", "text": "hi"},
+				}, tsZeroS1),
+			),
+			wantMsgCount: 2,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.Slug != "rippling-soaring-dijkstra" {
+					t.Errorf("slug = %q, want %q",
+						sess.Slug, "rippling-soaring-dijkstra")
+				}
+			},
+		},
+		{
+			name: "no slug yields empty",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("hello", tsZero),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.Slug != "" {
+					t.Errorf("slug = %q, want empty", sess.Slug)
+				}
+			},
+		},
+		{
+			name: "slug extracted from non-user record",
+			content: `{"type":"system","timestamp":"` + tsZero + `","slug":"system-slug-test"}` + "\n" +
+				testjsonl.ClaudeUserJSON("hello", tsZeroS1) + "\n",
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.Slug != "system-slug-test" {
+					t.Errorf("slug = %q, want %q",
+						sess.Slug, "system-slug-test")
+				}
+			},
+		},
+		{
 			name: "assistant with system-like content not filtered",
 			content: testjsonl.JoinJSONL(
 				testjsonl.ClaudeUserJSON("hello", tsZero),

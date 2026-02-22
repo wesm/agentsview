@@ -3,6 +3,18 @@ import type { Session, ProjectInfo } from "../api/types.js";
 
 const SESSION_PAGE_SIZE = 500;
 
+export interface SessionGroup {
+  key: string;
+  slug: string | null;
+  project: string;
+  sessions: Session[];
+  primarySessionId: string;
+  totalMessages: number;
+  firstMessage: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
 interface Filters {
   project: string;
   agent: string;
@@ -42,6 +54,10 @@ class SessionsStore {
     return this.sessions.find(
       (s) => s.id === this.activeSessionId,
     );
+  }
+
+  get groupedSessions(): SessionGroup[] {
+    return buildSessionGroups(this.sessions);
   }
 
   private get apiParams() {
@@ -223,6 +239,78 @@ class SessionsStore {
 
 export function createSessionsStore(): SessionsStore {
   return new SessionsStore();
+}
+
+function maxString(
+  a: string | null,
+  b: string | null,
+): string | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a > b ? a : b;
+}
+
+function minString(
+  a: string | null,
+  b: string | null,
+): string | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a < b ? a : b;
+}
+
+export function buildSessionGroups(
+  sessions: Session[],
+): SessionGroup[] {
+  const groupMap = new Map<string, SessionGroup>();
+  const insertionOrder: string[] = [];
+
+  for (const s of sessions) {
+    const slug = s.slug ?? null;
+    const key =
+      slug != null ? `${s.project}\0${slug}` : s.id;
+
+    let group = groupMap.get(key);
+    if (!group) {
+      group = {
+        key,
+        slug,
+        project: s.project,
+        sessions: [],
+        primarySessionId: s.id,
+        totalMessages: 0,
+        firstMessage: null,
+        startedAt: null,
+        endedAt: null,
+      };
+      groupMap.set(key, group);
+      insertionOrder.push(key);
+    }
+
+    group.sessions.push(s);
+    group.totalMessages += s.message_count;
+    group.startedAt = minString(
+      group.startedAt,
+      s.started_at,
+    );
+    group.endedAt = maxString(group.endedAt, s.ended_at);
+  }
+
+  for (const group of groupMap.values()) {
+    if (group.sessions.length > 1) {
+      group.sessions.sort((a, b) => {
+        const ta = a.started_at ?? "";
+        const tb = b.started_at ?? "";
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      });
+    }
+    group.firstMessage =
+      group.sessions[0]?.first_message ?? null;
+    group.primarySessionId =
+      group.sessions[group.sessions.length - 1]!.id;
+  }
+
+  return insertionOrder.map((k) => groupMap.get(k)!);
 }
 
 export const sessions = createSessionsStore();

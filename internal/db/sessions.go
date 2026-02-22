@@ -19,19 +19,19 @@ var ErrInvalidCursor = errors.New("invalid cursor")
 // (list, get). Keep in sync with scanSessionRow.
 const sessionBaseCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
-	message_count, created_at`
+	message_count, slug, created_at`
 
 // sessionPruneCols extends sessionBaseCols with file metadata
 // needed by FindPruneCandidates.
 const sessionPruneCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
-	message_count, file_path, file_size, created_at`
+	message_count, slug, file_path, file_size, created_at`
 
 // sessionFullCols includes all columns for a complete session record.
 const sessionFullCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
-	message_count, file_path, file_size, file_mtime, file_hash,
-	created_at`
+	message_count, slug, file_path, file_size, file_mtime,
+	file_hash, created_at`
 
 const (
 	// DefaultSessionLimit is the default number of sessions returned.
@@ -52,7 +52,7 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 	err := rs.Scan(
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
 		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
-		&s.MessageCount, &s.CreatedAt,
+		&s.MessageCount, &s.Slug, &s.CreatedAt,
 	)
 	return s, err
 }
@@ -67,6 +67,7 @@ type Session struct {
 	StartedAt    *string `json:"started_at"`
 	EndedAt      *string `json:"ended_at"`
 	MessageCount int     `json:"message_count"`
+	Slug         *string `json:"slug,omitempty"`
 	FilePath     *string `json:"file_path,omitempty"`
 	FileSize     *int64  `json:"file_size,omitempty"`
 	FileMtime    *int64  `json:"file_mtime,omitempty"`
@@ -332,8 +333,8 @@ func (db *DB) GetSessionFull(
 	err := row.Scan(
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
 		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
-		&s.MessageCount, &s.FilePath, &s.FileSize, &s.FileMtime,
-		&s.FileHash, &s.CreatedAt,
+		&s.MessageCount, &s.Slug, &s.FilePath, &s.FileSize,
+		&s.FileMtime, &s.FileHash, &s.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -352,9 +353,9 @@ func (db *DB) UpsertSession(s Session) error {
 	_, err := db.writer.Exec(`
 		INSERT INTO sessions (
 			id, project, machine, agent, first_message,
-			started_at, ended_at, message_count,
+			started_at, ended_at, message_count, slug,
 			file_path, file_size, file_mtime, file_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project,
 			machine = excluded.machine,
@@ -363,12 +364,13 @@ func (db *DB) UpsertSession(s Session) error {
 			started_at = excluded.started_at,
 			ended_at = excluded.ended_at,
 			message_count = excluded.message_count,
+			slug = excluded.slug,
 			file_path = excluded.file_path,
 			file_size = excluded.file_size,
 			file_mtime = excluded.file_mtime,
 			file_hash = excluded.file_hash`,
 		s.ID, s.Project, s.Machine, s.Agent, s.FirstMessage,
-		s.StartedAt, s.EndedAt, s.MessageCount,
+		s.StartedAt, s.EndedAt, s.MessageCount, s.Slug,
 		s.FilePath, s.FileSize, s.FileMtime, s.FileHash)
 	if err != nil {
 		return fmt.Errorf("upserting session %s: %w", s.ID, err)
@@ -544,7 +546,7 @@ func (db *DB) FindPruneCandidates(
 		err := rows.Scan(
 			&s.ID, &s.Project, &s.Machine, &s.Agent,
 			&s.FirstMessage, &s.StartedAt, &s.EndedAt,
-			&s.MessageCount, &s.FilePath, &s.FileSize,
+			&s.MessageCount, &s.Slug, &s.FilePath, &s.FileSize,
 			&s.CreatedAt,
 		)
 		if err != nil {

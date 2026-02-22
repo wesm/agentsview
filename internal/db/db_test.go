@@ -276,6 +276,72 @@ func TestSessionCRUD(t *testing.T) {
 	requireSessionGone(t, d, "nonexistent")
 }
 
+func TestSessionSlug(t *testing.T) {
+	d := testDB(t)
+
+	t.Run("UpsertWithSlug", func(t *testing.T) {
+		insertSession(t, d, "slug-1", "proj", func(s *Session) {
+			s.Slug = Ptr("rippling-soaring-dijkstra")
+		})
+
+		got := requireSessionExists(t, d, "slug-1")
+		if got.Slug == nil || *got.Slug != "rippling-soaring-dijkstra" {
+			t.Errorf("slug = %v, want %q",
+				got.Slug, "rippling-soaring-dijkstra")
+		}
+	})
+
+	t.Run("WithoutSlug", func(t *testing.T) {
+		insertSession(t, d, "slug-2", "proj")
+
+		got := requireSessionExists(t, d, "slug-2")
+		if got.Slug != nil {
+			t.Errorf("slug = %v, want nil", got.Slug)
+		}
+	})
+
+	t.Run("SlugInListSessions", func(t *testing.T) {
+		page, err := d.ListSessions(
+			context.Background(),
+			filterWith(func(f *SessionFilter) {
+				f.Project = "proj"
+			}),
+		)
+		if err != nil {
+			t.Fatalf("ListSessions: %v", err)
+		}
+		found := false
+		for _, s := range page.Sessions {
+			if s.ID == "slug-1" {
+				found = true
+				if s.Slug == nil || *s.Slug != "rippling-soaring-dijkstra" {
+					t.Errorf("slug = %v, want %q",
+						s.Slug, "rippling-soaring-dijkstra")
+				}
+			}
+		}
+		if !found {
+			t.Error("slug-1 not found in list")
+		}
+	})
+
+	t.Run("SlugInGetSessionFull", func(t *testing.T) {
+		got, err := d.GetSessionFull(
+			context.Background(), "slug-1",
+		)
+		if err != nil {
+			t.Fatalf("GetSessionFull: %v", err)
+		}
+		if got == nil {
+			t.Fatal("session not found")
+		}
+		if got.Slug == nil || *got.Slug != "rippling-soaring-dijkstra" {
+			t.Errorf("slug = %v, want %q",
+				got.Slug, "rippling-soaring-dijkstra")
+		}
+	})
+}
+
 func TestListSessions(t *testing.T) {
 	d := testDB(t)
 

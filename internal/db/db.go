@@ -202,6 +202,18 @@ func (db *DB) init() error {
 	); err != nil {
 		return fmt.Errorf("adding file_hash column: %w", err)
 	}
+
+	// Migration: add slug column for session continuity grouping.
+	if err := db.ensureColumn(
+		"sessions", "slug", "TEXT",
+	); err != nil {
+		return fmt.Errorf("adding slug column: %w", err)
+	}
+	_, _ = db.writer.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_sessions_project_slug
+		 ON sessions(project, slug) WHERE slug IS NOT NULL`,
+	)
+
 	return nil
 }
 

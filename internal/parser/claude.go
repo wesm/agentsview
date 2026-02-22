@@ -36,6 +36,7 @@ func ParseClaudeSession(
 	var (
 		messages  []ParsedMessage
 		firstMsg  string
+		slug      string
 		startedAt time.Time
 		endedAt   time.Time
 		ordinal   int
@@ -76,6 +77,12 @@ func ParseClaudeSession(
 				startedAt = ts
 			}
 			endedAt = ts
+		}
+
+		if slug == "" {
+			if s := gjson.Get(line, "slug").Str; s != "" {
+				slug = s
+			}
 		}
 
 		entryType := gjson.Get(line, "type").Str
@@ -134,6 +141,7 @@ func ParseClaudeSession(
 		Project:      project,
 		Machine:      machine,
 		Agent:        AgentClaude,
+		Slug:         slug,
 		FirstMessage: firstMsg,
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,

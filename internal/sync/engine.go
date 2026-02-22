@@ -525,6 +525,7 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 			Machine:      pw.sess.Machine,
 			Agent:        string(pw.sess.Agent),
 			MessageCount: pw.sess.MessageCount,
+			Slug:         strPtr(pw.sess.Slug),
 			FilePath:     strPtr(pw.sess.File.Path),
 			FileSize:     int64Ptr(pw.sess.File.Size),
 			FileMtime:    int64Ptr(pw.sess.File.Mtime),

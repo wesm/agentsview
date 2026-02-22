@@ -824,6 +824,57 @@ func TestSyncPathsStatsUpdated(t *testing.T) {
 	}
 }
 
+func TestSyncPathsClaudeSlug(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithSlug(
+			tsZero, "Hello", "rippling-soaring-dijkstra",
+		).
+		AddClaudeAssistant(tsZeroS5, "Hi there!").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "test-proj", "slug-test.jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "slug-test",
+		func(sess *db.Session) {
+			if sess.Slug == nil ||
+				*sess.Slug != "rippling-soaring-dijkstra" {
+				t.Errorf("slug = %v, want %q",
+					sess.Slug, "rippling-soaring-dijkstra")
+			}
+		},
+	)
+}
+
+func TestSyncPathsClaudeNoSlug(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "test-proj", "no-slug-test.jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "no-slug-test",
+		func(sess *db.Session) {
+			if sess.Slug != nil {
+				t.Errorf("slug = %v, want nil", sess.Slug)
+			}
+		},
+	)
+}
+
 func TestSyncPathsClaudeRejectsNested(t *testing.T) {
 	env := setupTestEnv(t)
 

@@ -12,7 +12,8 @@
   let viewportHeight = $state(0);
   let scrollRaf: number | null = $state(null);
 
-  let totalCount = $derived(sessions.sessions.length);
+  let groups = $derived(sessions.groupedSessions);
+  let totalCount = $derived(groups.length);
 
   let startIndex = $derived(
     Math.max(
@@ -110,12 +111,18 @@
     style="height: {totalSize}px; width: 100%; position: relative;"
   >
     {#each virtualRows as row (row.key)}
-      {@const session = sessions.sessions[row.index]}
+      {@const group = groups[row.index]}
       <div
         style="position: absolute; top: 0; left: 0; width: 100%; height: {row.size}px; transform: translateY({row.start}px);"
       >
-        {#if session}
-          <SessionItem {session} />
+        {#if group}
+          {@const primary = group.sessions[group.sessions.length - 1]}
+          {#if primary}
+            <SessionItem
+              session={primary}
+              continuationCount={group.sessions.length}
+            />
+          {/if}
         {/if}
       </div>
     {/each}
