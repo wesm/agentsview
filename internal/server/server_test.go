@@ -133,7 +133,7 @@ func (te *testEnv) writeSessionFile(
 // base URL. The server is shut down when the test finishes.
 func (te *testEnv) listenAndServe(t *testing.T) string {
 	t.Helper()
-	port := server.FindAvailablePort(40000)
+	port := server.FindAvailablePort("127.0.0.1", 40000)
 	te.srv.SetPort(port)
 
 	var serveErr error

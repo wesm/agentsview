@@ -115,7 +115,7 @@ func runServe(args []string) {
 
 	go startPeriodicSync(engine)
 
-	port := server.FindAvailablePort(cfg.Port)
+	port := server.FindAvailablePort(cfg.Host, cfg.Port)
 	if port != cfg.Port {
 		fmt.Printf("Port %d in use, using %d\n", cfg.Port, port)
 	}

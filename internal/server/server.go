@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	gosync "sync"
 	"time"
@@ -200,10 +201,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return srv.Shutdown(ctx)
 }
 
-// FindAvailablePort finds an available port starting from the given port.
-func FindAvailablePort(start int) int {
+// FindAvailablePort finds an available port starting from the
+// given port, binding to the specified host.
+func FindAvailablePort(host string, start int) int {
 	for port := start; port < start+100; port++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		addr := net.JoinHostPort(host, strconv.Itoa(port))
+		ln, err := net.Listen("tcp", addr)
 		if err == nil {
 			ln.Close()
 			return port
