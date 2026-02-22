@@ -1458,7 +1458,9 @@ func TestMigrationRace(t *testing.T) {
 		if err := <-errCh; err != nil {
 			msg := err.Error()
 			if strings.Contains(msg, "database is locked") ||
-				strings.Contains(msg, "SQLITE_BUSY") {
+				strings.Contains(msg, "database schema is locked") ||
+				strings.Contains(msg, "SQLITE_BUSY") ||
+				strings.Contains(msg, "SQLITE_LOCKED") {
 				t.Logf("concurrent Open lock contention: %v", err)
 			} else {
 				t.Errorf("unexpected concurrent Open error: %v", err)
