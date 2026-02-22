@@ -259,6 +259,10 @@ function minString(
   return a < b ? a : b;
 }
 
+function recencyKey(s: Session): string {
+  return s.ended_at ?? s.started_at ?? s.created_at;
+}
+
 export function buildSessionGroups(
   sessions: Session[],
 ): SessionGroup[] {
@@ -308,11 +312,11 @@ export function buildSessionGroups(
       group.sessions[0]?.first_message ?? null;
 
     let bestIdx = 0;
-    let bestEnd = group.sessions[0]?.ended_at ?? "";
+    let bestKey = recencyKey(group.sessions[0]!);
     for (let i = 1; i < group.sessions.length; i++) {
-      const end = group.sessions[i]?.ended_at ?? "";
-      if (end > bestEnd) {
-        bestEnd = end;
+      const key = recencyKey(group.sessions[i]!);
+      if (key > bestKey) {
+        bestKey = key;
         bestIdx = i;
       }
     }

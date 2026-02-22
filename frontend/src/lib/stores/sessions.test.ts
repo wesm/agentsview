@@ -594,6 +594,100 @@ describe("buildSessionGroups", () => {
     expect(groups[0]!.primarySessionId).toBe("s2");
   });
 
+  it("null ended_at falls back to started_at for primary", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T05:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: null,
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // s2 recencyKey = started_at "2024-01-02" > s1 ended_at "2024-01-01T05"
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("completed session wins over in-progress when ended_at later", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: null,
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // s1 recencyKey = ended_at "2024-01-03" > s2 started_at "2024-01-02"
+    expect(groups[0]!.primarySessionId).toBe("s1");
+  });
+
+  it("selects primary by created_at when both null", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        slug: "abc",
+        started_at: null,
+        ended_at: null,
+        created_at: "2024-01-01T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        slug: "abc",
+        started_at: null,
+        ended_at: null,
+        created_at: "2024-01-02T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("equal ended_at picks earliest started_at deterministically", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        slug: "abc",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // Both have same ended_at, so recencyKey ties;
+    // after started_at asc sort, s2 is first -> kept as primary
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
   it("sorts sessions within group by startedAt asc", () => {
     const sessions = [
       makeSession({
