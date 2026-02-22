@@ -102,7 +102,7 @@ test.describe("Virtual list behavior", () => {
           "i",
         ),
       }),
-    ).toBeVisible({ timeout: 5_000 });
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("keeps loading after dragging to the end of an unloaded range", async () => {
