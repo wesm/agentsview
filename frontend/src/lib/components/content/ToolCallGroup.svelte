@@ -85,17 +85,17 @@
 
 <style>
   .tool-group {
-    border-left: 2px solid var(--accent-amber);
+    border-left: 3px solid var(--accent-amber);
     background: var(--tool-bg);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    padding: 4px 8px;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    padding: 8px 12px;
   }
 
   .tool-group-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 2px;
+    gap: 8px;
+    margin-bottom: 6px;
   }
 
   .gear-icon {
@@ -105,15 +105,13 @@
   }
 
   .group-label {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     color: var(--accent-amber);
   }
 
   .group-timestamp {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--text-muted);
     margin-left: auto;
   }
@@ -121,7 +119,7 @@
   .tool-group-body {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
 
   .tool-group-body :global(.tool-block) {

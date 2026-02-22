@@ -225,15 +225,15 @@
 {#if !sessions.activeSessionId}
   <div class="empty-state">
     <div class="empty-icon">
-      <svg width="32" height="32" viewBox="0 0 16 16" fill="var(--text-muted)">
+      <svg width="36" height="36" viewBox="0 0 16 16" fill="var(--text-muted)">
         <path d="M14 1a1 1 0 011 1v8a1 1 0 01-1 1h-2.5a2 2 0 00-1.6.8L8 14.333 6.1 11.8a2 2 0 00-1.6-.8H2a1 1 0 01-1-1V2a1 1 0 011-1h12z"/>
       </svg>
     </div>
-    <p>Select a session to view messages</p>
+    <p class="empty-text">Select a session to view messages</p>
   </div>
 {:else if messages.loading && messages.messages.length === 0}
   <div class="empty-state">
-    <p>Loading messages...</p>
+    <p class="empty-text">Loading messages...</p>
   </div>
 {:else}
   <div
@@ -244,35 +244,37 @@
     data-loaded={!messages.loading}
     onscroll={handleScroll}
   >
-    <div
-      style="height: {virtualizer.instance?.getTotalSize() ?? 0}px; width: 100%; position: relative;"
-    >
-      {#each virtualizer.instance?.getVirtualItems() ?? [] as row (row.key)}
-        {@const item = itemAt(row.index)}
-        {#if item}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="virtual-row"
-            class:selected={ui.selectedOrdinal !== null &&
-              item.ordinals.includes(ui.selectedOrdinal)}
-            data-index={row.index}
-            style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start}px);"
-            use:measureElement={virtualizer.instance}
-            onclick={() =>
-              ui.selectOrdinal(item.ordinals[0]!)}
-          >
-            {#if item.kind === "tool-group"}
-              <ToolCallGroup
-                messages={item.messages}
-                timestamp={item.timestamp}
-              />
-            {:else}
-              <MessageContent message={item.message} />
-            {/if}
-          </div>
-        {/if}
-      {/each}
+    <div class="message-list-rail">
+      <div
+        style="height: {virtualizer.instance?.getTotalSize() ?? 0}px; width: 100%; position: relative;"
+      >
+        {#each virtualizer.instance?.getVirtualItems() ?? [] as row (row.key)}
+          {@const item = itemAt(row.index)}
+          {#if item}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="virtual-row"
+              class:selected={ui.selectedOrdinal !== null &&
+                item.ordinals.includes(ui.selectedOrdinal)}
+              data-index={row.index}
+              style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start}px);"
+              use:measureElement={virtualizer.instance}
+              onclick={() =>
+                ui.selectOrdinal(item.ordinals[0]!)}
+            >
+              {#if item.kind === "tool-group"}
+                <ToolCallGroup
+                  messages={item.messages}
+                  timestamp={item.timestamp}
+                />
+              {:else}
+                <MessageContent message={item.message} />
+              {/if}
+            </div>
+          {/if}
+        {/each}
+      </div>
     </div>
   </div>
 {/if}
@@ -282,12 +284,18 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 4px 0;
+    padding: 8px 0;
     overflow-anchor: none;
   }
 
+  .message-list-rail {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0 16px;
+  }
+
   .virtual-row {
-    padding: 4px 8px;
+    padding: 5px 0;
     overflow-anchor: none;
   }
 
@@ -304,11 +312,15 @@
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    font-size: 13px;
-    gap: 8px;
+    gap: 12px;
   }
 
   .empty-icon {
-    opacity: 0.3;
+    opacity: 0.25;
+  }
+
+  .empty-text {
+    font-size: 14px;
+    font-weight: 500;
   }
 </style>
