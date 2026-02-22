@@ -57,7 +57,7 @@
     if (current !== headerProject) {
       analytics.project = headerProject;
     }
-    analytics.fetchAll();
+    untrack(() => analytics.fetchAll());
   });
 
   onDestroy(() => {

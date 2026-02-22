@@ -150,7 +150,7 @@ func (e *Engine) classifyOnePath(
 			if strings.HasPrefix(stem, "agent-") {
 				return DiscoveredFile{}, false
 			}
-			parts := strings.SplitN(rel, sep, 2)
+			parts := strings.Split(rel, sep)
 			if len(parts) != 2 {
 				return DiscoveredFile{}, false
 			}

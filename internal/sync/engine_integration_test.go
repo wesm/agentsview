@@ -823,3 +823,30 @@ func TestSyncPathsStatsUpdated(t *testing.T) {
 		t.Error("LastSync should be set after SyncPaths")
 	}
 }
+
+func TestSyncPathsClaudeRejectsNested(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	// Write at proj/subdir/nested.jsonl — should be rejected
+	// since Claude expects exactly <project>/<session>.jsonl.
+	path := env.writeClaudeSession(
+		t, filepath.Join("proj", "subdir"),
+		"nested.jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	sess, _ := env.db.GetSession(
+		context.Background(), "nested",
+	)
+	if sess != nil {
+		t.Error(
+			"nested Claude path should be rejected " +
+				"(only <project>/<session>.jsonl allowed)",
+		)
+	}
+}
