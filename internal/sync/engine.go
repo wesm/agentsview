@@ -563,7 +563,7 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 				ToolResults: convertToolResults(m.ToolResults),
 			}
 		}
-		pairToolResults(msgs)
+		msgs = pairAndFilter(msgs)
 
 		if err := e.db.ReplaceSessionMessages(
 			pw.sess.ID, msgs,
@@ -750,6 +750,20 @@ func convertToolResults(
 		}
 	}
 	return results
+}
+
+// pairAndFilter pairs tool results with their corresponding
+// tool calls, then removes messages with no displayable content
+// (e.g. user messages containing only tool_result blocks).
+func pairAndFilter(msgs []db.Message) []db.Message {
+	pairToolResults(msgs)
+	filtered := msgs[:0]
+	for _, m := range msgs {
+		if strings.TrimSpace(m.Content) != "" {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
 
 // pairToolResults matches tool_result content lengths to their
