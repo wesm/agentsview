@@ -88,9 +88,15 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
 
-	if needsRebuild(path) {
+	rebuild, err := needsRebuild(path)
+	if err != nil {
+		return nil, fmt.Errorf("checking schema: %w", err)
+	}
+	if rebuild {
 		if err := dropDatabase(path); err != nil {
-			return nil, fmt.Errorf("rebuilding database: %w", err)
+			return nil, fmt.Errorf(
+				"rebuilding database: %w", err,
+			)
 		}
 	}
 
@@ -98,15 +104,17 @@ func Open(path string) (*DB, error) {
 }
 
 // needsRebuild checks whether an existing database has an
-// outdated schema that requires a full rebuild. Returns false
-// on any transient error to avoid deleting a valid database.
-func needsRebuild(path string) bool {
+// outdated schema that requires a full rebuild. Returns an
+// error on probe failures so callers can surface them.
+func needsRebuild(path string) (bool, error) {
 	if _, err := os.Stat(path); err != nil {
-		return false // no existing DB
+		return false, nil // no existing DB
 	}
 	conn, err := sql.Open("sqlite3", makeDSN(path, true))
 	if err != nil {
-		return false // can't open; don't delete
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
 	}
 	defer conn.Close()
 
@@ -116,9 +124,11 @@ func needsRebuild(path string) bool {
 		 WHERE name = 'parent_session_id'`,
 	).Scan(&count)
 	if err != nil {
-		return false // query failed; don't delete
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
 	}
-	return count == 0
+	return count == 0, nil
 }
 
 func dropDatabase(path string) error {

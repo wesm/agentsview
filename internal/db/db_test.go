@@ -845,6 +845,47 @@ func collectIDs(sessions []Session) []string {
 	return ids
 }
 
+func TestFindPruneCandidatesExcludesParents(t *testing.T) {
+	d := testDB(t)
+
+	// Create a parent -> child chain.
+	insertSession(t, d, "parent1", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T10:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T11:00:00Z")
+	})
+	insertSession(t, d, "child1", "proj", func(s *Session) {
+		s.ParentSessionID = Ptr("parent1")
+		s.StartedAt = Ptr("2024-06-01T12:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T13:00:00Z")
+	})
+	// A standalone session with no children.
+	insertSession(t, d, "standalone", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T14:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T15:00:00Z")
+	})
+
+	got, err := d.FindPruneCandidates(PruneFilter{
+		Project: "proj",
+	})
+	if err != nil {
+		t.Fatalf("FindPruneCandidates: %v", err)
+	}
+
+	ids := collectIDs(got)
+
+	// Parent should be excluded; child and standalone eligible.
+	if len(got) != 2 {
+		t.Fatalf("got %d candidates %v, want 2",
+			len(got), ids)
+	}
+	for _, s := range got {
+		if s.ID == "parent1" {
+			t.Errorf("parent1 should be excluded, "+
+				"got candidates: %v", ids)
+		}
+	}
+}
+
 func TestFindPruneCandidatesLikeEscaping(t *testing.T) {
 	d := testDB(t)
 
@@ -1502,8 +1543,7 @@ func TestMigrationRace(t *testing.T) {
 			if strings.Contains(msg, "database is locked") ||
 				strings.Contains(msg, "database schema is locked") ||
 				strings.Contains(msg, "SQLITE_BUSY") ||
-				strings.Contains(msg, "SQLITE_LOCKED") ||
-				strings.Contains(msg, "no such file") {
+				strings.Contains(msg, "SQLITE_LOCKED") {
 				t.Logf("concurrent Open lock contention: %v", err)
 			} else {
 				t.Errorf("unexpected concurrent Open error: %v", err)
