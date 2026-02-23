@@ -8,6 +8,108 @@ import (
 	"github.com/wesm/agentsview/internal/db"
 )
 
+func TestFilterEmptyMessages(t *testing.T) {
+	tests := []struct {
+		name     string
+		msgs     []db.Message
+		wantLen  int
+		wantPair map[string]int // tool_use_id → expected ResultContentLength
+	}{
+		{
+			"removes empty-content user message after pairing",
+			[]db.Message{
+				{
+					Role:    "assistant",
+					Content: "Let me read the file.",
+					ToolCalls: []db.ToolCall{
+						{ToolUseID: "t1", ToolName: "Read"},
+					},
+				},
+				{
+					Role:    "user",
+					Content: "",
+					ToolResults: []db.ToolResult{
+						{ToolUseID: "t1", ContentLength: 500},
+					},
+				},
+			},
+			1, // only assistant message remains
+			map[string]int{"t1": 500},
+		},
+		{
+			"keeps user message with real content",
+			[]db.Message{
+				{
+					Role:    "assistant",
+					Content: "Here is the result.",
+					ToolCalls: []db.ToolCall{
+						{ToolUseID: "t1", ToolName: "Bash"},
+					},
+				},
+				{
+					Role:    "user",
+					Content: "",
+					ToolResults: []db.ToolResult{
+						{ToolUseID: "t1", ContentLength: 100},
+					},
+				},
+				{
+					Role:    "user",
+					Content: "Thanks, now do something else.",
+				},
+			},
+			2, // assistant + user with content
+			map[string]int{"t1": 100},
+		},
+		{
+			"whitespace-only content treated as empty",
+			[]db.Message{
+				{
+					Role:    "assistant",
+					Content: "Reading...",
+					ToolCalls: []db.ToolCall{
+						{ToolUseID: "t1", ToolName: "Read"},
+					},
+				},
+				{
+					Role:    "user",
+					Content: "   \n\t  ",
+					ToolResults: []db.ToolResult{
+						{ToolUseID: "t1", ContentLength: 300},
+					},
+				},
+			},
+			1,
+			map[string]int{"t1": 300},
+		},
+		{
+			"no messages returns empty",
+			nil,
+			0,
+			nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pairAndFilter(tt.msgs)
+			if len(got) != tt.wantLen {
+				t.Errorf("len = %d, want %d", len(got), tt.wantLen)
+			}
+			for _, m := range got {
+				for _, tc := range m.ToolCalls {
+					if expected, ok := tt.wantPair[tc.ToolUseID]; ok {
+						if tc.ResultContentLength != expected {
+							t.Errorf("ToolCall %q: ResultContentLength = %d, want %d",
+								tc.ToolUseID, tc.ResultContentLength, expected)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestPairToolResults(t *testing.T) {
 	tests := []struct {
 		name string
