@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -49,7 +50,7 @@ type Message struct {
 	HasThinking   bool         `json:"has_thinking"`
 	HasToolUse    bool         `json:"has_tool_use"`
 	ContentLength int          `json:"content_length"`
-	ToolCalls     []ToolCall   `json:"-"` // transient, not a DB column
+	ToolCalls     []ToolCall   `json:"tool_calls,omitempty"`
 	ToolResults   []ToolResult `json:"-"` // transient, for pairing
 }
 
@@ -95,7 +96,14 @@ func (db *DB) GetMessages(
 		return nil, fmt.Errorf("querying messages: %w", err)
 	}
 	defer rows.Close()
-	return scanMessages(rows)
+	msgs, err := scanMessages(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.attachToolCalls(ctx, msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
 }
 
 // GetAllMessages returns all messages for a session ordered by ordinal.
@@ -111,7 +119,14 @@ func (db *DB) GetAllMessages(
 		return nil, fmt.Errorf("querying all messages: %w", err)
 	}
 	defer rows.Close()
-	return scanMessages(rows)
+	msgs, err := scanMessages(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.attachToolCalls(ctx, msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
 }
 
 // GetMinimap returns lightweight metadata for all messages in a session.
@@ -335,6 +350,73 @@ func (db *DB) ReplaceSessionMessages(
 	}
 
 	return tx.Commit()
+}
+
+// attachToolCalls loads tool_calls for the given messages
+// and attaches them to each message's ToolCalls field.
+func (db *DB) attachToolCalls(
+	ctx context.Context, msgs []Message,
+) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	ids := make([]any, len(msgs))
+	placeholders := make([]string, len(msgs))
+	idToIdx := make(map[int64]int, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+		placeholders[i] = "?"
+		idToIdx[m.ID] = i
+	}
+
+	query := fmt.Sprintf(`
+		SELECT message_id, session_id, tool_name, category,
+			tool_use_id, input_json, skill_name,
+			result_content_length
+		FROM tool_calls
+		WHERE message_id IN (%s)
+		ORDER BY id`,
+		strings.Join(placeholders, ","))
+
+	rows, err := db.reader.QueryContext(ctx, query, ids...)
+	if err != nil {
+		return fmt.Errorf("querying tool_calls: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tc ToolCall
+		var toolUseID, inputJSON, skillName sql.NullString
+		var resultLen sql.NullInt64
+		if err := rows.Scan(
+			&tc.MessageID, &tc.SessionID,
+			&tc.ToolName, &tc.Category,
+			&toolUseID, &inputJSON, &skillName,
+			&resultLen,
+		); err != nil {
+			return fmt.Errorf("scanning tool_call: %w", err)
+		}
+		if toolUseID.Valid {
+			tc.ToolUseID = toolUseID.String
+		}
+		if inputJSON.Valid {
+			tc.InputJSON = inputJSON.String
+		}
+		if skillName.Valid {
+			tc.SkillName = skillName.String
+		}
+		if resultLen.Valid {
+			tc.ResultContentLength = int(resultLen.Int64)
+		}
+
+		if idx, ok := idToIdx[tc.MessageID]; ok {
+			msgs[idx].ToolCalls = append(
+				msgs[idx].ToolCalls, tc,
+			)
+		}
+	}
+	return rows.Err()
 }
 
 func scanMessages(rows *sql.Rows) ([]Message, error) {
