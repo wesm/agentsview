@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { Message } from "../../api/types.js";
-  import { parseContent } from "../../utils/content-parser.js";
+  import {
+    parseContent,
+    enrichSegments,
+  } from "../../utils/content-parser.js";
   import { formatTimestamp } from "../../utils/format.js";
   import ToolBlock from "./ToolBlock.svelte";
 
@@ -13,7 +16,10 @@
 
   let toolSegments = $derived(
     messages.flatMap((m) =>
-      parseContent(m.content).filter((s) => s.type === "tool"),
+      enrichSegments(
+        parseContent(m.content).filter((s) => s.type === "tool"),
+        m.tool_calls,
+      ),
     ),
   );
 
@@ -78,6 +84,7 @@
       <ToolBlock
         content={segment.content}
         label={segment.label}
+        toolCall={segment.toolCall}
       />
     {/each}
   </div>

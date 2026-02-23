@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { Message } from "../../api/types.js";
-  import { parseContent } from "../../utils/content-parser.js";
+  import {
+    parseContent,
+    enrichSegments,
+  } from "../../utils/content-parser.js";
   import { formatTimestamp } from "../../utils/format.js";
   import ThinkingBlock from "./ThinkingBlock.svelte";
   import ToolBlock from "./ToolBlock.svelte";
@@ -14,7 +17,12 @@
 
   let { message }: Props = $props();
 
-  let segments = $derived(parseContent(message.content));
+  let segments = $derived(
+    enrichSegments(
+      parseContent(message.content),
+      message.tool_calls,
+    ),
+  );
 
   let isUser = $derived(message.role === "user");
 
@@ -58,7 +66,11 @@
           <ThinkingBlock content={segment.content} />
         {/if}
       {:else if segment.type === "tool"}
-        <ToolBlock content={segment.content} label={segment.label} />
+        <ToolBlock
+          content={segment.content}
+          label={segment.label}
+          toolCall={segment.toolCall}
+        />
       {:else if segment.type === "code"}
         <CodeBlock content={segment.content} language={segment.label} />
       {:else}
