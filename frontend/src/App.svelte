@@ -151,21 +151,23 @@
 
 <AppHeader />
 
-<ThreeColumnLayout>
-  {#snippet sidebar()}
-    <SessionList />
-  {/snippet}
+{#if router.route === "summaries"}
+  <SummariesPage />
+{:else}
+  <ThreeColumnLayout>
+    {#snippet sidebar()}
+      <SessionList />
+    {/snippet}
 
-  {#snippet content()}
-    {#if router.route === "summaries"}
-      <SummariesPage />
-    {:else if sessions.activeSessionId}
-      <MessageList bind:this={messageListRef} />
-    {:else}
-      <AnalyticsPage />
-    {/if}
-  {/snippet}
-</ThreeColumnLayout>
+    {#snippet content()}
+      {#if sessions.activeSessionId}
+        <MessageList bind:this={messageListRef} />
+      {:else}
+        <AnalyticsPage />
+      {/if}
+    {/snippet}
+  </ThreeColumnLayout>
+{/if}
 
 <StatusBar />
 

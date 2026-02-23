@@ -182,7 +182,7 @@
   .summaries-page {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: calc(100vh - 36px - 24px);
     overflow: hidden;
   }
 
