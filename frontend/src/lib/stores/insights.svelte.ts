@@ -5,6 +5,7 @@ import type {
 } from "../api/types.js";
 import {
   listInsights,
+  deleteInsight,
   generateInsight,
   type GenerateInsightHandle,
 } from "../api/client.js";
@@ -197,6 +198,18 @@ class InsightsStore {
     this.tasks = this.tasks.filter(
       (t) => t.clientId !== clientId,
     );
+  }
+
+  async deleteItem(id: number) {
+    try {
+      await deleteInsight(id);
+    } catch {
+      return;
+    }
+    this.items = this.items.filter((s) => s.id !== id);
+    if (this.selectedId === id) {
+      this.selectedId = null;
+    }
   }
 
   cancelAll() {

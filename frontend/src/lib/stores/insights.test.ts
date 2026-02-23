@@ -12,6 +12,7 @@ import type { Insight } from "../api/types.js";
 vi.mock("../api/client.js", () => ({
   listInsights: vi.fn(),
   getInsight: vi.fn(),
+  deleteInsight: vi.fn(),
   generateInsight: vi.fn(),
 }));
 
@@ -317,6 +318,52 @@ describe("dismissTask", () => {
     insights.dismissTask(clientId);
 
     expect(insights.tasks).toHaveLength(0);
+  });
+});
+
+describe("deleteItem", () => {
+  it("removes item and clears selection", async () => {
+    const s = makeInsight({ id: 5 });
+    insights.items = [s];
+    insights.selectedId = 5;
+    vi.mocked(api.deleteInsight).mockResolvedValueOnce(
+      undefined,
+    );
+
+    await insights.deleteItem(5);
+
+    expect(api.deleteInsight).toHaveBeenCalledWith(5);
+    expect(insights.items).toHaveLength(0);
+    expect(insights.selectedId).toBeNull();
+  });
+
+  it("keeps selection if deleting non-selected item", async () => {
+    const s1 = makeInsight({ id: 1 });
+    const s2 = makeInsight({ id: 2 });
+    insights.items = [s1, s2];
+    insights.selectedId = 1;
+    vi.mocked(api.deleteInsight).mockResolvedValueOnce(
+      undefined,
+    );
+
+    await insights.deleteItem(2);
+
+    expect(insights.items).toHaveLength(1);
+    expect(insights.selectedId).toBe(1);
+  });
+
+  it("does not remove on API error", async () => {
+    const s = makeInsight({ id: 5 });
+    insights.items = [s];
+    insights.selectedId = 5;
+    vi.mocked(api.deleteInsight).mockRejectedValueOnce(
+      new Error("not found"),
+    );
+
+    await insights.deleteItem(5);
+
+    expect(insights.items).toHaveLength(1);
+    expect(insights.selectedId).toBe(5);
   });
 });
 

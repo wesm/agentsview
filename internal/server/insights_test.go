@@ -178,6 +178,34 @@ func TestGenerateInsight_DefaultAgent(t *testing.T) {
 	assertBodyContains(t, w, "event: error")
 }
 
+func TestDeleteInsight_Found(t *testing.T) {
+	te := setup(t)
+
+	id := te.seedInsight(t, "daily_activity", "2025-01-15",
+		strPtr("my-app"))
+
+	w := te.del(t, fmt.Sprintf("/api/v1/insights/%d", id))
+	assertStatus(t, w, http.StatusNoContent)
+
+	// Verify it's gone.
+	w = te.get(t, fmt.Sprintf("/api/v1/insights/%d", id))
+	assertStatus(t, w, http.StatusNotFound)
+}
+
+func TestDeleteInsight_NotFound(t *testing.T) {
+	te := setup(t)
+
+	w := te.del(t, "/api/v1/insights/99999")
+	assertStatus(t, w, http.StatusNotFound)
+}
+
+func TestDeleteInsight_InvalidID(t *testing.T) {
+	te := setup(t)
+
+	w := te.del(t, "/api/v1/insights/abc")
+	assertStatus(t, w, http.StatusBadRequest)
+}
+
 // --- helpers ---
 
 func strPtr(s string) *string { return &s }

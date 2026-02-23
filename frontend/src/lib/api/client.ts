@@ -436,6 +436,16 @@ export function getInsight(id: number): Promise<Insight> {
   return fetchJSON(`/insights/${id}`);
 }
 
+export async function deleteInsight(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/insights/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+}
+
 export interface GenerateInsightHandle {
   abort: () => void;
   done: Promise<Insight>;

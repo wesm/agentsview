@@ -271,6 +271,19 @@
             <span class="header-date">
               {formatDate(insights.selectedItem.date)}
             </span>
+            <button
+              class="delete-btn"
+              onclick={() => {
+                if (insights.selectedItem) {
+                  insights.deleteItem(insights.selectedItem.id);
+                }
+              }}
+              title="Delete this insight"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M6.5 1h3a.5.5 0 01.5.5v1H6v-1a.5.5 0 01.5-.5zM11 2.5v-1A1.5 1.5 0 009.5 0h-3A1.5 1.5 0 005 1.5v1H1.5a.5.5 0 000 1h.538l.853 10.66A2 2 0 004.885 16h6.23a2 2 0 001.994-1.84l.853-10.66h.538a.5.5 0 000-1H11zm1.958 1l-.846 10.58a1 1 0 01-.997.92h-6.23a1 1 0 01-.997-.92L3.042 3.5h9.916zM5.5 5.5A.5.5 0 016 6v8a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v8a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v8a.5.5 0 001 0V6z"/>
+              </svg>
+            </button>
           </div>
           <div class="header-details">
             {#if insights.selectedItem.project}
@@ -807,6 +820,27 @@
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.01em;
+  }
+
+  .delete-btn {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .delete-btn:hover {
+    background: color-mix(
+      in srgb,
+      var(--accent-red) 10%,
+      transparent
+    );
+    color: var(--accent-red);
   }
 
   .header-details {

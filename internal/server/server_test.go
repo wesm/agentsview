@@ -268,6 +268,16 @@ func (te *testEnv) post(
 	return w
 }
 
+func (te *testEnv) del(
+	t *testing.T, path string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("DELETE", path, nil)
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	return w
+}
+
 // uploadFile creates a multipart upload request.
 func (te *testEnv) upload(
 	t *testing.T, filename, content, query string,

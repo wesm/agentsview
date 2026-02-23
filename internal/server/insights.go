@@ -93,6 +93,41 @@ func (s *Server) handleGetInsight(
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleDeleteInsight(
+	w http.ResponseWriter, r *http.Request,
+) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	existing, err := s.db.GetInsight(r.Context(), id)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		writeError(
+			w, http.StatusInternalServerError, err.Error(),
+		)
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, "insight not found")
+		return
+	}
+
+	if err := s.db.DeleteInsight(id); err != nil {
+		writeError(
+			w, http.StatusInternalServerError, err.Error(),
+		)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type generateInsightRequest struct {
 	Type    string `json:"type"`
 	Date    string `json:"date"`
