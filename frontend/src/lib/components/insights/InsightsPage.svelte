@@ -150,11 +150,13 @@
       {#if insights.tasks.length > 0}
         <div class="list-section-header">
           <span class="section-title">
-            <span class="live-dot"></span>
+            {#if insights.generatingCount > 0}
+              <span class="live-dot"></span>
+            {/if}
             Active
-            <span class="active-count">{insights.tasks.length}</span>
+            <span class="active-count">{insights.generatingCount}</span>
           </span>
-          {#if insights.tasks.length > 1}
+          {#if insights.generatingCount > 1}
             <button
               class="cancel-all"
               onclick={() => insights.cancelAll()}
@@ -326,7 +328,7 @@
   .insights-page {
     display: grid;
     grid-template-columns: 280px 1fr;
-    height: calc(100vh - 36px - 24px);
+    height: calc(100dvh - 36px - 24px);
     overflow: hidden;
   }
 
@@ -608,8 +610,15 @@
     transition: opacity 0.15s, background 0.1s, color 0.1s;
   }
 
-  .task-item:hover .task-dismiss {
+  .task-item:hover .task-dismiss,
+  .task-dismiss:focus-visible {
     opacity: 1;
+  }
+
+  @media (hover: none) {
+    .task-dismiss {
+      opacity: 0.7;
+    }
   }
 
   .task-dismiss:hover {
@@ -704,6 +713,10 @@
     color: var(--text-muted);
     font-family: var(--font-mono);
     letter-spacing: -0.02em;
+    white-space: nowrap;
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .list-status {

@@ -151,8 +151,9 @@ func (s *Server) handleGenerateInsight(
 		},
 	)
 	if err != nil {
+		log.Printf("insight prompt error: %v", err)
 		stream.SendJSON("error", map[string]string{
-			"message": err.Error(),
+			"message": "failed to build prompt",
 		})
 		return
 	}
