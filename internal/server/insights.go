@@ -11,21 +11,21 @@ import (
 	"time"
 
 	"github.com/wesm/agentsview/internal/db"
-	"github.com/wesm/agentsview/internal/summary"
+	"github.com/wesm/agentsview/internal/insight"
 )
 
-var validSummaryTypes = map[string]bool{
+var validInsightTypes = map[string]bool{
 	"daily_activity": true,
 	"agent_analysis": true,
 }
 
-func (s *Server) handleListSummaries(
+func (s *Server) handleListInsights(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	q := r.URL.Query()
 
 	typ := q.Get("type")
-	if typ != "" && !validSummaryTypes[typ] {
+	if typ != "" && !validInsightTypes[typ] {
 		writeError(w, http.StatusBadRequest,
 			"invalid type: must be daily_activity or agent_analysis")
 		return
@@ -38,13 +38,13 @@ func (s *Server) handleListSummaries(
 		return
 	}
 
-	filter := db.SummaryFilter{
+	filter := db.InsightFilter{
 		Type:    typ,
 		Date:    date,
 		Project: q.Get("project"),
 	}
 
-	summaries, err := s.db.ListSummaries(
+	insights, err := s.db.ListInsights(
 		r.Context(), filter,
 	)
 	if err != nil {
@@ -56,16 +56,16 @@ func (s *Server) handleListSummaries(
 		)
 		return
 	}
-	if summaries == nil {
-		summaries = []db.Summary{}
+	if insights == nil {
+		insights = []db.Insight{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"summaries": summaries,
+		"insights": insights,
 	})
 }
 
-func (s *Server) handleGetSummary(
+func (s *Server) handleGetInsight(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	idStr := r.PathValue("id")
@@ -75,7 +75,7 @@ func (s *Server) handleGetSummary(
 		return
 	}
 
-	result, err := s.db.GetSummary(r.Context(), id)
+	result, err := s.db.GetInsight(r.Context(), id)
 	if err != nil {
 		if handleContextError(w, err) {
 			return
@@ -86,14 +86,14 @@ func (s *Server) handleGetSummary(
 		return
 	}
 	if result == nil {
-		writeError(w, http.StatusNotFound, "summary not found")
+		writeError(w, http.StatusNotFound, "insight not found")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, result)
 }
 
-type generateSummaryRequest struct {
+type generateInsightRequest struct {
 	Type    string `json:"type"`
 	Date    string `json:"date"`
 	Project string `json:"project"`
@@ -101,17 +101,17 @@ type generateSummaryRequest struct {
 	Agent   string `json:"agent"`
 }
 
-func (s *Server) handleGenerateSummary(
+func (s *Server) handleGenerateInsight(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	var req generateSummaryRequest
+	var req generateInsightRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest,
 			"invalid JSON body")
 		return
 	}
 
-	if !validSummaryTypes[req.Type] {
+	if !validInsightTypes[req.Type] {
 		writeError(w, http.StatusBadRequest,
 			"invalid type: must be daily_activity or agent_analysis")
 		return
@@ -125,7 +125,7 @@ func (s *Server) handleGenerateSummary(
 	if req.Agent == "" {
 		req.Agent = "claude"
 	}
-	if !summary.ValidAgents[req.Agent] {
+	if !insight.ValidAgents[req.Agent] {
 		writeError(w, http.StatusBadRequest,
 			"invalid agent: must be claude, codex, or gemini")
 		return
@@ -142,8 +142,8 @@ func (s *Server) handleGenerateSummary(
 		"phase": "generating",
 	})
 
-	prompt, err := summary.BuildPrompt(
-		r.Context(), s.db, summary.GenerateRequest{
+	prompt, err := insight.BuildPrompt(
+		r.Context(), s.db, insight.GenerateRequest{
 			Type:    req.Type,
 			Date:    req.Date,
 			Project: req.Project,
@@ -162,11 +162,11 @@ func (s *Server) handleGenerateSummary(
 	)
 	defer cancel()
 
-	result, err := summary.Generate(
+	result, err := insight.Generate(
 		genCtx, req.Agent, prompt,
 	)
 	if err != nil {
-		log.Printf("summary generate error: %v", err)
+		log.Printf("insight generate error: %v", err)
 		stream.SendJSON("error", map[string]string{
 			"message": fmt.Sprintf(
 				"%s generation failed", req.Agent,
@@ -195,7 +195,7 @@ func (s *Server) handleGenerateSummary(
 		promptPtr = &req.Prompt
 	}
 
-	id, err := s.db.InsertSummary(db.Summary{
+	id, err := s.db.InsertInsight(db.Insight{
 		Type:    req.Type,
 		Date:    req.Date,
 		Project: project,
@@ -205,19 +205,19 @@ func (s *Server) handleGenerateSummary(
 		Content: result.Content,
 	})
 	if err != nil {
-		log.Printf("summary insert error: %v", err)
+		log.Printf("insight insert error: %v", err)
 		stream.SendJSON("error", map[string]string{
-			"message": "failed to save summary",
+			"message": "failed to save insight",
 		})
 		return
 	}
 
-	saved, err := s.db.GetSummary(r.Context(), id)
+	saved, err := s.db.GetInsight(r.Context(), id)
 	if err != nil || saved == nil {
-		log.Printf("summary get error: id=%d err=%v",
+		log.Printf("insight get error: id=%d err=%v",
 			id, err)
 		stream.SendJSON("error", map[string]string{
-			"message": "failed to retrieve saved summary",
+			"message": "failed to retrieve saved insight",
 		})
 		return
 	}

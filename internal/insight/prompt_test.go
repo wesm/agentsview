@@ -1,4 +1,4 @@
-package summary
+package insight
 
 import (
 	"context"
@@ -157,7 +157,6 @@ func TestBuildPrompt_Truncation(t *testing.T) {
 	if !strings.Contains(prompt, "omitted") {
 		t.Error("prompt should mention truncation")
 	}
-	// Should only show 50 session sections
 	count := strings.Count(prompt, "### Session")
 	if count != 50 {
 		t.Errorf("got %d sessions in prompt, want 50", count)

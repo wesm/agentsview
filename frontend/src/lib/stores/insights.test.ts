@@ -7,17 +7,17 @@ import {
 } from "vitest";
 import { insights } from "./insights.svelte.js";
 import * as api from "../api/client.js";
-import type { Summary } from "../api/types.js";
+import type { Insight } from "../api/types.js";
 
 vi.mock("../api/client.js", () => ({
-  listSummaries: vi.fn(),
-  getSummary: vi.fn(),
-  generateSummary: vi.fn(),
+  listInsights: vi.fn(),
+  getInsight: vi.fn(),
+  generateInsight: vi.fn(),
 }));
 
-function makeSummary(
-  overrides: Partial<Summary> = {},
-): Summary {
+function makeInsight(
+  overrides: Partial<Insight> = {},
+): Insight {
   return {
     id: 1,
     type: "daily_activity",
@@ -34,7 +34,7 @@ function makeSummary(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  insights.summaries = [];
+  insights.items = [];
   insights.selectedId = null;
   insights.loading = false;
   insights.tasks = [];
@@ -42,28 +42,28 @@ beforeEach(() => {
 });
 
 describe("load", () => {
-  it("fetches summaries and updates state", async () => {
-    const s1 = makeSummary({ id: 1 });
-    const s2 = makeSummary({ id: 2, project: "my-app" });
-    vi.mocked(api.listSummaries).mockResolvedValueOnce({
-      summaries: [s2, s1],
+  it("fetches insights and updates state", async () => {
+    const s1 = makeInsight({ id: 1 });
+    const s2 = makeInsight({ id: 2, project: "my-app" });
+    vi.mocked(api.listInsights).mockResolvedValueOnce({
+      insights: [s2, s1],
     });
 
     await insights.load();
 
-    expect(api.listSummaries).toHaveBeenCalledWith({
+    expect(api.listInsights).toHaveBeenCalledWith({
       type: "daily_activity",
       date: insights.date,
       project: undefined,
     });
-    expect(insights.summaries).toHaveLength(2);
+    expect(insights.items).toHaveLength(2);
     expect(insights.loading).toBe(false);
   });
 
-  it("clears selectedId when summary no longer in list", async () => {
+  it("clears selectedId when insight no longer in list", async () => {
     insights.selectedId = 99;
-    vi.mocked(api.listSummaries).mockResolvedValueOnce({
-      summaries: [makeSummary({ id: 1 })],
+    vi.mocked(api.listInsights).mockResolvedValueOnce({
+      insights: [makeInsight({ id: 1 })],
     });
 
     await insights.load();
@@ -71,10 +71,10 @@ describe("load", () => {
     expect(insights.selectedId).toBeNull();
   });
 
-  it("preserves selectedId when summary is in list", async () => {
+  it("preserves selectedId when insight is in list", async () => {
     insights.selectedId = 1;
-    vi.mocked(api.listSummaries).mockResolvedValueOnce({
-      summaries: [makeSummary({ id: 1 })],
+    vi.mocked(api.listInsights).mockResolvedValueOnce({
+      insights: [makeInsight({ id: 1 })],
     });
 
     await insights.load();
@@ -86,41 +86,41 @@ describe("load", () => {
 describe("setDate", () => {
   it("updates date, clears selection, and reloads", async () => {
     insights.selectedId = 1;
-    vi.mocked(api.listSummaries).mockResolvedValueOnce({
-      summaries: [],
+    vi.mocked(api.listInsights).mockResolvedValueOnce({
+      insights: [],
     });
 
     insights.setDate("2025-02-01");
 
     expect(insights.date).toBe("2025-02-01");
     expect(insights.selectedId).toBeNull();
-    expect(api.listSummaries).toHaveBeenCalled();
+    expect(api.listInsights).toHaveBeenCalled();
   });
 });
 
 describe("setType", () => {
   it("updates type and reloads", async () => {
-    vi.mocked(api.listSummaries).mockResolvedValueOnce({
-      summaries: [],
+    vi.mocked(api.listInsights).mockResolvedValueOnce({
+      insights: [],
     });
 
     insights.setType("agent_analysis");
 
     expect(insights.type).toBe("agent_analysis");
-    expect(api.listSummaries).toHaveBeenCalled();
+    expect(api.listInsights).toHaveBeenCalled();
   });
 });
 
 describe("setProject", () => {
   it("updates project and reloads", async () => {
-    vi.mocked(api.listSummaries).mockResolvedValueOnce({
-      summaries: [],
+    vi.mocked(api.listInsights).mockResolvedValueOnce({
+      insights: [],
     });
 
     insights.setProject("my-app");
 
     expect(insights.project).toBe("my-app");
-    expect(api.listSummaries).toHaveBeenCalled();
+    expect(api.listInsights).toHaveBeenCalled();
   });
 });
 
@@ -131,29 +131,29 @@ describe("select", () => {
   });
 });
 
-describe("selectedSummary", () => {
-  it("returns matching summary", () => {
-    const s = makeSummary({ id: 5 });
-    insights.summaries = [s];
+describe("selectedItem", () => {
+  it("returns matching insight", () => {
+    const s = makeInsight({ id: 5 });
+    insights.items = [s];
     insights.selectedId = 5;
-    expect(insights.selectedSummary).toEqual(s);
+    expect(insights.selectedItem).toEqual(s);
   });
 
   it("returns undefined when no match", () => {
-    insights.summaries = [makeSummary({ id: 1 })];
+    insights.items = [makeInsight({ id: 1 })];
     insights.selectedId = 99;
-    expect(insights.selectedSummary).toBeUndefined();
+    expect(insights.selectedItem).toBeUndefined();
   });
 });
 
 describe("generate (multi-task)", () => {
   it("adds task to tasks[] and prepends result on completion", async () => {
-    const newSummary = makeSummary({ id: 10 });
+    const newInsight = makeInsight({ id: 10 });
     const mockHandle = {
       abort: vi.fn(),
-      done: Promise.resolve(newSummary),
+      done: Promise.resolve(newInsight),
     };
-    vi.mocked(api.generateSummary).mockReturnValueOnce(
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
       mockHandle,
     );
 
@@ -166,17 +166,17 @@ describe("generate (multi-task)", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(insights.tasks).toHaveLength(0);
-    expect(insights.summaries[0]).toEqual(newSummary);
+    expect(insights.items[0]).toEqual(newInsight);
     expect(insights.selectedId).toBe(10);
   });
 
   it("supports multiple concurrent tasks", async () => {
-    const s1 = makeSummary({ id: 10 });
-    const s2 = makeSummary({ id: 11 });
-    let resolve1!: (s: Summary) => void;
-    let resolve2!: (s: Summary) => void;
+    const s1 = makeInsight({ id: 10 });
+    const s2 = makeInsight({ id: 11 });
+    let resolve1!: (s: Insight) => void;
+    let resolve2!: (s: Insight) => void;
 
-    vi.mocked(api.generateSummary)
+    vi.mocked(api.generateInsight)
       .mockReturnValueOnce({
         abort: vi.fn(),
         done: new Promise((r) => {
@@ -199,13 +199,13 @@ describe("generate (multi-task)", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(insights.tasks).toHaveLength(1);
-    expect(insights.summaries[0]).toEqual(s1);
+    expect(insights.items[0]).toEqual(s1);
 
     resolve2(s2);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(insights.tasks).toHaveLength(0);
-    expect(insights.summaries[0]).toEqual(s2);
+    expect(insights.items[0]).toEqual(s2);
   });
 
   it("sets error on task failure", async () => {
@@ -213,7 +213,7 @@ describe("generate (multi-task)", () => {
       abort: vi.fn(),
       done: Promise.reject(new Error("CLI not found")),
     };
-    vi.mocked(api.generateSummary).mockReturnValueOnce(
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
       mockHandle,
     );
 
@@ -226,19 +226,19 @@ describe("generate (multi-task)", () => {
   });
 
   it("calls load instead of prepend when filters changed", async () => {
-    const newSummary = makeSummary({ id: 20 });
-    let resolveDone!: (s: Summary) => void;
+    const newInsight = makeInsight({ id: 20 });
+    let resolveDone!: (s: Insight) => void;
     const mockHandle = {
       abort: vi.fn(),
-      done: new Promise<Summary>((resolve) => {
+      done: new Promise<Insight>((resolve) => {
         resolveDone = resolve;
       }),
     };
-    vi.mocked(api.generateSummary).mockReturnValueOnce(
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
       mockHandle,
     );
-    vi.mocked(api.listSummaries).mockResolvedValue({
-      summaries: [newSummary],
+    vi.mocked(api.listInsights).mockResolvedValue({
+      insights: [newInsight],
     });
 
     insights.generate();
@@ -246,11 +246,11 @@ describe("generate (multi-task)", () => {
     // Change date while generation is in flight.
     insights.date = "2025-03-01";
 
-    resolveDone(newSummary);
+    resolveDone(newInsight);
     await new Promise((r) => setTimeout(r, 0));
 
     // Should not have prepended -- should have called load.
-    expect(api.listSummaries).toHaveBeenCalled();
+    expect(api.listInsights).toHaveBeenCalled();
     expect(insights.selectedId).not.toBe(20);
   });
 
@@ -263,7 +263,7 @@ describe("generate (multi-task)", () => {
       abort: vi.fn(),
       done: Promise.reject(abortError),
     };
-    vi.mocked(api.generateSummary).mockReturnValueOnce(
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
       mockHandle,
     );
 
@@ -280,11 +280,11 @@ describe("cancelTask", () => {
     let rejectDone!: (err: Error) => void;
     const mockHandle = {
       abort: abortFn,
-      done: new Promise<Summary>((_resolve, reject) => {
+      done: new Promise<Insight>((_resolve, reject) => {
         rejectDone = reject;
       }),
     };
-    vi.mocked(api.generateSummary).mockReturnValueOnce(
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
       mockHandle,
     );
 
@@ -309,7 +309,7 @@ describe("dismissTask", () => {
       abort: vi.fn(),
       done: Promise.reject(new Error("fail")),
     };
-    vi.mocked(api.generateSummary).mockReturnValueOnce(
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
       mockHandle,
     );
 
@@ -327,7 +327,7 @@ describe("dismissTask", () => {
 
 describe("generatingCount", () => {
   it("counts active generating tasks", async () => {
-    vi.mocked(api.generateSummary)
+    vi.mocked(api.generateInsight)
       .mockReturnValueOnce({
         abort: vi.fn(),
         done: new Promise(() => {}),

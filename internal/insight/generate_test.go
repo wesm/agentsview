@@ -1,4 +1,4 @@
-package summary
+package insight
 
 import (
 	"strings"
@@ -112,7 +112,6 @@ func TestParseStreamJSON_GeminiFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseStreamJSON: %v", err)
 	}
-	// Prefers result over assistant messages
 	if result != "# Full Result" {
 		t.Errorf("result = %q", result)
 	}

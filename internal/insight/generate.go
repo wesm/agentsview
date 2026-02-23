@@ -1,4 +1,4 @@
-package summary
+package insight
 
 import (
 	"bufio"
@@ -25,7 +25,7 @@ var ValidAgents = map[string]bool{
 	"gemini": true,
 }
 
-// Generate invokes an AI agent CLI to generate a summary.
+// Generate invokes an AI agent CLI to generate an insight.
 // The agent parameter selects which CLI to use (claude,
 // codex, gemini). The prompt is passed via stdin.
 func Generate(

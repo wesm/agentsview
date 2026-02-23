@@ -26,9 +26,9 @@ import type {
   Granularity,
   HeatmapMetric,
   TopSessionsMetric,
-  Summary,
-  SummariesResponse,
-  GenerateSummaryRequest,
+  Insight,
+  InsightsResponse,
+  GenerateInsightRequest,
 } from "./types.js";
 
 const BASE = "/api/v1";
@@ -416,39 +416,39 @@ export function getAnalyticsTopSessions(
   );
 }
 
-/* Summaries */
+/* Insights */
 
-export interface ListSummariesParams {
+export interface ListInsightsParams {
   type?: string;
   date?: string;
   project?: string;
 }
 
-export function listSummaries(
-  params: ListSummariesParams = {},
-): Promise<SummariesResponse> {
+export function listInsights(
+  params: ListInsightsParams = {},
+): Promise<InsightsResponse> {
   return fetchJSON(
-    `/summaries${buildQuery({ ...params })}`,
+    `/insights${buildQuery({ ...params })}`,
   );
 }
 
-export function getSummary(id: number): Promise<Summary> {
-  return fetchJSON(`/summaries/${id}`);
+export function getInsight(id: number): Promise<Insight> {
+  return fetchJSON(`/insights/${id}`);
 }
 
-export interface GenerateSummaryHandle {
+export interface GenerateInsightHandle {
   abort: () => void;
-  done: Promise<Summary>;
+  done: Promise<Insight>;
 }
 
-export function generateSummary(
-  req: GenerateSummaryRequest,
+export function generateInsight(
+  req: GenerateInsightRequest,
   onStatus?: (phase: string) => void,
-): GenerateSummaryHandle {
+): GenerateInsightHandle {
   const controller = new AbortController();
 
   const done = (async () => {
-    const res = await fetch(`${BASE}/summaries/generate`, {
+    const res = await fetch(`${BASE}/insights/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
@@ -464,7 +464,7 @@ export function generateSummary(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
-    let result: Summary | undefined;
+    let result: Insight | undefined;
 
     for (;;) {
       const { done: eof, value } = await reader.read();
@@ -472,7 +472,7 @@ export function generateSummary(
       buf += decoder.decode(value, { stream: true });
       buf = buf.replaceAll("\r\n", "\n");
 
-      const parsed = processSummaryFrames(
+      const parsed = processInsightFrames(
         buf, onStatus,
       );
       if (parsed) {
@@ -488,7 +488,7 @@ export function generateSummary(
     buf += decoder.decode();
 
     if (!result && buf.trim()) {
-      result = processSummaryFrame(buf, onStatus);
+      result = processInsightFrame(buf, onStatus);
     }
 
     if (!result) {
@@ -503,25 +503,25 @@ export function generateSummary(
   return { abort: () => controller.abort(), done };
 }
 
-function processSummaryFrames(
+function processInsightFrames(
   buf: string,
   onStatus?: (phase: string) => void,
-): Summary | undefined {
+): Insight | undefined {
   let idx: number;
   let start = 0;
   while ((idx = buf.indexOf("\n\n", start)) !== -1) {
     const frame = buf.slice(start, idx);
     start = idx + 2;
-    const result = processSummaryFrame(frame, onStatus);
+    const result = processInsightFrame(frame, onStatus);
     if (result) return result;
   }
   return undefined;
 }
 
-function processSummaryFrame(
+function processInsightFrame(
   frame: string,
   onStatus?: (phase: string) => void,
-): Summary | undefined {
+): Insight | undefined {
   let event = "";
   const dataLines: string[] = [];
   for (const line of frame.split("\n")) {
@@ -540,7 +540,7 @@ function processSummaryFrame(
     const parsed = JSON.parse(data) as { phase: string };
     onStatus?.(parsed.phase);
   } else if (event === "done") {
-    return JSON.parse(data) as Summary;
+    return JSON.parse(data) as Insight;
   } else if (event === "error") {
     const parsed = JSON.parse(data) as { message: string };
     throw new Error(parsed.message);

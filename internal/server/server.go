@@ -106,9 +106,9 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/v1/analytics/tools", s.withTimeout(s.handleAnalyticsTools))
 	s.mux.Handle("GET /api/v1/analytics/top-sessions", s.withTimeout(s.handleAnalyticsTopSessions))
 
-	s.mux.Handle("GET /api/v1/summaries", s.withTimeout(s.handleListSummaries))
-	s.mux.Handle("GET /api/v1/summaries/{id}", s.withTimeout(s.handleGetSummary))
-	s.mux.HandleFunc("POST /api/v1/summaries/generate", s.handleGenerateSummary)
+	s.mux.Handle("GET /api/v1/insights", s.withTimeout(s.handleListInsights))
+	s.mux.Handle("GET /api/v1/insights/{id}", s.withTimeout(s.handleGetInsight))
+	s.mux.HandleFunc("POST /api/v1/insights/generate", s.handleGenerateInsight)
 
 	s.mux.Handle("GET /api/v1/search", s.withTimeout(s.handleSearch))
 	s.mux.Handle("GET /api/v1/projects", s.withTimeout(s.handleListProjects))

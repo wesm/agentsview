@@ -7,11 +7,11 @@ import (
 
 func ptr(s string) *string { return &s }
 
-func TestSummaries_InsertAndGet(t *testing.T) {
+func TestInsights_InsertAndGet(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
-	s := Summary{
+	s := Insight{
 		Type:    "daily_activity",
 		Date:    "2025-01-15",
 		Project: ptr("my-app"),
@@ -21,20 +21,20 @@ func TestSummaries_InsertAndGet(t *testing.T) {
 		Content: "# Summary\nStuff happened.",
 	}
 
-	id, err := d.InsertSummary(s)
+	id, err := d.InsertInsight(s)
 	if err != nil {
-		t.Fatalf("InsertSummary: %v", err)
+		t.Fatalf("InsertInsight: %v", err)
 	}
 	if id <= 0 {
 		t.Fatalf("expected positive ID, got %d", id)
 	}
 
-	got, err := d.GetSummary(ctx, id)
+	got, err := d.GetInsight(ctx, id)
 	if err != nil {
-		t.Fatalf("GetSummary: %v", err)
+		t.Fatalf("GetInsight: %v", err)
 	}
 	if got == nil {
-		t.Fatal("expected summary, got nil")
+		t.Fatal("expected insight, got nil")
 	}
 	if got.Type != "daily_activity" {
 		t.Errorf("type = %q, want daily_activity", got.Type)
@@ -53,24 +53,24 @@ func TestSummaries_InsertAndGet(t *testing.T) {
 	}
 }
 
-func TestSummaries_GetNonexistent(t *testing.T) {
+func TestInsights_GetNonexistent(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
-	got, err := d.GetSummary(ctx, 99999)
+	got, err := d.GetInsight(ctx, 99999)
 	if err != nil {
-		t.Fatalf("GetSummary: %v", err)
+		t.Fatalf("GetInsight: %v", err)
 	}
 	if got != nil {
 		t.Fatalf("expected nil, got %+v", got)
 	}
 }
 
-func TestSummaries_ListWithFilters(t *testing.T) {
+func TestInsights_ListWithFilters(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
-	summaries := []Summary{
+	entries := []Insight{
 		{
 			Type: "daily_activity", Date: "2025-01-15",
 			Project: ptr("app-a"), Agent: "claude",
@@ -91,35 +91,35 @@ func TestSummaries_ListWithFilters(t *testing.T) {
 			Content: "Day 2 app-a",
 		},
 	}
-	for _, s := range summaries {
-		if _, err := d.InsertSummary(s); err != nil {
-			t.Fatalf("InsertSummary: %v", err)
+	for _, s := range entries {
+		if _, err := d.InsertInsight(s); err != nil {
+			t.Fatalf("InsertInsight: %v", err)
 		}
 	}
 
 	tests := []struct {
 		name  string
-		f     SummaryFilter
+		f     InsightFilter
 		count int
 	}{
 		{
-			"AllSummaries",
-			SummaryFilter{},
+			"AllInsights",
+			InsightFilter{},
 			4,
 		},
 		{
 			"ByType",
-			SummaryFilter{Type: "daily_activity"},
+			InsightFilter{Type: "daily_activity"},
 			3,
 		},
 		{
 			"ByDate",
-			SummaryFilter{Date: "2025-01-15"},
+			InsightFilter{Date: "2025-01-15"},
 			3,
 		},
 		{
 			"ByTypeAndDate",
-			SummaryFilter{
+			InsightFilter{
 				Type: "daily_activity",
 				Date: "2025-01-15",
 			},
@@ -127,17 +127,17 @@ func TestSummaries_ListWithFilters(t *testing.T) {
 		},
 		{
 			"ByProject",
-			SummaryFilter{Project: "app-a"},
+			InsightFilter{Project: "app-a"},
 			2,
 		},
 		{
 			"GlobalOnly",
-			SummaryFilter{GlobalOnly: true},
+			InsightFilter{GlobalOnly: true},
 			1,
 		},
 		{
 			"NoMatch",
-			SummaryFilter{
+			InsightFilter{
 				Type: "daily_activity",
 				Date: "2025-12-31",
 			},
@@ -147,13 +147,13 @@ func TestSummaries_ListWithFilters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := d.ListSummaries(ctx, tt.f)
+			got, err := d.ListInsights(ctx, tt.f)
 			if err != nil {
-				t.Fatalf("ListSummaries: %v", err)
+				t.Fatalf("ListInsights: %v", err)
 			}
 			if len(got) != tt.count {
 				t.Errorf(
-					"got %d summaries, want %d",
+					"got %d insights, want %d",
 					len(got), tt.count,
 				)
 			}
@@ -161,33 +161,29 @@ func TestSummaries_ListWithFilters(t *testing.T) {
 	}
 }
 
-func TestSummaries_OrderByCreatedAtDesc(t *testing.T) {
+func TestInsights_OrderByCreatedAtDesc(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
 	ids := make([]int64, 3)
 	for i, content := range []string{"first", "second", "third"} {
-		id, err := d.InsertSummary(Summary{
+		id, err := d.InsertInsight(Insight{
 			Type: "daily_activity", Date: "2025-01-15",
 			Agent: "claude", Content: content,
 		})
 		if err != nil {
-			t.Fatalf("InsertSummary: %v", err)
+			t.Fatalf("InsertInsight: %v", err)
 		}
 		ids[i] = id
 	}
 
-	got, err := d.ListSummaries(ctx, SummaryFilter{})
+	got, err := d.ListInsights(ctx, InsightFilter{})
 	if err != nil {
-		t.Fatalf("ListSummaries: %v", err)
+		t.Fatalf("ListInsights: %v", err)
 	}
 	if len(got) != 3 {
-		t.Fatalf("got %d summaries, want 3", len(got))
+		t.Fatalf("got %d insights, want 3", len(got))
 	}
-	// ORDER BY created_at DESC; when timestamps tie, higher
-	// IDs (inserted later) should come first because SQLite
-	// ROWID is monotonically increasing and acts as tiebreaker.
-	// Verify IDs are in descending order.
 	if got[0].ID != ids[2] {
 		t.Errorf("first id = %d, want %d", got[0].ID, ids[2])
 	}
@@ -196,25 +192,25 @@ func TestSummaries_OrderByCreatedAtDesc(t *testing.T) {
 	}
 }
 
-func TestSummaries_Delete(t *testing.T) {
+func TestInsights_Delete(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
-	id, err := d.InsertSummary(Summary{
+	id, err := d.InsertInsight(Insight{
 		Type: "daily_activity", Date: "2025-01-15",
 		Agent: "claude", Content: "to be deleted",
 	})
 	if err != nil {
-		t.Fatalf("InsertSummary: %v", err)
+		t.Fatalf("InsertInsight: %v", err)
 	}
 
-	if err := d.DeleteSummary(id); err != nil {
-		t.Fatalf("DeleteSummary: %v", err)
+	if err := d.DeleteInsight(id); err != nil {
+		t.Fatalf("DeleteInsight: %v", err)
 	}
 
-	got, err := d.GetSummary(ctx, id)
+	got, err := d.GetInsight(ctx, id)
 	if err != nil {
-		t.Fatalf("GetSummary after delete: %v", err)
+		t.Fatalf("GetInsight after delete: %v", err)
 	}
 	if got != nil {
 		t.Fatal("expected nil after delete")

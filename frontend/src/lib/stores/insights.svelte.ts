@@ -1,12 +1,12 @@
 import type {
-  Summary,
-  SummaryType,
+  Insight,
+  InsightType,
   AgentName,
 } from "../api/types.js";
 import {
-  listSummaries,
-  generateSummary,
-  type GenerateSummaryHandle,
+  listInsights,
+  generateInsight,
+  type GenerateInsightHandle,
 } from "../api/client.js";
 
 function localDateStr(d: Date): string {
@@ -18,32 +18,32 @@ function localDateStr(d: Date): string {
 
 export interface InsightTask {
   clientId: string;
-  type: SummaryType;
+  type: InsightType;
   date: string;
   project: string;
   agent: AgentName;
   status: "generating" | "done" | "error";
   phase: string;
   error: string | null;
-  summaryId: number | null;
+  insightId: number | null;
 }
 
 class InsightsStore {
   date: string = $state(localDateStr(new Date()));
-  type: SummaryType = $state("daily_activity");
+  type: InsightType = $state("daily_activity");
   project: string = $state("");
   agent: AgentName = $state("claude");
-  summaries: Summary[] = $state([]);
+  items: Insight[] = $state([]);
   selectedId: number | null = $state(null);
   loading = $state(false);
   promptText: string = $state("");
   tasks: InsightTask[] = $state([]);
 
-  #handles = new Map<string, GenerateSummaryHandle>();
+  #handles = new Map<string, GenerateInsightHandle>();
   #version = 0;
 
-  get selectedSummary(): Summary | undefined {
-    return this.summaries.find(
+  get selectedItem(): Insight | undefined {
+    return this.items.find(
       (s) => s.id === this.selectedId,
     );
   }
@@ -58,16 +58,16 @@ class InsightsStore {
     const v = ++this.#version;
     this.loading = true;
     try {
-      const res = await listSummaries({
+      const res = await listInsights({
         type: this.type,
         date: this.date,
         project: this.project || undefined,
       });
       if (this.#version === v) {
-        this.summaries = res.summaries;
+        this.items = res.insights;
         if (
           this.selectedId !== null &&
-          !this.summaries.some(
+          !this.items.some(
             (s) => s.id === this.selectedId,
           )
         ) {
@@ -76,7 +76,7 @@ class InsightsStore {
       }
     } catch {
       if (this.#version === v) {
-        this.summaries = [];
+        this.items = [];
       }
     } finally {
       if (this.#version === v) {
@@ -91,7 +91,7 @@ class InsightsStore {
     this.load();
   }
 
-  setType(type: SummaryType) {
+  setType(type: InsightType) {
     this.type = type;
     this.selectedId = null;
     this.load();
@@ -129,11 +129,11 @@ class InsightsStore {
       status: "generating",
       phase: "generating",
       error: null,
-      summaryId: null,
+      insightId: null,
     };
     this.tasks = [...this.tasks, task];
 
-    const handle = generateSummary(
+    const handle = generateInsight(
       {
         type: snap.type,
         date: snap.date,
@@ -152,7 +152,7 @@ class InsightsStore {
     this.#handles.set(clientId, handle);
 
     handle.done
-      .then((summary) => {
+      .then((insight) => {
         this.#handles.delete(clientId);
         this.tasks = this.tasks.filter(
           (t) => t.clientId !== clientId,
@@ -163,8 +163,8 @@ class InsightsStore {
           this.date === snap.date &&
           this.project === snap.project;
         if (filtersMatch) {
-          this.summaries = [summary, ...this.summaries];
-          this.selectedId = summary.id;
+          this.items = [insight, ...this.items];
+          this.selectedId = insight.id;
         } else {
           this.load();
         }

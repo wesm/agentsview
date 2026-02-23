@@ -1,4 +1,4 @@
-package summary
+package insight
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 const maxSessions = 50
 
-// GenerateRequest describes what summary to generate.
+// GenerateRequest describes what insight to generate.
 type GenerateRequest struct {
 	Type    string
 	Date    string

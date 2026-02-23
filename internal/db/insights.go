@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Summary represents a row in the summaries table.
-type Summary struct {
+// Insight represents a row in the insights table.
+type Insight struct {
 	ID        int64   `json:"id"`
 	Type      string  `json:"type"`
 	Date      string  `json:"date"`
@@ -20,19 +20,19 @@ type Summary struct {
 	CreatedAt string  `json:"created_at"`
 }
 
-// SummaryFilter specifies how to query summaries.
-type SummaryFilter struct {
+// InsightFilter specifies how to query insights.
+type InsightFilter struct {
 	Type       string // "daily_activity" or "agent_analysis"
 	Date       string // YYYY-MM-DD
 	Project    string // "" = no filter
 	GlobalOnly bool   // true = project IS NULL only
 }
 
-const summaryBaseCols = `id, type, date, project, agent,
+const insightBaseCols = `id, type, date, project, agent,
 	model, prompt, content, created_at`
 
-func scanSummaryRow(rs rowScanner) (Summary, error) {
-	var s Summary
+func scanInsightRow(rs rowScanner) (Insight, error) {
+	var s Insight
 	err := rs.Scan(
 		&s.ID, &s.Type, &s.Date, &s.Project, &s.Agent,
 		&s.Model, &s.Prompt, &s.Content, &s.CreatedAt,
@@ -40,8 +40,8 @@ func scanSummaryRow(rs rowScanner) (Summary, error) {
 	return s, err
 }
 
-func buildSummaryFilter(
-	f SummaryFilter,
+func buildInsightFilter(
+	f InsightFilter,
 ) (string, []any) {
 	var preds []string
 	var args []any
@@ -67,13 +67,13 @@ func buildSummaryFilter(
 	return strings.Join(preds, " AND "), args
 }
 
-// InsertSummary inserts a summary and returns its ID.
-func (db *DB) InsertSummary(s Summary) (int64, error) {
+// InsertInsight inserts an insight and returns its ID.
+func (db *DB) InsertInsight(s Insight) (int64, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
 	res, err := db.writer.Exec(`
-		INSERT INTO summaries (
+		INSERT INTO insights (
 			type, date, project, agent,
 			model, prompt, content
 		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -81,67 +81,67 @@ func (db *DB) InsertSummary(s Summary) (int64, error) {
 		s.Model, s.Prompt, s.Content,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("inserting summary: %w", err)
+		return 0, fmt.Errorf("inserting insight: %w", err)
 	}
 	return res.LastInsertId()
 }
 
-// ListSummaries returns summaries matching the filter,
+// ListInsights returns insights matching the filter,
 // ordered by created_at DESC.
-func (db *DB) ListSummaries(
-	ctx context.Context, f SummaryFilter,
-) ([]Summary, error) {
-	where, args := buildSummaryFilter(f)
-	query := "SELECT " + summaryBaseCols +
-		" FROM summaries WHERE " + where +
+func (db *DB) ListInsights(
+	ctx context.Context, f InsightFilter,
+) ([]Insight, error) {
+	where, args := buildInsightFilter(f)
+	query := "SELECT " + insightBaseCols +
+		" FROM insights WHERE " + where +
 		" ORDER BY created_at DESC, id DESC"
 
 	rows, err := db.reader.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("querying summaries: %w", err)
+		return nil, fmt.Errorf("querying insights: %w", err)
 	}
 	defer rows.Close()
 
-	var summaries []Summary
+	var insights []Insight
 	for rows.Next() {
-		s, err := scanSummaryRow(rows)
+		s, err := scanInsightRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scanning summary: %w", err)
+			return nil, fmt.Errorf("scanning insight: %w", err)
 		}
-		summaries = append(summaries, s)
+		insights = append(insights, s)
 	}
-	return summaries, rows.Err()
+	return insights, rows.Err()
 }
 
-// GetSummary returns a single summary by ID.
+// GetInsight returns a single insight by ID.
 // Returns nil, nil if not found.
-func (db *DB) GetSummary(
+func (db *DB) GetInsight(
 	ctx context.Context, id int64,
-) (*Summary, error) {
+) (*Insight, error) {
 	row := db.reader.QueryRowContext(
 		ctx,
-		"SELECT "+summaryBaseCols+
-			" FROM summaries WHERE id = ?",
+		"SELECT "+insightBaseCols+
+			" FROM insights WHERE id = ?",
 		id,
 	)
-	s, err := scanSummaryRow(row)
+	s, err := scanInsightRow(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf(
-			"getting summary %d: %w", id, err,
+			"getting insight %d: %w", id, err,
 		)
 	}
 	return &s, nil
 }
 
-// DeleteSummary removes a summary by ID.
-func (db *DB) DeleteSummary(id int64) error {
+// DeleteInsight removes an insight by ID.
+func (db *DB) DeleteInsight(id int64) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	_, err := db.writer.Exec(
-		"DELETE FROM summaries WHERE id = ?", id,
+		"DELETE FROM insights WHERE id = ?", id,
 	)
 	return err
 }

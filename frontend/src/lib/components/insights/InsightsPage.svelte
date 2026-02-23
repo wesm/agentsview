@@ -3,7 +3,7 @@
   import { insights } from "../../stores/insights.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { renderMarkdown } from "../../utils/markdown.js";
-  import type { SummaryType, AgentName } from "../../api/types.js";
+  import type { InsightType, AgentName } from "../../api/types.js";
 
   let promptExpanded = $state(false);
 
@@ -14,7 +14,7 @@
 
   function handleTypeChange(e: Event) {
     const select = e.target as HTMLSelectElement;
-    insights.setType(select.value as SummaryType);
+    insights.setType(select.value as InsightType);
   }
 
   function handleProjectChange(e: Event) {
@@ -48,13 +48,13 @@
     });
   }
 
-  function typeLabel(type: SummaryType): string {
+  function typeLabel(type: InsightType): string {
     return type === "daily_activity"
       ? "Daily Activity"
       : "Agent Analysis";
   }
 
-  function typeShort(type: SummaryType): string {
+  function typeShort(type: InsightType): string {
     return type === "daily_activity"
       ? "Daily"
       : "Analysis";
@@ -208,7 +208,7 @@
 
       {#if insights.loading}
         <div class="list-status">Loading...</div>
-      {:else if insights.summaries.length === 0 && insights.tasks.length === 0}
+      {:else if insights.items.length === 0 && insights.tasks.length === 0}
         <div class="empty-state">
           <div class="empty-glyph">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -225,7 +225,7 @@
             <span class="section-title">Completed</span>
           </div>
         {/if}
-        {#each insights.summaries as s (s.id)}
+        {#each insights.items as s (s.id)}
           <button
             class="insight-row"
             class:selected={insights.selectedId === s.id}
@@ -256,45 +256,45 @@
   </div>
 
   <main class="content-panel">
-    {#if insights.selectedSummary}
+    {#if insights.selectedItem}
       <div class="reading-area">
         <header class="insight-header">
           <div class="header-top">
             <span
               class="header-badge"
-              class:badge-blue={insights.selectedSummary.type === "daily_activity"}
-              class:badge-purple={insights.selectedSummary.type === "agent_analysis"}
+              class:badge-blue={insights.selectedItem.type === "daily_activity"}
+              class:badge-purple={insights.selectedItem.type === "agent_analysis"}
             >
-              {typeLabel(insights.selectedSummary.type)}
+              {typeLabel(insights.selectedItem.type)}
             </span>
             <span class="header-date">
-              {formatDate(insights.selectedSummary.date)}
+              {formatDate(insights.selectedItem.date)}
             </span>
           </div>
           <div class="header-details">
-            {#if insights.selectedSummary.project}
-              <span class="detail-chip">{insights.selectedSummary.project}</span>
+            {#if insights.selectedItem.project}
+              <span class="detail-chip">{insights.selectedItem.project}</span>
             {:else}
               <span class="detail-chip muted">global</span>
             {/if}
             <span class="detail-text">
-              {insights.selectedSummary.agent}
-              {#if insights.selectedSummary.model}
-                <span class="model-name">{insights.selectedSummary.model}</span>
+              {insights.selectedItem.agent}
+              {#if insights.selectedItem.model}
+                <span class="model-name">{insights.selectedItem.model}</span>
               {/if}
             </span>
             <span class="detail-time">
-              {formatTime(insights.selectedSummary.created_at)}
+              {formatTime(insights.selectedItem.created_at)}
             </span>
           </div>
         </header>
         <article class="markdown-body">
-          {@html renderMarkdown(insights.selectedSummary.content)}
+          {@html renderMarkdown(insights.selectedItem.content)}
         </article>
       </div>
     {:else}
       <div class="content-empty">
-        {#if insights.summaries.length > 0}
+        {#if insights.items.length > 0}
           <div class="empty-prompt">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M15 15l-2 5L9 9l11 4-5 2zm2 2l4 4"/>

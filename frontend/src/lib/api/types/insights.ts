@@ -1,6 +1,6 @@
-export interface Summary {
+export interface Insight {
   id: number;
-  type: SummaryType;
+  type: InsightType;
   date: string;
   project: string | null;
   agent: string;
@@ -10,18 +10,18 @@ export interface Summary {
   created_at: string;
 }
 
-export type SummaryType =
+export type InsightType =
   | "daily_activity"
   | "agent_analysis";
 
-export interface SummariesResponse {
-  summaries: Summary[];
+export interface InsightsResponse {
+  insights: Insight[];
 }
 
 export type AgentName = "claude" | "codex" | "gemini";
 
-export interface GenerateSummaryRequest {
-  type: SummaryType;
+export interface GenerateInsightRequest {
+  type: InsightType;
   date: string;
   project?: string;
   prompt?: string;

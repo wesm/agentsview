@@ -96,8 +96,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_session
 CREATE INDEX IF NOT EXISTS idx_tool_calls_category
     ON tool_calls(category);
 
--- Summaries table for AI-generated activity summaries
-CREATE TABLE IF NOT EXISTS summaries (
+-- Insights table for AI-generated activity insights
+CREATE TABLE IF NOT EXISTS insights (
     id          INTEGER PRIMARY KEY,
     type        TEXT NOT NULL,
     date        TEXT NOT NULL,
@@ -110,5 +110,5 @@ CREATE TABLE IF NOT EXISTS summaries (
         DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_summaries_lookup
-    ON summaries(type, date, project);
+CREATE INDEX IF NOT EXISTS idx_insights_lookup
+    ON insights(type, date, project);
