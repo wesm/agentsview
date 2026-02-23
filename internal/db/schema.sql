@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     file_size   INTEGER,
     file_mtime  INTEGER,
     file_hash   TEXT,
+    parent_session_id TEXT,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
@@ -66,6 +67,10 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_ordinal
     ON messages(session_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_messages_session_role
     ON messages(session_id, role);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_parent
+    ON sessions(parent_session_id)
+    WHERE parent_session_id IS NOT NULL;
 
 -- Analytics indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_started

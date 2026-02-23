@@ -78,12 +78,53 @@ func makeDSN(path string, readOnly bool) string {
 // Open creates or opens a SQLite database at the given path.
 // It configures WAL mode, mmap, and returns a DB with separate
 // writer and reader connections.
+//
+// If an existing database has an outdated schema, it is deleted
+// and recreated from scratch. Session data is re-synced from
+// the source files on the next sync cycle.
 func Open(path string) (*DB, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
 
+	if needsRebuild(path) {
+		dropDatabase(path)
+	}
+
+	return openAndInit(path)
+}
+
+// needsRebuild checks whether an existing database has an
+// outdated schema that requires a full rebuild.
+func needsRebuild(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false // no existing DB
+	}
+	conn, err := sql.Open("sqlite3", makeDSN(path, true))
+	if err != nil {
+		return true
+	}
+	defer conn.Close()
+
+	var count int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('sessions')
+		 WHERE name = 'parent_session_id'`,
+	).Scan(&count)
+	if err != nil {
+		return true
+	}
+	return count == 0
+}
+
+func dropDatabase(path string) {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		_ = os.Remove(path + suffix)
+	}
+}
+
+func openAndInit(path string) (*DB, error) {
 	writer, err := sql.Open("sqlite3", makeDSN(path, false))
 	if err != nil {
 		return nil, fmt.Errorf("opening writer: %w", err)
@@ -99,12 +140,13 @@ func Open(path string) (*DB, error) {
 
 	db := &DB{writer: writer, reader: reader}
 
-	// Initialize with a random secret (will be overridden by SetCursorSecret)
 	db.cursorSecret = make([]byte, 32)
 	if _, err := rand.Read(db.cursorSecret); err != nil {
 		writer.Close()
 		reader.Close()
-		return nil, fmt.Errorf("generating cursor secret: %w", err)
+		return nil, fmt.Errorf(
+			"generating cursor secret: %w", err,
+		)
 	}
 
 	if err := db.init(); err != nil {
@@ -121,49 +163,6 @@ func (db *DB) HasFTS() bool {
 	// in the current runtime.
 	_, err := db.reader.Exec("SELECT 1 FROM messages_fts LIMIT 1")
 	return err == nil
-}
-
-// ensureColumn adds a column if it doesn't already exist.
-func (db *DB) ensureColumn(
-	table, column, definition string,
-) error {
-	var count int
-	err := db.writer.QueryRow(
-		fmt.Sprintf(
-			"SELECT count(*) FROM pragma_table_info('%s')"+
-				" WHERE name='%s'",
-			table, column,
-		),
-	).Scan(&count)
-	if err != nil {
-		return fmt.Errorf(
-			"checking column %s.%s: %w", table, column, err,
-		)
-	}
-	if count > 0 {
-		return nil
-	}
-	_, err = db.writer.Exec(fmt.Sprintf(
-		"ALTER TABLE %s ADD COLUMN %s %s",
-		table, column, definition,
-	))
-	if err == nil {
-		return nil
-	}
-	// If ALTER TABLE failed, check if the column exists now.
-	// This handles race conditions where another process added it
-	// concurrently, without relying on brittle error string matching.
-	var check int
-	if checkErr := db.writer.QueryRow(
-		fmt.Sprintf(
-			"SELECT count(*) FROM pragma_table_info('%s')"+
-				" WHERE name='%s'",
-			table, column,
-		),
-	).Scan(&check); checkErr == nil && check > 0 {
-		return nil
-	}
-	return err
 }
 
 func (db *DB) init() error {
@@ -194,32 +193,6 @@ func (db *DB) init() error {
 		if _, err := db.writer.Exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"); err != nil {
 			return fmt.Errorf("backfilling FTS: %w", err)
 		}
-	}
-
-	// Migration: add file_hash column for existing databases.
-	if err := db.ensureColumn(
-		"sessions", "file_hash", "TEXT",
-	); err != nil {
-		return fmt.Errorf("adding file_hash column: %w", err)
-	}
-
-	// Migration: add parent_session_id column for session
-	// continuity chaining.
-	if err := db.ensureColumn(
-		"sessions", "parent_session_id", "TEXT",
-	); err != nil {
-		return fmt.Errorf(
-			"adding parent_session_id column: %w", err,
-		)
-	}
-	if _, err := db.writer.Exec(
-		`CREATE INDEX IF NOT EXISTS idx_sessions_parent
-		 ON sessions(parent_session_id)
-		 WHERE parent_session_id IS NOT NULL`,
-	); err != nil {
-		return fmt.Errorf(
-			"creating parent_session_id index: %w", err,
-		)
 	}
 
 	return nil
