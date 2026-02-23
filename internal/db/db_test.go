@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -235,6 +237,9 @@ func TestOpenCreatesFile(t *testing.T) {
 }
 
 func TestOpenProbeErrorPropagates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping: chmod semantics differ on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("skipping: running as root")
 	}
@@ -264,9 +269,14 @@ func TestOpenProbeErrorPropagates(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error")
 		}
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Errorf("expected permission error, got: %v",
+				err)
+		}
 		if !strings.Contains(err.Error(),
 			"checking schema") {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf("expected 'checking schema' wrapper: %v",
+				err)
 		}
 	})
 
