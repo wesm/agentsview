@@ -1964,6 +1964,56 @@ func TestToolCallSkillName(t *testing.T) {
 	}
 }
 
+func TestGetMessagesReturnsToolCalls(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, Message{
+		SessionID:     "s1",
+		Ordinal:       0,
+		Role:          "assistant",
+		Content:       "[Skill: superpowers:brainstorming]",
+		ContentLength: 34,
+		Timestamp:     tsZero,
+		HasToolUse:    true,
+		ToolCalls: []ToolCall{{
+			SessionID:           "s1",
+			ToolName:            "Skill",
+			Category:            "Other",
+			ToolUseID:           "toolu_s1",
+			InputJSON:           `{"skill":"superpowers:brainstorming"}`,
+			SkillName:           "superpowers:brainstorming",
+			ResultContentLength: 42,
+		}},
+	})
+
+	msgs, err := d.GetMessages(
+		context.Background(), "s1", 0, 100, true,
+	)
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages, want 1", len(msgs))
+	}
+	if len(msgs[0].ToolCalls) != 1 {
+		t.Fatalf("got %d tool_calls, want 1",
+			len(msgs[0].ToolCalls))
+	}
+	tc := msgs[0].ToolCalls[0]
+	if tc.ToolName != "Skill" {
+		t.Errorf("ToolName = %q", tc.ToolName)
+	}
+	if tc.SkillName != "superpowers:brainstorming" {
+		t.Errorf("SkillName = %q", tc.SkillName)
+	}
+	if tc.InputJSON != `{"skill":"superpowers:brainstorming"}` {
+		t.Errorf("InputJSON = %q", tc.InputJSON)
+	}
+	if tc.ResultContentLength != 42 {
+		t.Errorf("ResultContentLength = %d", tc.ResultContentLength)
+	}
+}
+
 func TestFTSBackfill(t *testing.T) {
 	dCheck := testDB(t)
 	requireFTS(t, dCheck)
