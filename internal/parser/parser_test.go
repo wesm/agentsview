@@ -193,7 +193,7 @@ func TestExtractTextContent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := gjson.Parse(tt.json)
-			text, hasThinking, hasToolUse, tcs :=
+			text, hasThinking, hasToolUse, tcs, _ :=
 				ExtractTextContent(result)
 			if text != tt.wantText {
 				t.Errorf("text = %q, want %q", text, tt.wantText)
@@ -207,6 +207,58 @@ func TestExtractTextContent(t *testing.T) {
 					hasToolUse, tt.wantToolUse)
 			}
 			assertToolCalls(t, tcs, tt.wantToolCalls)
+		})
+	}
+}
+
+func TestExtractToolResults(t *testing.T) {
+	tests := []struct {
+		name        string
+		json        string
+		wantResults []ParsedToolResult
+	}{
+		{
+			"no tool_result blocks",
+			`[{"type":"text","text":"hello"}]`,
+			nil,
+		},
+		{
+			"single tool_result",
+			`[{"type":"tool_result","tool_use_id":"toolu_123","content":"file contents here"}]`,
+			[]ParsedToolResult{{ToolUseID: "toolu_123", ContentLength: 18}},
+		},
+		{
+			"tool_result with array content",
+			`[{"type":"tool_result","tool_use_id":"toolu_456","content":[{"type":"text","text":"output data"}]}]`,
+			[]ParsedToolResult{{ToolUseID: "toolu_456", ContentLength: 11}},
+		},
+		{
+			"multiple tool_results",
+			`[{"type":"tool_result","tool_use_id":"toolu_1","content":"abc"},{"type":"tool_result","tool_use_id":"toolu_2","content":"defgh"}]`,
+			[]ParsedToolResult{
+				{ToolUseID: "toolu_1", ContentLength: 3},
+				{ToolUseID: "toolu_2", ContentLength: 5},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := gjson.Parse(tt.json)
+			_, _, _, _, trs := ExtractTextContent(result)
+			if len(trs) != len(tt.wantResults) {
+				t.Fatalf("tool_results count = %d, want %d",
+					len(trs), len(tt.wantResults))
+			}
+			for i := range tt.wantResults {
+				if trs[i].ToolUseID != tt.wantResults[i].ToolUseID {
+					t.Errorf("[%d].ToolUseID = %q, want %q",
+						i, trs[i].ToolUseID, tt.wantResults[i].ToolUseID)
+				}
+				if trs[i].ContentLength != tt.wantResults[i].ContentLength {
+					t.Errorf("[%d].ContentLength = %d, want %d",
+						i, trs[i].ContentLength, tt.wantResults[i].ContentLength)
+				}
+			}
 		})
 	}
 }
