@@ -46,4 +46,24 @@ describe("getSessionCommand", () => {
       expect(getSessionCommand(session)).toBe(expected);
     });
   }
+
+  it("shell-escapes ids with unsafe characters", () => {
+    const session = makeSession({
+      id: "id; rm -rf /",
+      agent: "claude",
+    });
+    expect(getSessionCommand(session)).toBe(
+      "claude --continue 'id; rm -rf /'",
+    );
+  });
+
+  it("shell-escapes ids containing single quotes", () => {
+    const session = makeSession({
+      id: "id'bad",
+      agent: "claude",
+    });
+    expect(getSessionCommand(session)).toBe(
+      "claude --continue 'id'\\''bad'",
+    );
+  });
 });
