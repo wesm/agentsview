@@ -71,7 +71,7 @@ export function isToolOnly(msg: Message): boolean {
   return result;
 }
 
-function extractMatches(text: string): Match[] {
+function extractMatches(text: string, parseTools = true): Match[] {
   const matches: Match[] = [];
 
   for (const m of text.matchAll(THINKING_RE)) {
@@ -85,22 +85,24 @@ function extractMatches(text: string): Match[] {
     });
   }
 
-  for (const m of text.matchAll(TOOL_RE)) {
-    const toolName = m[1] ?? "";
-    const toolArgs = (m[2] ?? "").trim();
-    const displayName = TOOL_ALIASES[toolName] ?? toolName;
-    const label = toolArgs
-      ? `${displayName} ${toolArgs}`
-      : displayName;
-    matches.push({
-      start: m.index!,
-      end: m.index! + m[0].length,
-      segment: {
-        type: "tool",
-        content: (m[3] ?? "").trim(),
-        label,
-      },
-    });
+  if (parseTools) {
+    for (const m of text.matchAll(TOOL_RE)) {
+      const toolName = m[1] ?? "";
+      const toolArgs = (m[2] ?? "").trim();
+      const displayName = TOOL_ALIASES[toolName] ?? toolName;
+      const label = toolArgs
+        ? `${displayName} ${toolArgs}`
+        : displayName;
+      matches.push({
+        start: m.index!,
+        end: m.index! + m[0].length,
+        segment: {
+          type: "tool",
+          content: (m[3] ?? "").trim(),
+          label,
+        },
+      });
+    }
   }
 
   for (const m of text.matchAll(CODE_BLOCK_RE)) {
@@ -165,25 +167,26 @@ function buildSegments(
 }
 
 /** Parse message content into typed segments */
-export function parseContent(text: string): ContentSegment[] {
+export function parseContent(text: string, hasToolUse = true): ContentSegment[] {
   if (!text) return [];
-  const cached = segmentCache.get(text);
+  const cacheKey = hasToolUse ? text : `notools|${text}`;
+  const cached = segmentCache.get(cacheKey);
   if (cached) return cached;
 
-  const matches = extractMatches(text);
+  const matches = extractMatches(text, hasToolUse);
 
   if (matches.length === 0) {
     const onlyText: ContentSegment[] = [
       { type: "text", content: text.trimEnd() },
     ];
-    segmentCache.set(text, onlyText);
+    segmentCache.set(cacheKey, onlyText);
     return onlyText;
   }
 
   const deduped = resolveOverlaps(matches);
   const segments = buildSegments(text, deduped);
 
-  segmentCache.set(text, segments);
+  segmentCache.set(cacheKey, segments);
   return segments;
 }
 

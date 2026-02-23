@@ -196,6 +196,38 @@ describe("isToolOnly", () => {
   });
 });
 
+describe("parseContent - hasToolUse flag", () => {
+  it("skips tool blocks when hasToolUse is false", () => {
+    const text = "Some text mentioning [Read: main.go] in prose";
+    const segments = parseContent(text, false);
+    expect(segments.every(s => s.type !== "tool")).toBe(true);
+    expect(segments[0]!.content).toContain("[Read: main.go]");
+  });
+
+  it("still parses thinking blocks when hasToolUse is false", () => {
+    const text = "[Thinking]\nsome thoughts\n\n[Read: main.go] in text";
+    const segments = parseContent(text, false);
+    expect(segments[0]!.type).toBe("thinking");
+    // The [Read: ...] should be plain text, not a tool block
+    const textSegs = segments.filter(s => s.type === "text");
+    expect(textSegs.some(s => s.content.includes("[Read: main.go]"))).toBe(true);
+  });
+
+  it("still parses code blocks when hasToolUse is false", () => {
+    const text = "```js\nconst x = 1\n```\n\n[Bash]\necho hi";
+    const segments = parseContent(text, false);
+    expect(segments[0]!.type).toBe("code");
+    // [Bash] should be plain text
+    const textSegs = segments.filter(s => s.type === "text");
+    expect(textSegs.some(s => s.content.includes("[Bash]"))).toBe(true);
+  });
+
+  it("parses tool blocks normally when hasToolUse is true (default)", () => {
+    const segments = parseContent("[Bash]\n$ echo hi");
+    expect(segments[0]!.type).toBe("tool");
+  });
+});
+
 describe("parseContent - Skill tool", () => {
   it("recognizes Skill as a tool block", () => {
     const segments = parseContent(

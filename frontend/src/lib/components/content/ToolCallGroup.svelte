@@ -17,7 +17,7 @@
   let toolSegments = $derived(
     messages.flatMap((m) =>
       enrichSegments(
-        parseContent(m.content),
+        parseContent(m.content, m.has_tool_use),
         m.tool_calls,
       ).filter((s) => s.type === "tool"),
     ),

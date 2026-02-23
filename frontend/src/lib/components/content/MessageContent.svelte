@@ -19,7 +19,7 @@
 
   let segments = $derived(
     enrichSegments(
-      parseContent(message.content),
+      parseContent(message.content, message.has_tool_use),
       message.tool_calls,
     ),
   );
