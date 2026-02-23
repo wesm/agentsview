@@ -47,23 +47,27 @@ describe("getSessionCommand", () => {
     });
   }
 
-  it("shell-escapes ids with unsafe characters", () => {
+  it("returns null for ids with unsafe characters", () => {
     const session = makeSession({
       id: "id; rm -rf /",
       agent: "claude",
     });
-    expect(getSessionCommand(session)).toBe(
-      "claude --continue 'id; rm -rf /'",
-    );
+    expect(getSessionCommand(session)).toBeNull();
   });
 
-  it("shell-escapes ids containing single quotes", () => {
+  it("returns null for ids containing single quotes", () => {
     const session = makeSession({
       id: "id'bad",
       agent: "claude",
     });
-    expect(getSessionCommand(session)).toBe(
-      "claude --continue 'id'\\''bad'",
-    );
+    expect(getSessionCommand(session)).toBeNull();
+  });
+
+  it("returns null for ids with shell metacharacters", () => {
+    const session = makeSession({
+      id: "id & calc &",
+      agent: "claude",
+    });
+    expect(getSessionCommand(session)).toBeNull();
   });
 });

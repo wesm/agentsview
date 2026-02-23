@@ -5,27 +5,18 @@ import type { Session } from "../api/types.js";
 const SAFE_ID = /^[a-zA-Z0-9_\-:.]+$/;
 
 /**
- * Shell-escape a session ID by wrapping in single quotes.
- * Falls back to the raw id if it already matches safe characters.
- */
-function shellEscape(id: string): string {
-  if (SAFE_ID.test(id)) return id;
-  return "'" + id.replace(/'/g, "'\\''") + "'";
-}
-
-/**
  * Return the CLI continue command for a session based on its agent type.
- * Pure function — no side effects.
+ * Returns null if the session ID contains unsafe characters.
  */
-export function getSessionCommand(session: Session): string {
-  const safeId = shellEscape(session.id);
+export function getSessionCommand(session: Session): string | null {
+  if (!SAFE_ID.test(session.id)) return null;
   switch (session.agent) {
     case "claude":
-      return `claude --continue ${safeId}`;
+      return `claude --continue ${session.id}`;
     case "codex":
-      return `codex --continue ${safeId}`;
+      return `codex --continue ${session.id}`;
     default:
-      return safeId;
+      return session.id;
   }
 }
 
@@ -42,6 +33,10 @@ export function copySessionCommand(
   if (!session) return;
 
   const command = getSessionCommand(session);
+  if (command === null) {
+    ui.showToast("Cannot copy: session ID contains unsafe characters");
+    return;
+  }
   navigator.clipboard.writeText(command).then(
     () => {
       ui.showToast(`Copied: ${command}`);
