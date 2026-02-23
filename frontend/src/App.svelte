@@ -9,7 +9,7 @@
   import ShortcutsModal from "./lib/components/modals/ShortcutsModal.svelte";
   import PublishModal from "./lib/components/modals/PublishModal.svelte";
   import AnalyticsPage from "./lib/components/analytics/AnalyticsPage.svelte";
-  import SummariesPage from "./lib/components/summaries/SummariesPage.svelte";
+  import InsightsPage from "./lib/components/insights/InsightsPage.svelte";
   import { sessions } from "./lib/stores/sessions.svelte.js";
   import { messages } from "./lib/stores/messages.svelte.js";
   import { sync } from "./lib/stores/sync.svelte.js";
@@ -151,8 +151,8 @@
 
 <AppHeader />
 
-{#if router.route === "summaries"}
-  <SummariesPage />
+{#if router.route === "insights"}
+  <InsightsPage />
 {:else}
   <ThreeColumnLayout>
     {#snippet sidebar()}
