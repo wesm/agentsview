@@ -235,31 +235,69 @@ func TestOpenCreatesFile(t *testing.T) {
 }
 
 func TestOpenProbeErrorPropagates(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.db")
+	if os.Geteuid() == 0 {
+		t.Skip("skipping: running as root")
+	}
 
-	// Create a valid DB first.
-	d, err := Open(path)
-	if err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	d.Close()
+	t.Run("StatPermissionError", func(t *testing.T) {
+		dir := t.TempDir()
+		sub := filepath.Join(dir, "sub")
+		if err := os.Mkdir(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(sub, "test.db")
 
-	// Remove read permission on the DB file so os.Stat
-	// succeeds but sql.Open probe fails.
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Skipf("cannot remove permissions: %v", err)
-	}
-	t.Cleanup(func() { os.Chmod(path, 0o644) })
+		d, err := Open(path)
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		d.Close()
 
-	_, err = Open(path)
-	if err == nil {
-		t.Fatal("expected error for unreadable DB")
-	}
-	if !strings.Contains(err.Error(), "checking schema") &&
-		!strings.Contains(err.Error(), "probing schema") {
-		t.Errorf("unexpected error: %v", err)
-	}
+		// Remove execute on parent dir so os.Stat fails
+		// with EACCES, not ENOENT.
+		if err := os.Chmod(sub, 0o000); err != nil {
+			t.Skipf("cannot remove permissions: %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(sub, 0o755) })
+
+		_, err = Open(path)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(),
+			"checking schema") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ProbeReadError", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.db")
+
+		d, err := Open(path)
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		d.Close()
+
+		// Remove read on the file so os.Stat succeeds
+		// but the SQLite probe fails.
+		if err := os.Chmod(path, 0o000); err != nil {
+			t.Skipf("cannot remove permissions: %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(path, 0o644) })
+
+		_, err = Open(path)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(),
+			"checking schema") &&
+			!strings.Contains(err.Error(),
+				"probing schema") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestSessionCRUD(t *testing.T) {
