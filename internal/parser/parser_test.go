@@ -354,6 +354,31 @@ func TestFormatToolUseVariants(t *testing.T) {
 			`{"type":"tool_use","name":"Skill","input":{"skill":"commit","args":"-m 'Fix bug'"}}`,
 			"[Skill: commit]",
 		},
+		{
+			"TaskCreate with subject",
+			`{"type":"tool_use","name":"TaskCreate","input":{"subject":"Fix authentication bug","description":"Debug the login flow"}}`,
+			"[TaskCreate: Fix authentication bug]",
+		},
+		{
+			"TaskUpdate with status",
+			`{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"5","status":"completed"}}`,
+			"[TaskUpdate: #5 completed]",
+		},
+		{
+			"TaskGet",
+			`{"type":"tool_use","name":"TaskGet","input":{"taskId":"3"}}`,
+			"[TaskGet: #3]",
+		},
+		{
+			"TaskList",
+			`{"type":"tool_use","name":"TaskList","input":{}}`,
+			"[TaskList]",
+		},
+		{
+			"SendMessage",
+			`{"type":"tool_use","name":"SendMessage","input":{"type":"message","recipient":"researcher","content":"hello"}}`,
+			"[SendMessage: message to researcher]",
+		},
 	}
 
 	for _, tt := range tests {

@@ -249,6 +249,37 @@ describe("parseContent - Skill tool", () => {
   });
 });
 
+describe("parseContent - TaskCreate/TaskUpdate/SendMessage tools", () => {
+  it("recognizes TaskCreate as a tool block", () => {
+    const segments = parseContent("[TaskCreate: Fix bug]");
+    expect(segments[0]!.type).toBe("tool");
+    expect(segments[0]!.label).toBe("TaskCreate : Fix bug");
+  });
+
+  it("recognizes TaskUpdate as a tool block", () => {
+    const segments = parseContent("[TaskUpdate: #5 completed]");
+    expect(segments[0]!.type).toBe("tool");
+  });
+
+  it("recognizes TaskGet as a tool block", () => {
+    const segments = parseContent("[TaskGet: #3]");
+    expect(segments[0]!.type).toBe("tool");
+    expect(segments[0]!.label).toBe("TaskGet : #3");
+  });
+
+  it("recognizes TaskList as a tool block", () => {
+    const segments = parseContent("[TaskList]");
+    expect(segments[0]!.type).toBe("tool");
+    expect(segments[0]!.label).toBe("TaskList");
+  });
+
+  it("recognizes SendMessage as a tool block", () => {
+    const segments = parseContent("[SendMessage: message to researcher]");
+    expect(segments[0]!.type).toBe("tool");
+    expect(segments[0]!.label).toBe("SendMessage : message to researcher");
+  });
+});
+
 describe("enrichSegments", () => {
   it("returns segments unchanged when no tool_calls", () => {
     const segments = parseContent("[Bash]\n$ echo hi");
