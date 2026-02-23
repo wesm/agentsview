@@ -105,7 +105,7 @@ func ParseClaudeSession(
 			content := gjson.Get(line, "message.content")
 			text, hasThinking, hasToolUse, tcs, trs :=
 				ExtractTextContent(content)
-			if strings.TrimSpace(text) == "" {
+			if strings.TrimSpace(text) == "" && len(trs) == 0 {
 				continue
 			}
 
