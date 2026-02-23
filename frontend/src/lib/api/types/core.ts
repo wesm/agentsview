@@ -35,6 +35,16 @@ export interface ProjectInfo {
   session_count: number;
 }
 
+/** Matches Go ToolCall struct in internal/db/messages.go */
+export interface ToolCall {
+  tool_name: string;
+  category: string;
+  tool_use_id?: string;
+  input_json?: string;
+  skill_name?: string;
+  result_content_length?: number;
+}
+
 /** Matches Go Message struct in internal/db/messages.go */
 export interface Message {
   id: number;
@@ -46,6 +56,7 @@ export interface Message {
   has_thinking: boolean;
   has_tool_use: boolean;
   content_length: number;
+  tool_calls?: ToolCall[];
 }
 
 /** Matches Go MinimapEntry struct */
