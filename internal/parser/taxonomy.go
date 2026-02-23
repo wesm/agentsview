@@ -2,7 +2,7 @@ package parser
 
 // NormalizeToolCategory maps a raw tool name to a normalized
 // category. Categories: Read, Edit, Write, Bash, Grep, Glob,
-// Task, Other.
+// Task, Tool, Other.
 func NormalizeToolCategory(rawName string) string {
 	switch rawName {
 	// Claude Code tools
@@ -20,6 +20,8 @@ func NormalizeToolCategory(rawName string) string {
 		return "Glob"
 	case "Task":
 		return "Task"
+	case "Skill":
+		return "Tool"
 
 	// Codex tools
 	case "shell_command", "exec_command",
