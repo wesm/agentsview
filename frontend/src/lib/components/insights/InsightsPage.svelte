@@ -5,6 +5,8 @@
   import { renderMarkdown } from "../../utils/markdown.js";
   import type { SummaryType, AgentName } from "../../api/types.js";
 
+  let promptExpanded = $state(false);
+
   function handleDateChange(e: Event) {
     const input = e.target as HTMLInputElement;
     insights.setDate(input.value);
@@ -37,7 +39,22 @@
     });
   }
 
+  function formatDate(date: string): string {
+    const d = new Date(date + "T00:00:00");
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
   function typeLabel(type: SummaryType): string {
+    return type === "daily_activity"
+      ? "Daily Activity"
+      : "Agent Analysis";
+  }
+
+  function typeShort(type: SummaryType): string {
     return type === "daily_activity"
       ? "Daily"
       : "Analysis";
@@ -50,452 +67,536 @@
 </script>
 
 <div class="insights-page">
-  <div class="toolbar">
-    <div class="toolbar-row">
-      <input
-        type="date"
-        class="date-input"
-        value={insights.date}
-        onchange={handleDateChange}
-      />
+  <div class="sidebar-panel">
+    <div class="controls">
+      <div class="controls-row">
+        <input
+          type="date"
+          class="ctrl date-ctrl"
+          value={insights.date}
+          onchange={handleDateChange}
+        />
+        <select
+          class="ctrl type-ctrl"
+          value={insights.type}
+          onchange={handleTypeChange}
+        >
+          <option value="daily_activity">Daily Activity</option>
+          <option value="agent_analysis">Agent Analysis</option>
+        </select>
+      </div>
+      <div class="controls-row">
+        <select
+          class="ctrl project-ctrl"
+          value={insights.project}
+          onchange={handleProjectChange}
+        >
+          <option value="">All Projects</option>
+          {#each sessions.projects as project}
+            <option value={project.name}>{project.name}</option>
+          {/each}
+        </select>
+        <select
+          class="ctrl agent-ctrl"
+          value={insights.agent}
+          onchange={handleAgentChange}
+        >
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="gemini">Gemini</option>
+        </select>
+      </div>
 
-      <select
-        class="type-select"
-        value={insights.type}
-        onchange={handleTypeChange}
-      >
-        <option value="daily_activity">Daily Activity</option>
-        <option value="agent_analysis">Agent Analysis</option>
-      </select>
+      {#if promptExpanded}
+        <textarea
+          class="prompt-area"
+          placeholder="Steer the insight with additional context..."
+          bind:value={insights.promptText}
+          rows="3"
+        ></textarea>
+      {/if}
 
-      <select
-        class="project-select"
-        value={insights.project}
-        onchange={handleProjectChange}
-      >
-        <option value="">All Projects (Global)</option>
-        {#each sessions.projects as project}
-          <option value={project.name}>
-            {project.name}
-          </option>
-        {/each}
-      </select>
-
-      <select
-        class="agent-select"
-        value={insights.agent}
-        onchange={handleAgentChange}
-      >
-        <option value="claude">Claude</option>
-        <option value="codex">Codex</option>
-        <option value="gemini">Gemini</option>
-      </select>
-
-      <button
-        class="generate-btn"
-        onclick={handleGenerate}
-        disabled={insights.loading}
-      >
-        Generate
-      </button>
+      <div class="action-row">
+        <button
+          class="prompt-toggle"
+          onclick={() => promptExpanded = !promptExpanded}
+          title={promptExpanded ? "Hide prompt" : "Add custom prompt"}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M12.146.146a.5.5 0 01.708 0l3 3a.5.5 0 010 .708l-10 10a.5.5 0 01-.168.11l-5 2a.5.5 0 01-.65-.65l2-5a.5.5 0 01.11-.168l10-10zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 01.5.5v.5h.5a.5.5 0 01.5.5v.5h.293l6.5-6.5zm-9.761 5.175l-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 015.5 13H5v-.5a.5.5 0 00-.5-.5H4v-.5a.5.5 0 00-.468-.498z"/>
+          </svg>
+          {promptExpanded ? "Hide" : "Prompt"}
+        </button>
+        <button
+          class="generate-btn"
+          onclick={handleGenerate}
+          disabled={insights.loading}
+        >
+          <svg
+            class="generate-icon"
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+          >
+            <path d="M8 1a.5.5 0 01.5.5V6h4.5a.5.5 0 010 1H8.5v4.5a.5.5 0 01-1 0V7H3a.5.5 0 010-1h4.5V1.5A.5.5 0 018 1z" transform="translate(0, 2)"/>
+          </svg>
+          Generate
+        </button>
+      </div>
     </div>
 
-    <div class="toolbar-row">
-      <textarea
-        class="prompt-input"
-        placeholder="Optional: add context or questions to steer the insight..."
-        bind:value={insights.promptText}
-        rows="2"
-      ></textarea>
-    </div>
-  </div>
-
-  <div class="body">
-    <aside class="insight-list">
+    <div class="list-area">
       {#if insights.tasks.length > 0}
-        <div class="section-label">
-          Generating
+        <div class="list-section-header">
+          <span class="section-title">
+            <span class="live-dot"></span>
+            Active
+            <span class="active-count">{insights.tasks.length}</span>
+          </span>
           {#if insights.tasks.length > 1}
             <button
-              class="cancel-all-btn"
+              class="cancel-all"
               onclick={() => insights.cancelAll()}
             >
-              Cancel all
+              Stop all
             </button>
           {/if}
         </div>
         {#each insights.tasks as task (task.clientId)}
           <div
-            class="insight-item generating"
-            class:error={task.status === "error"}
+            class="task-item"
+            class:task-error={task.status === "error"}
           >
-            <div class="item-status">
+            <div class="task-indicator">
               {#if task.status === "generating"}
-                <span class="spinner-dot"></span>
+                <span class="spinner"></span>
               {:else}
-                <span class="dot error-dot"></span>
+                <span class="error-pip"></span>
               {/if}
             </div>
-            <div class="item-info">
-              <div class="item-name">
-                {typeLabel(task.type)}
-                {#if task.project}
-                  - {task.project}
-                {:else}
-                  - global
-                {/if}
-              </div>
-              <div class="item-meta">
-                {#if task.status === "error"}
-                  {task.error}
-                {:else}
-                  {task.phase}
-                {/if}
-              </div>
+            <div class="task-body">
+              <span class="task-label">
+                {typeShort(task.type)}
+              </span>
+              <span class="task-scope">
+                {task.project || "global"}
+              </span>
+              {#if task.status === "error"}
+                <span class="task-error-msg">{task.error}</span>
+              {:else}
+                <span class="task-phase">{task.phase}</span>
+              {/if}
             </div>
             <button
-              class="task-action-btn"
+              class="task-dismiss"
               onclick={() => task.status === "error"
                 ? insights.dismissTask(task.clientId)
                 : insights.cancelTask(task.clientId)}
-              title={task.status === "error"
-                ? "Dismiss"
-                : "Cancel"}
+              title={task.status === "error" ? "Dismiss" : "Cancel"}
             >
-              {#if task.status === "error"}
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"/>
-                </svg>
-              {:else}
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"/>
-                </svg>
-              {/if}
+              <svg width="8" height="8" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+              </svg>
             </button>
+            {#if task.status === "generating"}
+              <div class="shimmer-bar"></div>
+            {/if}
           </div>
         {/each}
       {/if}
 
       {#if insights.loading}
-        <div class="list-empty">Loading...</div>
+        <div class="list-status">Loading...</div>
       {:else if insights.summaries.length === 0 && insights.tasks.length === 0}
-        <div class="list-empty">
-          No insights yet. Click Generate to create one.
+        <div class="empty-state">
+          <div class="empty-glyph">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+          </div>
+          <span class="empty-text">
+            Generate an insight to analyze your sessions
+          </span>
         </div>
       {:else}
-        {#if insights.summaries.length > 0 && insights.tasks.length > 0}
-          <div class="section-label">Completed</div>
+        {#if insights.tasks.length > 0}
+          <div class="list-section-header completed-header">
+            <span class="section-title">Completed</span>
+          </div>
         {/if}
         {#each insights.summaries as s (s.id)}
           <button
-            class="insight-item completed"
+            class="insight-row"
             class:selected={insights.selectedId === s.id}
             onclick={() => insights.select(s.id)}
           >
-            <div class="item-status">
-              <span
-                class="dot"
-                class:dot-blue={s.type === "daily_activity"}
-                class:dot-purple={s.type === "agent_analysis"}
-              ></span>
-            </div>
-            <div class="item-info">
-              <div class="item-name">
-                {typeLabel(s.type)}
-                {#if s.project}
-                  - {s.project}
-                {:else}
-                  - global
-                {/if}
-              </div>
-              <div class="item-meta">
+            <span
+              class="type-pip"
+              class:pip-blue={s.type === "daily_activity"}
+              class:pip-purple={s.type === "agent_analysis"}
+            ></span>
+            <span class="row-body">
+              <span class="row-title">
+                {typeShort(s.type)}
+                <span class="row-scope">
+                  {s.project || "global"}
+                </span>
+              </span>
+              <span class="row-meta">
                 {formatTime(s.created_at)}
-                {#if s.agent}
-                  / {s.agent}
-                {/if}
-              </div>
-            </div>
+                <span class="meta-sep">/</span>
+                {s.agent}
+              </span>
+            </span>
           </button>
         {/each}
       {/if}
-    </aside>
-
-    <main class="insight-content">
-      {#if insights.selectedSummary}
-        <div class="content-header">
-          <span
-            class="type-badge"
-            class:badge-blue={insights.selectedSummary.type === "daily_activity"}
-            class:badge-purple={insights.selectedSummary.type === "agent_analysis"}
-          >
-            {typeLabel(insights.selectedSummary.type)}
-          </span>
-          <span class="content-date">{insights.selectedSummary.date}</span>
-          {#if insights.selectedSummary.project}
-            <span class="content-project">{insights.selectedSummary.project}</span>
-          {:else}
-            <span class="content-project global">global</span>
-          {/if}
-          <span class="content-agent">
-            {insights.selectedSummary.agent}
-            {#if insights.selectedSummary.model}
-              / {insights.selectedSummary.model}
-            {/if}
-          </span>
-          <span class="content-time">
-            {formatTime(insights.selectedSummary.created_at)}
-          </span>
-        </div>
-        <div class="markdown-body">
-          {@html renderMarkdown(insights.selectedSummary.content)}
-        </div>
-      {:else}
-        <div class="content-empty">
-          {#if insights.summaries.length > 0}
-            Select an insight from the list
-          {:else if insights.tasks.length > 0}
-            Generating...
-          {:else}
-            Generate an insight to get started
-          {/if}
-        </div>
-      {/if}
-    </main>
+    </div>
   </div>
+
+  <main class="content-panel">
+    {#if insights.selectedSummary}
+      <div class="reading-area">
+        <header class="insight-header">
+          <div class="header-top">
+            <span
+              class="header-badge"
+              class:badge-blue={insights.selectedSummary.type === "daily_activity"}
+              class:badge-purple={insights.selectedSummary.type === "agent_analysis"}
+            >
+              {typeLabel(insights.selectedSummary.type)}
+            </span>
+            <span class="header-date">
+              {formatDate(insights.selectedSummary.date)}
+            </span>
+          </div>
+          <div class="header-details">
+            {#if insights.selectedSummary.project}
+              <span class="detail-chip">{insights.selectedSummary.project}</span>
+            {:else}
+              <span class="detail-chip muted">global</span>
+            {/if}
+            <span class="detail-text">
+              {insights.selectedSummary.agent}
+              {#if insights.selectedSummary.model}
+                <span class="model-name">{insights.selectedSummary.model}</span>
+              {/if}
+            </span>
+            <span class="detail-time">
+              {formatTime(insights.selectedSummary.created_at)}
+            </span>
+          </div>
+        </header>
+        <article class="markdown-body">
+          {@html renderMarkdown(insights.selectedSummary.content)}
+        </article>
+      </div>
+    {:else}
+      <div class="content-empty">
+        {#if insights.summaries.length > 0}
+          <div class="empty-prompt">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 15l-2 5L9 9l11 4-5 2zm2 2l4 4"/>
+            </svg>
+            <span>Select an insight to view</span>
+          </div>
+        {:else if insights.tasks.length > 0}
+          <div class="content-generating">
+            <div class="gen-orbit">
+              <span class="orbit-ring"></span>
+              <span class="orbit-dot"></span>
+            </div>
+            <span class="gen-label">Generating insight...</span>
+          </div>
+        {:else}
+          <div class="empty-prompt">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+            <span>Generate an insight to get started</span>
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </main>
 </div>
 
 <style>
+  /* ── Layout ── */
   .insights-page {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 280px 1fr;
     height: calc(100vh - 36px - 24px);
     overflow: hidden;
   }
 
-  .toolbar {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--bg-surface);
+  /* ── Sidebar ── */
+  .sidebar-panel {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-
-  .toolbar-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .date-input,
-  .type-select,
-  .project-select,
-  .agent-select {
-    height: 28px;
-    padding: 0 8px;
-    background: var(--bg-inset);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-
-  .date-input:focus,
-  .type-select:focus,
-  .project-select:focus,
-  .agent-select:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-  }
-
-  .prompt-input {
-    flex: 1;
-    min-height: 28px;
-    padding: 4px 8px;
-    background: var(--bg-inset);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    color: var(--text-primary);
-    font-family: var(--font-sans);
-    resize: vertical;
-  }
-
-  .prompt-input:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-  }
-
-  .prompt-input::placeholder {
-    color: var(--text-muted);
-  }
-
-  .generate-btn {
-    height: 28px;
-    padding: 0 16px;
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    background: var(--accent-blue);
-    color: white;
-  }
-
-  .generate-btn:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .generate-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .body {
-    display: grid;
-    grid-template-columns: 260px 1fr;
-    flex: 1;
+    border-right: 1px solid var(--border-default);
+    background: var(--bg-surface);
     overflow: hidden;
   }
 
-  .insight-list {
-    border-right: 1px solid var(--border-default);
-    overflow-y: auto;
-    background: var(--bg-surface);
+  /* ── Controls ── */
+  .controls {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-bottom: 1px solid var(--border-default);
+    flex-shrink: 0;
   }
 
-  .section-label {
+  .controls-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .ctrl {
+    flex: 1;
+    height: 26px;
+    padding: 0 6px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    color: var(--text-secondary);
+    min-width: 0;
+    transition: border-color 0.15s;
+  }
+
+  .ctrl:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+
+  .date-ctrl {
+    flex: 1.2;
+  }
+
+  .prompt-area {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    resize: vertical;
+    min-height: 48px;
+    line-height: 1.4;
+    transition: border-color 0.15s;
+  }
+
+  .prompt-area:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+
+  .prompt-area::placeholder {
+    color: var(--text-muted);
+  }
+
+  .action-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .prompt-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    color: var(--text-muted);
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .prompt-toggle:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-secondary);
+  }
+
+  .generate-btn {
+    flex: 1;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--accent-blue);
+    color: white;
+    transition: opacity 0.1s, transform 0.1s;
+  }
+
+  .generate-btn:hover:not(:disabled) {
+    opacity: 0.92;
+  }
+
+  .generate-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .generate-btn:disabled {
+    opacity: 0.45;
+  }
+
+  .generate-icon {
+    opacity: 0.9;
+  }
+
+  /* ── List Area ── */
+  .list-area {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .list-section-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
+    padding: 8px 12px 6px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-surface);
+  }
+
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 10px;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid var(--border-muted);
+    letter-spacing: 0.04em;
   }
 
-  .cancel-all-btn {
-    font-size: 10px;
+  .live-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    animation: blink 1.6s ease-in-out infinite;
+  }
+
+  .active-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
     font-weight: 500;
+  }
+
+  .cancel-all {
+    font-size: 10px;
     color: var(--text-muted);
-    cursor: pointer;
-    text-transform: none;
-    letter-spacing: 0;
+    transition: color 0.1s;
   }
 
-  .cancel-all-btn:hover {
-    color: var(--danger);
+  .cancel-all:hover {
+    color: var(--accent-red);
   }
 
-  .list-empty {
-    padding: 16px 12px;
-    color: var(--text-muted);
-    font-size: 12px;
-    text-align: center;
+  .completed-header {
+    border-top: 1px solid var(--border-muted);
   }
 
-  .insight-item {
+  /* ── Task Items (generating) ── */
+  .task-item {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
-    height: 40px;
+    height: 42px;
     padding: 0 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-muted);
-    transition: background 0.1s;
+    overflow: hidden;
   }
 
-  .insight-item.completed {
-    cursor: pointer;
-    border-left: 2px solid transparent;
+  .task-error {
+    background: color-mix(
+      in srgb,
+      var(--accent-red) 6%,
+      transparent
+    );
   }
 
-  .insight-item.completed:hover {
-    background: var(--bg-surface-hover);
-  }
-
-  .insight-item.completed.selected {
-    background: var(--bg-surface-hover);
-    border-left-color: var(--accent-blue);
-  }
-
-  .insight-item.generating {
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  .insight-item.generating.error {
-    animation: none;
-    background: var(--bg-inset);
-  }
-
-  .item-status {
+  .task-indicator {
     flex-shrink: 0;
-    width: 10px;
+    width: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-muted);
-  }
-
-  .dot-blue {
-    background: var(--accent-blue);
-  }
-
-  .dot-purple {
-    background: var(--accent-purple);
-  }
-
-  .error-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--danger);
-  }
-
-  .spinner-dot {
-    width: 8px;
-    height: 8px;
+  .spinner {
+    width: 10px;
+    height: 10px;
     border: 1.5px solid var(--accent-blue);
     border-top-color: transparent;
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    animation: spin 0.7s linear infinite;
   }
 
-  .item-info {
-    min-width: 0;
+  .error-pip {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-red);
+  }
+
+  .task-body {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 5px;
+    line-height: 1.35;
   }
 
-  .item-name {
-    font-size: 12px;
+  .task-label {
+    font-size: 11px;
+    font-weight: 600;
     color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1.3;
   }
 
-  .item-meta {
+  .task-scope {
     font-size: 10px;
     color: var(--text-muted);
+  }
+
+  .task-phase {
+    width: 100%;
+    font-size: 10px;
+    color: var(--accent-blue);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.3;
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
   }
 
-  .task-action-btn {
+  .task-error-msg {
+    width: 100%;
+    font-size: 10px;
+    color: var(--accent-red);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .task-dismiss {
     flex-shrink: 0;
     width: 18px;
     height: 18px;
@@ -504,37 +605,169 @@
     justify-content: center;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
-    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.1s, color 0.1s;
   }
 
-  .task-action-btn:hover {
+  .task-item:hover .task-dismiss {
+    opacity: 1;
+  }
+
+  .task-dismiss:hover {
     background: var(--bg-surface-hover);
     color: var(--text-primary);
   }
 
-  .insight-content {
-    overflow-y: auto;
-    padding: 16px 24px;
+  .shimmer-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--accent-blue) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s ease-in-out infinite;
   }
 
-  .content-header {
+  /* ── Insight Rows (completed) ── */
+  .insight-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding-bottom: 12px;
-    margin-bottom: 12px;
-    border-bottom: 1px solid var(--border-default);
-    font-size: 12px;
-    color: var(--text-secondary);
-    flex-wrap: wrap;
+    gap: 10px;
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    text-align: left;
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
   }
 
-  .type-badge {
+  .insight-row:hover {
+    background: var(--bg-surface-hover);
+  }
+
+  .insight-row.selected {
+    background: var(--bg-surface-hover);
+    border-left-color: var(--accent-blue);
+  }
+
+  .type-pip {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .pip-blue {
+    background: var(--accent-blue);
+  }
+
+  .pip-purple {
+    background: var(--accent-purple);
+  }
+
+  .row-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .row-title {
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .row-scope {
+    color: var(--text-muted);
+    margin-left: 4px;
+    font-weight: 400;
+  }
+
+  .row-meta {
     font-size: 10px;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    line-height: 1.3;
+  }
+
+  .meta-sep {
+    opacity: 0.4;
+    margin: 0 1px;
+  }
+
+  .list-status {
+    padding: 16px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  /* ── Empty State ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 32px 16px;
+    text-align: center;
+  }
+
+  .empty-glyph {
+    color: var(--text-muted);
+    opacity: 0.4;
+  }
+
+  .empty-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 180px;
+  }
+
+  /* ── Content Panel ── */
+  .content-panel {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+  }
+
+  .reading-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px 48px;
+  }
+
+  .insight-header {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-muted);
+  }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .header-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
     color: white;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
 
   .badge-blue {
@@ -545,115 +778,245 @@
     background: var(--accent-purple);
   }
 
-  .content-project {
+  .header-date {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .header-details {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 11px;
-    padding: 1px 5px;
+    color: var(--text-muted);
+  }
+
+  .detail-chip {
+    padding: 1px 6px;
     border-radius: var(--radius-sm);
     background: var(--bg-inset);
     color: var(--text-secondary);
+    font-size: 11px;
   }
 
-  .content-project.global {
+  .detail-chip.muted {
+    color: var(--text-muted);
     font-style: italic;
+  }
+
+  .detail-text {
     color: var(--text-muted);
   }
 
-  .content-agent {
-    color: var(--text-muted);
-    font-size: 11px;
+  .model-name {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    opacity: 0.7;
+    margin-left: 2px;
   }
 
-  .content-date {
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .content-time {
-    color: var(--text-muted);
-    font-size: 11px;
+  .detail-time {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
   }
 
   .content-empty {
-    color: var(--text-muted);
-    font-size: 13px;
-    padding: 32px 0;
-    text-align: center;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
+  .empty-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    opacity: 0.5;
+    font-size: 12px;
+  }
+
+  .content-generating {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: var(--text-muted);
+  }
+
+  .gen-orbit {
+    position: relative;
+    width: 36px;
+    height: 36px;
+  }
+
+  .orbit-ring {
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid var(--border-muted);
+    border-radius: 50%;
+  }
+
+  .orbit-dot {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: var(--accent-blue);
+    border-radius: 50%;
+    top: -3px;
+    left: 50%;
+    margin-left: -3px;
+    animation: orbit 1.5s linear infinite;
+    transform-origin: 3px 21px;
+  }
+
+  .gen-label {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ── Markdown Content ── */
   .markdown-body {
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.7;
     color: var(--text-primary);
+    max-width: 720px;
   }
 
   .markdown-body :global(h1) {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
-    margin: 0 0 12px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--border-default);
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-muted);
+    letter-spacing: -0.01em;
   }
 
   .markdown-body :global(h2) {
     font-size: 15px;
     font-weight: 600;
-    margin: 16px 0 8px;
+    margin: 24px 0 10px;
+    letter-spacing: -0.005em;
   }
 
   .markdown-body :global(h3) {
     font-size: 13px;
     font-weight: 600;
-    margin: 12px 0 6px;
+    margin: 16px 0 6px;
   }
 
   .markdown-body :global(p) {
-    margin: 0 0 8px;
+    margin: 0 0 10px;
   }
 
   .markdown-body :global(ul),
   .markdown-body :global(ol) {
-    margin: 0 0 8px;
+    margin: 0 0 10px;
     padding-left: 20px;
   }
 
   .markdown-body :global(li) {
-    margin: 2px 0;
+    margin: 3px 0;
+  }
+
+  .markdown-body :global(li + li) {
+    margin-top: 4px;
   }
 
   .markdown-body :global(code) {
     font-family: var(--font-mono);
     font-size: 12px;
-    padding: 1px 4px;
+    padding: 2px 5px;
     background: var(--bg-inset);
     border-radius: var(--radius-sm);
   }
 
   .markdown-body :global(pre) {
     background: var(--bg-inset);
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
     overflow-x: auto;
-    margin: 0 0 8px;
+    margin: 0 0 10px;
+    border: 1px solid var(--border-muted);
   }
 
   .markdown-body :global(pre code) {
     padding: 0;
     background: transparent;
+    border: none;
   }
 
   .markdown-body :global(blockquote) {
-    margin: 0 0 8px;
-    padding: 4px 12px;
-    border-left: 3px solid var(--border-default);
+    margin: 0 0 10px;
+    padding: 6px 14px;
+    border-left: 3px solid var(--accent-blue);
     color: var(--text-secondary);
+    background: color-mix(
+      in srgb,
+      var(--accent-blue) 4%,
+      transparent
+    );
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
+  .markdown-body :global(strong) {
+    font-weight: 600;
+    color: var(--text-primary);
   }
 
+  .markdown-body :global(a) {
+    color: var(--accent-blue);
+    text-decoration: none;
+  }
+
+  .markdown-body :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .markdown-body :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border-muted);
+    margin: 20px 0;
+  }
+
+  .markdown-body :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 10px;
+    font-size: 12px;
+  }
+
+  .markdown-body :global(th),
+  .markdown-body :global(td) {
+    padding: 6px 10px;
+    border: 1px solid var(--border-muted);
+    text-align: left;
+  }
+
+  .markdown-body :global(th) {
+    background: var(--bg-inset);
+    font-weight: 600;
+  }
+
+  /* ── Animations ── */
   @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  @keyframes orbit {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
