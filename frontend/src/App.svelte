@@ -177,3 +177,37 @@
 {#if ui.activeModal === "publish"}
   <PublishModal />
 {/if}
+
+{#if ui.toastMessage}
+  <div class="toast">{ui.toastMessage}</div>
+{/if}
+
+<style>
+  .toast {
+    position: fixed;
+    bottom: 48px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    font-size: 12px;
+    color: var(--text-primary);
+    z-index: 200;
+    white-space: nowrap;
+    animation: toast-in 0.15s ease-out;
+  }
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+</style>

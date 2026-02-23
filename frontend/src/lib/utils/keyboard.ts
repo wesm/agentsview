@@ -2,6 +2,7 @@ import { ui } from "../stores/ui.svelte.js";
 import { sessions } from "../stores/sessions.svelte.js";
 import { sync } from "../stores/sync.svelte.js";
 import { getExportUrl } from "../api/client.js";
+import { copySessionCommand } from "./clipboard.js";
 
 function isInputFocused(): boolean {
   const el = document.activeElement;
@@ -74,6 +75,11 @@ export function registerShortcuts(
             getExportUrl(sessions.activeSessionId),
             "_blank",
           );
+        }
+      },
+      c: () => {
+        if (sessions.activeSessionId) {
+          copySessionCommand(sessions.activeSessionId);
         }
       },
       p: () => {

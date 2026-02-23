@@ -24,6 +24,10 @@ class UIStore {
   selectedOrdinal: number | null = $state(null);
   pendingScrollOrdinal: number | null = $state(null);
   pendingScrollSession: string | null = $state(null);
+  toastMessage: string | null = $state(null);
+
+  private toastTimer: ReturnType<typeof setTimeout> | null =
+    null;
 
   constructor() {
     $effect.root(() => {
@@ -69,6 +73,17 @@ class UIStore {
     this.selectedOrdinal = ordinal;
     this.pendingScrollOrdinal = ordinal;
     this.pendingScrollSession = sessionId ?? null;
+  }
+
+  showToast(msg: string) {
+    if (this.toastTimer !== null) {
+      clearTimeout(this.toastTimer);
+    }
+    this.toastMessage = msg;
+    this.toastTimer = setTimeout(() => {
+      this.toastMessage = null;
+      this.toastTimer = null;
+    }, 2000);
   }
 
   closeAll() {
