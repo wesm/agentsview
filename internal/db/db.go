@@ -89,21 +89,24 @@ func Open(path string) (*DB, error) {
 	}
 
 	if needsRebuild(path) {
-		dropDatabase(path)
+		if err := dropDatabase(path); err != nil {
+			return nil, fmt.Errorf("rebuilding database: %w", err)
+		}
 	}
 
 	return openAndInit(path)
 }
 
 // needsRebuild checks whether an existing database has an
-// outdated schema that requires a full rebuild.
+// outdated schema that requires a full rebuild. Returns false
+// on any transient error to avoid deleting a valid database.
 func needsRebuild(path string) bool {
 	if _, err := os.Stat(path); err != nil {
 		return false // no existing DB
 	}
 	conn, err := sql.Open("sqlite3", makeDSN(path, true))
 	if err != nil {
-		return true
+		return false // can't open; don't delete
 	}
 	defer conn.Close()
 
@@ -113,15 +116,21 @@ func needsRebuild(path string) bool {
 		 WHERE name = 'parent_session_id'`,
 	).Scan(&count)
 	if err != nil {
-		return true
+		return false // query failed; don't delete
 	}
 	return count == 0
 }
 
-func dropDatabase(path string) {
+func dropDatabase(path string) error {
 	for _, suffix := range []string{"", "-wal", "-shm"} {
-		_ = os.Remove(path + suffix)
+		if err := os.Remove(path + suffix); err != nil &&
+			!os.IsNotExist(err) {
+			return fmt.Errorf(
+				"removing %s: %w", path+suffix, err,
+			)
+		}
 	}
+	return nil
 }
 
 func openAndInit(path string) (*DB, error) {
