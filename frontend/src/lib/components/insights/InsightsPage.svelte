@@ -245,10 +245,9 @@
               </span>
               <span class="row-meta">
                 {formatTime(s.created_at)}
-                <span class="meta-sep">/</span>
-                {s.agent}
               </span>
             </span>
+            <span class="row-agent">{s.agent}</span>
           </button>
         {/each}
       {/if}
@@ -699,9 +698,12 @@
     line-height: 1.3;
   }
 
-  .meta-sep {
-    opacity: 0.4;
-    margin: 0 1px;
+  .row-agent {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
   }
 
   .list-status {
