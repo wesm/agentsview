@@ -127,7 +127,7 @@ func generateCodex(
 
 	// Drain remaining stdout so cmd.Wait doesn't block.
 	if parseErr != nil {
-		io.Copy(io.Discard, stdoutPipe)
+		_, _ = io.Copy(io.Discard, stdoutPipe)
 	}
 
 	if waitErr := cmd.Wait(); waitErr != nil {
@@ -255,7 +255,7 @@ func generateGemini(
 
 	// Drain remaining stdout so cmd.Wait doesn't block.
 	if parseErr != nil {
-		io.Copy(io.Discard, stdoutPipe)
+		_, _ = io.Copy(io.Discard, stdoutPipe)
 	}
 
 	if waitErr := cmd.Wait(); waitErr != nil {
