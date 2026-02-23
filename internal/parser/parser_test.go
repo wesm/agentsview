@@ -176,7 +176,7 @@ func TestExtractTextContent(t *testing.T) {
 			"Skill tool extracts skill_name",
 			`[{"type":"tool_use","id":"toolu_456","name":"Skill","input":{"skill":"superpowers:brainstorming"}}]`,
 			"[Skill: superpowers:brainstorming]", false, true,
-			[]ParsedToolCall{{ToolUseID: "toolu_456", ToolName: "Skill", Category: "Tool", SkillName: "superpowers:brainstorming"}},
+			[]ParsedToolCall{{ToolUseID: "toolu_456", ToolName: "Skill", Category: "Tool", InputJSON: `{"skill":"superpowers:brainstorming"}`, SkillName: "superpowers:brainstorming"}},
 		},
 		{
 			"tool_use with empty name",
