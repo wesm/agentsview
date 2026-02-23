@@ -3,7 +3,7 @@
   import { summaries } from "../../stores/summaries.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { renderMarkdown } from "../../utils/markdown.js";
-  import type { SummaryType } from "../../api/types.js";
+  import type { SummaryType, AgentName } from "../../api/types.js";
 
   function handleDateChange(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -18,6 +18,11 @@
   function handleProjectChange(e: Event) {
     const select = e.target as HTMLSelectElement;
     summaries.setProject(select.value);
+  }
+
+  function handleAgentChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    summaries.setAgent(select.value as AgentName);
   }
 
   function handleGenerate() {
@@ -72,6 +77,16 @@
             {project.name}
           </option>
         {/each}
+      </select>
+
+      <select
+        class="agent-select"
+        value={summaries.agent}
+        onchange={handleAgentChange}
+      >
+        <option value="claude">Claude</option>
+        <option value="codex">Codex</option>
+        <option value="gemini">Gemini</option>
       </select>
 
       <button
@@ -189,7 +204,8 @@
 
   .date-input,
   .type-select,
-  .project-select {
+  .project-select,
+  .agent-select {
     height: 28px;
     padding: 0 8px;
     background: var(--bg-inset);
@@ -201,7 +217,8 @@
 
   .date-input:focus,
   .type-select:focus,
-  .project-select:focus {
+  .project-select:focus,
+  .agent-select:focus {
     outline: none;
     border-color: var(--accent-blue);
   }

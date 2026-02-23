@@ -163,6 +163,28 @@ func TestGenerateSummary_InvalidJSON(t *testing.T) {
 	assertStatus(t, w, http.StatusBadRequest)
 }
 
+func TestGenerateSummary_InvalidAgent(t *testing.T) {
+	te := setup(t)
+
+	w := te.post(t, "/api/v1/summaries/generate",
+		`{"type":"daily_activity","date":"2025-01-15","agent":"gpt"}`)
+	assertStatus(t, w, http.StatusBadRequest)
+	assertBodyContains(t, w, "invalid agent")
+}
+
+func TestGenerateSummary_DefaultAgent(t *testing.T) {
+	// When agent is omitted, it defaults to "claude".
+	// Validation passes, SSE stream starts (200), then the
+	// CLI invocation fails in the test environment. We verify
+	// validation succeeded by checking the SSE error event.
+	te := setup(t)
+
+	w := te.post(t, "/api/v1/summaries/generate",
+		`{"type":"daily_activity","date":"2025-01-15"}`)
+	assertStatus(t, w, http.StatusOK)
+	assertBodyContains(t, w, "event: error")
+}
+
 // --- helpers ---
 
 func strPtr(s string) *string { return &s }

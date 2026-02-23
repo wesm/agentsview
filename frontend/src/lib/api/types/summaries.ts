@@ -18,9 +18,12 @@ export interface SummariesResponse {
   summaries: Summary[];
 }
 
+export type AgentName = "claude" | "codex" | "gemini";
+
 export interface GenerateSummaryRequest {
   type: SummaryType;
   date: string;
   project?: string;
   prompt?: string;
+  agent?: AgentName;
 }

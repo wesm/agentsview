@@ -1,6 +1,7 @@
 import type {
   Summary,
   SummaryType,
+  AgentName,
 } from "../api/types.js";
 import {
   listSummaries,
@@ -19,6 +20,7 @@ class SummariesStore {
   date: string = $state(localDateStr(new Date()));
   type: SummaryType = $state("daily_activity");
   project: string = $state("");
+  agent: AgentName = $state("claude");
   summaries: Summary[] = $state([]);
   selectedId: number | null = $state(null);
   loading = $state(false);
@@ -85,6 +87,10 @@ class SummariesStore {
     this.load();
   }
 
+  setAgent(agent: AgentName) {
+    this.agent = agent;
+  }
+
   select(id: number) {
     this.selectedId = id;
   }
@@ -100,6 +106,7 @@ class SummariesStore {
         date: this.date,
         project: this.project || undefined,
         prompt: this.promptText || undefined,
+        agent: this.agent,
       },
       (phase) => {
         this.generatePhase = phase;

@@ -1,0 +1,142 @@
+package summary
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestParseCodexStream_AgentMessages(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"abc"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.started","item":{"id":"m1","type":"agent_message"}}`,
+		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"partial"}}`,
+		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"# Summary\nDone."}}`,
+		`{"type":"turn.completed"}`,
+	}, "\n") + "\n"
+
+	result, err := parseCodexStream(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseCodexStream: %v", err)
+	}
+	if result != "# Summary\nDone." {
+		t.Errorf("result = %q", result)
+	}
+}
+
+func TestParseCodexStream_MultipleMessages(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"First"}}`,
+		`{"type":"item.completed","item":{"id":"m2","type":"agent_message","text":"Second"}}`,
+	}, "\n") + "\n"
+
+	result, err := parseCodexStream(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseCodexStream: %v", err)
+	}
+	if result != "First\nSecond" {
+		t.Errorf("result = %q", result)
+	}
+}
+
+func TestParseCodexStream_TurnFailed(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"turn.started"}`,
+		`{"type":"turn.failed","error":{"message":"rate limit"}}`,
+	}, "\n") + "\n"
+
+	_, err := parseCodexStream(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "rate limit") {
+		t.Errorf("error = %q, want rate limit", err.Error())
+	}
+}
+
+func TestParseCodexStream_DeduplicatesByID(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"v1"}}`,
+		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"v2"}}`,
+		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"v3"}}`,
+	}, "\n") + "\n"
+
+	result, err := parseCodexStream(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseCodexStream: %v", err)
+	}
+	if result != "v3" {
+		t.Errorf("result = %q, want v3", result)
+	}
+}
+
+func TestParseStreamJSON_ResultEvent(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"system","subtype":"init"}`,
+		`{"type":"assistant","message":{"content":"Working..."}}`,
+		`{"type":"result","result":"# Final Summary"}`,
+	}, "\n") + "\n"
+
+	result, err := parseStreamJSON(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseStreamJSON: %v", err)
+	}
+	if result != "# Final Summary" {
+		t.Errorf("result = %q", result)
+	}
+}
+
+func TestParseStreamJSON_FallsBackToAssistantMessages(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"assistant","message":{"content":"Part 1"}}`,
+		`{"type":"assistant","message":{"content":"Part 2"}}`,
+	}, "\n") + "\n"
+
+	result, err := parseStreamJSON(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseStreamJSON: %v", err)
+	}
+	if result != "Part 1\nPart 2" {
+		t.Errorf("result = %q", result)
+	}
+}
+
+func TestParseStreamJSON_GeminiFormat(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"system","subtype":"init"}`,
+		`{"type":"message","role":"assistant","content":"Analysis done.","delta":true}`,
+		`{"type":"result","result":"# Full Result"}`,
+	}, "\n") + "\n"
+
+	result, err := parseStreamJSON(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseStreamJSON: %v", err)
+	}
+	// Prefers result over assistant messages
+	if result != "# Full Result" {
+		t.Errorf("result = %q", result)
+	}
+}
+
+func TestParseStreamJSON_Empty(t *testing.T) {
+	result, err := parseStreamJSON(strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("parseStreamJSON: %v", err)
+	}
+	if result != "" {
+		t.Errorf("result = %q, want empty", result)
+	}
+}
+
+func TestValidAgents(t *testing.T) {
+	for _, agent := range []string{
+		"claude", "codex", "gemini",
+	} {
+		if !ValidAgents[agent] {
+			t.Errorf("%s should be valid", agent)
+		}
+	}
+	if ValidAgents["gpt"] {
+		t.Error("gpt should not be valid")
+	}
+}

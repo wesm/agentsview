@@ -1,11 +1,14 @@
 package summary
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
+	"strings"
 )
 
 // Result holds the output from an AI agent invocation.
@@ -15,26 +18,46 @@ type Result struct {
 	Model   string
 }
 
-// claudeResponse is the JSON output from `claude -p --output-format json`.
-type claudeResponse struct {
-	Result string `json:"result"`
-	Model  string `json:"model"`
+// ValidAgents lists the supported agent names.
+var ValidAgents = map[string]bool{
+	"claude": true,
+	"codex":  true,
+	"gemini": true,
 }
 
-// Generate invokes the claude CLI to generate a summary from
-// the given prompt. The prompt is passed via stdin.
+// Generate invokes an AI agent CLI to generate a summary.
+// The agent parameter selects which CLI to use (claude,
+// codex, gemini). The prompt is passed via stdin.
 func Generate(
-	ctx context.Context, prompt string,
+	ctx context.Context, agent, prompt string,
 ) (Result, error) {
-	path, err := exec.LookPath("claude")
-	if err != nil {
+	if !ValidAgents[agent] {
 		return Result{}, fmt.Errorf(
-			"claude CLI not found: %w "+
-				"(install from https://docs.anthropic.com/en/docs/claude-code)",
-			err,
+			"unsupported agent: %s", agent,
 		)
 	}
 
+	path, err := exec.LookPath(agent)
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"%s CLI not found: %w", agent, err,
+		)
+	}
+
+	switch agent {
+	case "codex":
+		return generateCodex(ctx, path, prompt)
+	case "gemini":
+		return generateGemini(ctx, path, prompt)
+	default:
+		return generateClaude(ctx, path, prompt)
+	}
+}
+
+// generateClaude invokes `claude -p --output-format json`.
+func generateClaude(
+	ctx context.Context, path, prompt string,
+) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
 		"-p", "--output-format", "json",
@@ -52,7 +75,10 @@ func Generate(
 		)
 	}
 
-	var resp claudeResponse
+	var resp struct {
+		Result string `json:"result"`
+		Model  string `json:"model"`
+	}
 	if err := json.Unmarshal(
 		stdout.Bytes(), &resp,
 	); err != nil {
@@ -67,4 +93,245 @@ func Generate(
 		Agent:   "claude",
 		Model:   resp.Model,
 	}, nil
+}
+
+// generateCodex invokes `codex exec --json --full-auto -`
+// and parses the JSONL stream for agent_message items.
+func generateCodex(
+	ctx context.Context, path, prompt string,
+) (Result, error) {
+	cmd := exec.CommandContext(
+		ctx, path,
+		"exec", "--json", "--full-auto", "-",
+	)
+	cmd.Stdin = strings.NewReader(prompt)
+
+	var stderr bytes.Buffer
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"create stdout pipe: %w", err,
+		)
+	}
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf(
+			"start codex: %w\nstderr: %s",
+			err, stderr.String(),
+		)
+	}
+
+	content, parseErr := parseCodexStream(stdoutPipe)
+
+	if waitErr := cmd.Wait(); waitErr != nil {
+		if parseErr != nil {
+			return Result{}, fmt.Errorf(
+				"codex failed: %w (parse: %v)\nstderr: %s",
+				waitErr, parseErr, stderr.String(),
+			)
+		}
+		return Result{}, fmt.Errorf(
+			"codex failed: %w\nstderr: %s",
+			waitErr, stderr.String(),
+		)
+	}
+	if parseErr != nil {
+		return Result{}, parseErr
+	}
+
+	return Result{
+		Content: content,
+		Agent:   "codex",
+	}, nil
+}
+
+// codexEvent represents a JSONL event from codex --json.
+type codexEvent struct {
+	Type  string `json:"type"`
+	Error struct {
+		Message string `json:"message,omitempty"`
+	} `json:"error,omitempty"`
+	Item struct {
+		ID   string `json:"id,omitempty"`
+		Type string `json:"type,omitempty"`
+		Text string `json:"text,omitempty"`
+	} `json:"item,omitempty"`
+}
+
+// parseCodexStream reads codex JSONL and extracts
+// agent_message text from item.completed/item.updated events.
+func parseCodexStream(r io.Reader) (string, error) {
+	br := bufio.NewReader(r)
+	var messages []string
+	indexByID := make(map[string]int)
+
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return "", fmt.Errorf("read stream: %w", err)
+		}
+
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			var ev codexEvent
+			if json.Unmarshal(
+				[]byte(trimmed), &ev,
+			) == nil {
+				if ev.Type == "turn.failed" ||
+					ev.Type == "error" {
+					msg := ev.Error.Message
+					if msg == "" {
+						msg = "codex stream error"
+					}
+					return "", fmt.Errorf(
+						"codex: %s", msg,
+					)
+				}
+
+				isMsg := (ev.Type == "item.completed" ||
+					ev.Type == "item.updated") &&
+					ev.Item.Type == "agent_message" &&
+					ev.Item.Text != ""
+				if isMsg {
+					if ev.Item.ID == "" {
+						messages = append(
+							messages, ev.Item.Text,
+						)
+					} else if idx, ok := indexByID[ev.Item.ID]; ok {
+						messages[idx] = ev.Item.Text
+					} else {
+						indexByID[ev.Item.ID] = len(messages)
+						messages = append(
+							messages, ev.Item.Text,
+						)
+					}
+				}
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+	}
+
+	return strings.Join(messages, "\n"), nil
+}
+
+// generateGemini invokes `gemini --output-format stream-json`
+// and parses the JSONL stream for result/assistant messages.
+func generateGemini(
+	ctx context.Context, path, prompt string,
+) (Result, error) {
+	cmd := exec.CommandContext(
+		ctx, path,
+		"--output-format", "stream-json",
+	)
+	cmd.Stdin = strings.NewReader(prompt)
+
+	var stderr bytes.Buffer
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"create stdout pipe: %w", err,
+		)
+	}
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf(
+			"start gemini: %w\nstderr: %s",
+			err, stderr.String(),
+		)
+	}
+
+	content, parseErr := parseStreamJSON(stdoutPipe)
+
+	if waitErr := cmd.Wait(); waitErr != nil {
+		if parseErr != nil {
+			return Result{}, fmt.Errorf(
+				"gemini failed: %w (parse: %v)\nstderr: %s",
+				waitErr, parseErr, stderr.String(),
+			)
+		}
+		return Result{}, fmt.Errorf(
+			"gemini failed: %w\nstderr: %s",
+			waitErr, stderr.String(),
+		)
+	}
+	if parseErr != nil {
+		return Result{}, parseErr
+	}
+
+	return Result{
+		Content: content,
+		Agent:   "gemini",
+	}, nil
+}
+
+// streamMessage represents a JSONL event from stream-json
+// output (shared format between Claude and Gemini CLIs).
+type streamMessage struct {
+	Type    string `json:"type"`
+	Role    string `json:"role,omitempty"`
+	Content string `json:"content,omitempty"`
+	Message struct {
+		Content string `json:"content,omitempty"`
+	} `json:"message,omitempty"`
+	Result string `json:"result,omitempty"`
+}
+
+// parseStreamJSON reads stream-json JSONL and extracts the
+// result text. Prefers type=result, falls back to collecting
+// assistant messages.
+func parseStreamJSON(r io.Reader) (string, error) {
+	br := bufio.NewReader(r)
+	var lastResult string
+	var assistantMsgs []string
+
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return "", fmt.Errorf("read stream: %w", err)
+		}
+
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			var msg streamMessage
+			if json.Unmarshal(
+				[]byte(trimmed), &msg,
+			) == nil {
+				if msg.Type == "message" &&
+					msg.Role == "assistant" &&
+					msg.Content != "" {
+					assistantMsgs = append(
+						assistantMsgs, msg.Content,
+					)
+				}
+				if msg.Type == "assistant" &&
+					msg.Message.Content != "" {
+					assistantMsgs = append(
+						assistantMsgs,
+						msg.Message.Content,
+					)
+				}
+				if msg.Type == "result" &&
+					msg.Result != "" {
+					lastResult = msg.Result
+				}
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+	}
+
+	if lastResult != "" {
+		return lastResult, nil
+	}
+	if len(assistantMsgs) > 0 {
+		return strings.Join(assistantMsgs, "\n"), nil
+	}
+	return "", nil
 }

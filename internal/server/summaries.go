@@ -93,6 +93,7 @@ type generateSummaryRequest struct {
 	Date    string `json:"date"`
 	Project string `json:"project"`
 	Prompt  string `json:"prompt"`
+	Agent   string `json:"agent"`
 }
 
 func (s *Server) handleGenerateSummary(
@@ -113,6 +114,15 @@ func (s *Server) handleGenerateSummary(
 	if !isValidDate(req.Date) {
 		writeError(w, http.StatusBadRequest,
 			"invalid date format: use YYYY-MM-DD")
+		return
+	}
+
+	if req.Agent == "" {
+		req.Agent = "claude"
+	}
+	if !summary.ValidAgents[req.Agent] {
+		writeError(w, http.StatusBadRequest,
+			"invalid agent: must be claude, codex, or gemini")
 		return
 	}
 
@@ -142,7 +152,9 @@ func (s *Server) handleGenerateSummary(
 		return
 	}
 
-	result, err := summary.Generate(r.Context(), prompt)
+	result, err := summary.Generate(
+		r.Context(), req.Agent, prompt,
+	)
 	if err != nil {
 		stream.SendJSON("error", map[string]string{
 			"message": err.Error(),
