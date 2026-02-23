@@ -1850,3 +1850,36 @@ func TestGeminiSessionID(t *testing.T) {
 		t.Errorf("GeminiSessionID empty = %q, want empty", got)
 	}
 }
+
+func TestParseClaudeToolResults(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:00Z","message":{"content":[{"type":"tool_use","id":"toolu_abc","name":"Read","input":{"file_path":"main.go"}}]}}`,
+		`{"type":"user","timestamp":"2024-01-01T00:00:01Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_abc","content":"package main\nfunc main() {}"}]}}`,
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	path := createTestFile(t, "tool-results.jsonl", content)
+
+	_, msgs, err := ParseClaudeSession(path, "test-project", "local")
+	if err != nil {
+		t.Fatalf("ParseClaudeSession: %v", err)
+	}
+
+	// Should have 2 messages: assistant tool_use + user tool_result
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+
+	// User message should have ToolResults populated
+	userMsg := msgs[1]
+	if len(userMsg.ToolResults) != 1 {
+		t.Fatalf("ToolResults count = %d, want 1", len(userMsg.ToolResults))
+	}
+	if userMsg.ToolResults[0].ToolUseID != "toolu_abc" {
+		t.Errorf("ToolUseID = %q, want toolu_abc",
+			userMsg.ToolResults[0].ToolUseID)
+	}
+	if userMsg.ToolResults[0].ContentLength != 27 {
+		t.Errorf("ContentLength = %d, want 27",
+			userMsg.ToolResults[0].ContentLength)
+	}
+}
