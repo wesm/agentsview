@@ -32,18 +32,25 @@ type ToolCall struct {
 	ResultContentLength int    `json:"result_content_length,omitempty"`
 }
 
+// ToolResult holds a tool_result content length for pairing.
+type ToolResult struct {
+	ToolUseID     string
+	ContentLength int
+}
+
 // Message represents a row in the messages table.
 type Message struct {
-	ID            int64      `json:"id"`
-	SessionID     string     `json:"session_id"`
-	Ordinal       int        `json:"ordinal"`
-	Role          string     `json:"role"`
-	Content       string     `json:"content"`
-	Timestamp     string     `json:"timestamp"`
-	HasThinking   bool       `json:"has_thinking"`
-	HasToolUse    bool       `json:"has_tool_use"`
-	ContentLength int        `json:"content_length"`
-	ToolCalls     []ToolCall `json:"-"` // transient, not a DB column
+	ID            int64        `json:"id"`
+	SessionID     string       `json:"session_id"`
+	Ordinal       int          `json:"ordinal"`
+	Role          string       `json:"role"`
+	Content       string       `json:"content"`
+	Timestamp     string       `json:"timestamp"`
+	HasThinking   bool         `json:"has_thinking"`
+	HasToolUse    bool         `json:"has_tool_use"`
+	ContentLength int          `json:"content_length"`
+	ToolCalls     []ToolCall   `json:"-"` // transient, not a DB column
+	ToolResults   []ToolResult `json:"-"` // transient, for pairing
 }
 
 // MinimapEntry is a lightweight message summary for minimap rendering.
