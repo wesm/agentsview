@@ -118,7 +118,22 @@ func needsRebuild(path string) bool {
 	if err != nil {
 		return false // query failed; don't delete
 	}
-	return count == 0
+	if count == 0 {
+		return true
+	}
+
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')
+		 WHERE name = 'tool_use_id'`,
+	).Scan(&count)
+	if err != nil {
+		return false
+	}
+	if count == 0 {
+		return true
+	}
+
+	return false
 }
 
 func dropDatabase(path string) error {
