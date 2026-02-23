@@ -533,6 +533,11 @@ func (db *DB) FindPruneCandidates(
 		args = append(args, escapeLike(f.FirstMessage)+"%")
 	}
 
+	// Exclude sessions that are parents of other sessions.
+	where += ` AND NOT EXISTS (
+		SELECT 1 FROM sessions AS child
+		WHERE child.parent_session_id = sessions.id)`
+
 	query := "SELECT " + sessionPruneCols +
 		" FROM sessions WHERE " + where + `
 		ORDER BY COALESCE(

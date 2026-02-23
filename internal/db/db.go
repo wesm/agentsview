@@ -222,19 +222,6 @@ func (db *DB) init() error {
 		)
 	}
 
-	// Force re-sync of Claude sessions that haven't been parsed
-	// for parent_session_id yet. Idempotent: on subsequent starts
-	// the WHERE matches 0 rows.
-	if _, err := db.writer.Exec(
-		`UPDATE sessions SET file_hash = NULL
-		 WHERE agent = 'claude'
-		   AND parent_session_id IS NULL`,
-	); err != nil {
-		return fmt.Errorf(
-			"clearing hashes for re-sync: %w", err,
-		)
-	}
-
 	return nil
 }
 
