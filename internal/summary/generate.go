@@ -279,6 +279,9 @@ type streamMessage struct {
 		Content string `json:"content,omitempty"`
 	} `json:"message,omitempty"`
 	Result string `json:"result,omitempty"`
+	Error  struct {
+		Message string `json:"message,omitempty"`
+	} `json:"error,omitempty"`
 }
 
 // parseStreamJSON reads stream-json JSONL and extracts the
@@ -300,25 +303,35 @@ func parseStreamJSON(r io.Reader) (string, error) {
 			var msg streamMessage
 			if json.Unmarshal(
 				[]byte(trimmed), &msg,
-			) == nil {
-				if msg.Type == "message" &&
-					msg.Role == "assistant" &&
-					msg.Content != "" {
-					assistantMsgs = append(
-						assistantMsgs, msg.Content,
-					)
+			) != nil {
+				continue
+			}
+			if msg.Type == "error" {
+				m := msg.Error.Message
+				if m == "" {
+					m = "stream error"
 				}
-				if msg.Type == "assistant" &&
-					msg.Message.Content != "" {
-					assistantMsgs = append(
-						assistantMsgs,
-						msg.Message.Content,
-					)
-				}
-				if msg.Type == "result" &&
-					msg.Result != "" {
-					lastResult = msg.Result
-				}
+				return "", fmt.Errorf(
+					"stream: %s", m,
+				)
+			}
+			if msg.Type == "message" &&
+				msg.Role == "assistant" &&
+				msg.Content != "" {
+				assistantMsgs = append(
+					assistantMsgs, msg.Content,
+				)
+			}
+			if msg.Type == "assistant" &&
+				msg.Message.Content != "" {
+				assistantMsgs = append(
+					assistantMsgs,
+					msg.Message.Content,
+				)
+			}
+			if msg.Type == "result" &&
+				msg.Result != "" {
+				lastResult = msg.Result
 			}
 		}
 

@@ -100,11 +100,17 @@ class SummariesStore {
     this.generatePhase = "generating";
     this.generateError = null;
 
+    const snap = {
+      type: this.type,
+      date: this.date,
+      project: this.project,
+    };
+
     this.#handle = generateSummary(
       {
-        type: this.type,
-        date: this.date,
-        project: this.project || undefined,
+        type: snap.type,
+        date: snap.date,
+        project: snap.project || undefined,
         prompt: this.promptText || undefined,
         agent: this.agent,
       },
@@ -115,8 +121,16 @@ class SummariesStore {
 
     try {
       const summary = await this.#handle.done;
-      this.summaries = [summary, ...this.summaries];
-      this.selectedId = summary.id;
+      const filtersMatch =
+        this.type === snap.type &&
+        this.date === snap.date &&
+        this.project === snap.project;
+      if (filtersMatch) {
+        this.summaries = [summary, ...this.summaries];
+        this.selectedId = summary.id;
+      } else {
+        this.load();
+      }
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         // User cancelled

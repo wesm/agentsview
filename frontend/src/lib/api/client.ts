@@ -211,6 +211,9 @@ export function triggerSync(
       if (last !== -1) buf = buf.slice(last + 2);
     }
 
+    // Flush any remaining multibyte bytes from decoder
+    buf += decoder.decode();
+
     if (!stats && buf.trim()) {
       stats = processFrame(buf, onProgress);
     }
@@ -480,6 +483,9 @@ export function generateSummary(
       const last = buf.lastIndexOf("\n\n");
       if (last !== -1) buf = buf.slice(last + 2);
     }
+
+    // Flush any remaining multibyte bytes from decoder
+    buf += decoder.decode();
 
     if (!result && buf.trim()) {
       result = processSummaryFrame(buf, onStatus);

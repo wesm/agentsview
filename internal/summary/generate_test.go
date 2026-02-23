@@ -118,6 +118,37 @@ func TestParseStreamJSON_GeminiFormat(t *testing.T) {
 	}
 }
 
+func TestParseStreamJSON_ErrorEvent(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"system","subtype":"init"}`,
+		`{"type":"error","error":{"message":"rate limited"}}`,
+	}, "\n") + "\n"
+
+	_, err := parseStreamJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "rate limited") {
+		t.Errorf("error = %q, want rate limited",
+			err.Error())
+	}
+}
+
+func TestParseCodexStream_SkipsMalformedJSON(t *testing.T) {
+	input := strings.Join([]string{
+		`not valid json`,
+		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"OK"}}`,
+	}, "\n") + "\n"
+
+	result, err := parseCodexStream(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseCodexStream: %v", err)
+	}
+	if result != "OK" {
+		t.Errorf("result = %q, want OK", result)
+	}
+}
+
 func TestParseStreamJSON_Empty(t *testing.T) {
 	result, err := parseStreamJSON(strings.NewReader(""))
 	if err != nil {

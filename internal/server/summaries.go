@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/summary"
@@ -152,12 +155,24 @@ func (s *Server) handleGenerateSummary(
 		return
 	}
 
+	genCtx, cancel := context.WithTimeout(
+		r.Context(), 10*time.Minute,
+	)
+	defer cancel()
+
 	result, err := summary.Generate(
-		r.Context(), req.Agent, prompt,
+		genCtx, req.Agent, prompt,
 	)
 	if err != nil {
 		stream.SendJSON("error", map[string]string{
 			"message": err.Error(),
+		})
+		return
+	}
+
+	if strings.TrimSpace(result.Content) == "" {
+		stream.SendJSON("error", map[string]string{
+			"message": "agent returned empty content",
 		})
 		return
 	}
