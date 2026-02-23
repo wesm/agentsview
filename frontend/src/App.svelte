@@ -198,30 +198,34 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 28px;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--border-default);
+    height: 32px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border-muted);
     flex-shrink: 0;
     font-size: 11px;
     color: var(--text-muted);
   }
 
   .breadcrumb-link {
-    color: var(--accent-blue);
+    color: var(--text-muted);
     font-size: 11px;
+    font-weight: 500;
     cursor: pointer;
+    transition: color 0.12s;
   }
 
   .breadcrumb-link:hover {
-    text-decoration: underline;
+    color: var(--accent-blue);
   }
 
   .breadcrumb-sep {
-    opacity: 0.4;
+    opacity: 0.3;
+    font-size: 10px;
   }
 
   .breadcrumb-current {
-    color: var(--text-secondary);
+    color: var(--text-primary);
+    font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

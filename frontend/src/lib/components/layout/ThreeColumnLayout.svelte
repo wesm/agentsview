@@ -21,7 +21,7 @@
 <style>
   .layout {
     display: flex;
-    height: calc(100vh - 36px - 24px);
+    height: calc(100vh - 40px - 24px);
     overflow: hidden;
   }
 

@@ -328,8 +328,8 @@
   .insights-page {
     display: grid;
     grid-template-columns: 280px 1fr;
-    height: calc(100vh - 36px - 24px);
-    height: calc(100dvh - 36px - 24px);
+    height: calc(100vh - 40px - 24px);
+    height: calc(100dvh - 40px - 24px);
     overflow: hidden;
   }
 
@@ -344,7 +344,7 @@
 
   /* ── Controls ── */
   .controls {
-    padding: 10px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -438,19 +438,25 @@
     font-weight: 600;
     background: var(--accent-blue);
     color: white;
-    transition: opacity 0.1s, transform 0.1s;
+    letter-spacing: 0.01em;
+    transition: opacity 0.12s, transform 0.1s,
+      box-shadow 0.12s;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
   }
 
   .generate-btn:hover:not(:disabled) {
     opacity: 0.92;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
   }
 
   .generate-btn:active:not(:disabled) {
     transform: scale(0.98);
+    box-shadow: none;
   }
 
   .generate-btn:disabled {
     opacity: 0.45;
+    box-shadow: none;
   }
 
   .generate-icon {
@@ -468,7 +474,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px 6px;
+    padding: 8px 14px 6px;
     position: sticky;
     top: 0;
     z-index: 1;
@@ -483,7 +489,7 @@
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
   }
 
   .live-dot {
@@ -519,9 +525,9 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     height: 42px;
-    padding: 0 12px;
+    padding: 0 14px;
     overflow: hidden;
   }
 
@@ -649,8 +655,8 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    height: 40px;
-    padding: 0 12px;
+    height: 42px;
+    padding: 0 14px;
     text-align: left;
     border-left: 2px solid transparent;
     transition: background 0.1s;
@@ -689,11 +695,13 @@
 
   .row-title {
     font-size: 12px;
+    font-weight: 450;
     color: var(--text-primary);
     line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    letter-spacing: -0.005em;
   }
 
   .row-scope {
@@ -760,11 +768,11 @@
   .reading-area {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 32px 48px;
+    padding: 28px 36px 48px;
   }
 
   .insight-header {
-    margin-bottom: 20px;
+    margin-bottom: 24px;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--border-muted);
   }
@@ -777,12 +785,12 @@
   }
 
   .header-badge {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border-radius: 10px;
     color: white;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
   }
 
@@ -795,9 +803,10 @@
   }
 
   .header-date {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
+    letter-spacing: -0.01em;
   }
 
   .header-details {
@@ -895,7 +904,7 @@
 
   /* ── Markdown Content ── */
   .markdown-body {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.7;
     color: var(--text-primary);
     max-width: 720px;
@@ -907,20 +916,21 @@
     margin: 0 0 14px;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--border-muted);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
   }
 
   .markdown-body :global(h2) {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
-    margin: 24px 0 10px;
-    letter-spacing: -0.005em;
+    margin: 28px 0 10px;
+    letter-spacing: -0.015em;
   }
 
   .markdown-body :global(h3) {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
-    margin: 16px 0 6px;
+    margin: 20px 0 6px;
+    letter-spacing: -0.01em;
   }
 
   .markdown-body :global(p) {

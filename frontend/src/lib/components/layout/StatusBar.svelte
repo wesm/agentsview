@@ -63,12 +63,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px;
+    padding: 0 14px;
     background: var(--bg-surface);
     border-top: 1px solid var(--border-default);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-muted);
     flex-shrink: 0;
+    letter-spacing: 0.01em;
   }
 
   .status-left,
@@ -88,7 +89,7 @@
 
   .version-warn {
     color: var(--accent-red);
-    font-size: 11px;
+    font-size: 10px;
     cursor: pointer;
     font-weight: 500;
   }

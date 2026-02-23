@@ -139,15 +139,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    font-size: 11px;
+    padding: 8px 14px;
+    font-size: 10px;
     color: var(--text-muted);
     border-bottom: 1px solid var(--border-muted);
     flex-shrink: 0;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
 
   .session-count {
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .loading-indicator {

@@ -64,10 +64,10 @@
   .session-item {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
-    height: 40px;
-    padding: 0 12px;
+    height: 42px;
+    padding: 0 14px;
     text-align: left;
     border-left: 2px solid transparent;
     transition: background 0.1s;
@@ -96,11 +96,13 @@
 
   .session-name {
     font-size: 12px;
+    font-weight: 450;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.3;
+    letter-spacing: -0.005em;
   }
 
   .session-meta {
@@ -110,6 +112,7 @@
     font-size: 10px;
     color: var(--text-muted);
     line-height: 1.3;
+    letter-spacing: 0.01em;
   }
 
   .session-project {

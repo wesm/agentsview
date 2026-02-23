@@ -200,15 +200,15 @@
 
 <style>
   .header {
-    height: 36px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px;
+    padding: 0 14px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
-    gap: 8px;
+    gap: 10px;
   }
 
   .header-left {
@@ -238,21 +238,23 @@
 
   .header-title {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 650;
     color: var(--text-primary);
     white-space: nowrap;
+    letter-spacing: -0.01em;
   }
 
   .project-select {
-    height: 24px;
-    padding: 0 6px;
+    height: 26px;
+    padding: 0 8px;
     background: var(--bg-inset);
-    border: 1px solid var(--border-default);
+    border: 1px solid var(--border-muted);
     border-radius: var(--radius-sm);
     font-size: 11px;
     color: var(--text-secondary);
     cursor: pointer;
     max-width: 200px;
+    transition: border-color 0.15s;
   }
 
   .project-select:focus {
@@ -261,17 +263,18 @@
   }
 
   .nav-btn {
-    height: 24px;
+    height: 26px;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 8px;
+    gap: 5px;
+    padding: 0 10px;
     border-radius: var(--radius-sm);
     font-size: 11px;
     font-weight: 500;
     color: var(--text-muted);
     cursor: pointer;
     white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
   }
 
   .nav-btn:hover {
@@ -281,26 +284,32 @@
 
   .nav-btn.active {
     color: var(--accent-blue);
+    background: color-mix(
+      in srgb,
+      var(--accent-blue) 8%,
+      transparent
+    );
   }
 
   .search-hint {
-    height: 24px;
+    height: 26px;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 0 8px;
+    padding: 0 10px;
     background: var(--bg-inset);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
-    transition: border-color 0.1s;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
 
   .search-hint:hover {
-    border-color: var(--text-muted);
+    border-color: var(--border-default);
+    box-shadow: var(--shadow-sm);
   }
 
   .search-hint-text {
@@ -334,12 +343,12 @@
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 600;
-    transition: background 0.1s, color 0.1s;
+    transition: background 0.12s, color 0.12s;
   }
 
   .header-btn:hover:not(:disabled) {
     background: var(--bg-surface-hover);
-    color: var(--text-primary);
+    color: var(--text-secondary);
   }
 
   .header-btn.active {
