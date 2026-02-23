@@ -132,7 +132,7 @@ func TestSummaries_ListWithFilters(t *testing.T) {
 		},
 		{
 			"GlobalOnly",
-			SummaryFilter{Project: "_global"},
+			SummaryFilter{GlobalOnly: true},
 			1,
 		},
 		{

@@ -22,9 +22,10 @@ type Summary struct {
 
 // SummaryFilter specifies how to query summaries.
 type SummaryFilter struct {
-	Type    string // "daily_activity" or "agent_analysis"
-	Date    string // YYYY-MM-DD
-	Project string // "" = no filter, "_global" = NULL only
+	Type       string // "daily_activity" or "agent_analysis"
+	Date       string // YYYY-MM-DD
+	Project    string // "" = no filter
+	GlobalOnly bool   // true = project IS NULL only
 }
 
 const summaryBaseCols = `id, type, date, project, agent,
@@ -53,7 +54,7 @@ func buildSummaryFilter(
 		preds = append(preds, "date = ?")
 		args = append(args, f.Date)
 	}
-	if f.Project == "_global" {
+	if f.GlobalOnly {
 		preds = append(preds, "project IS NULL")
 	} else if f.Project != "" {
 		preds = append(preds, "project = ?")

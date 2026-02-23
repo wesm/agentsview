@@ -95,14 +95,15 @@ func generateClaude(
 	}, nil
 }
 
-// generateCodex invokes `codex exec --json --full-auto -`
+// generateCodex invokes `codex exec` in read-only sandbox
 // and parses the JSONL stream for agent_message items.
 func generateCodex(
 	ctx context.Context, path, prompt string,
 ) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
-		"exec", "--json", "--full-auto", "-",
+		"exec", "--json",
+		"--sandbox", "read-only", "-",
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 
@@ -123,6 +124,11 @@ func generateCodex(
 	}
 
 	content, parseErr := parseCodexStream(stdoutPipe)
+
+	// Drain remaining stdout so cmd.Wait doesn't block.
+	if parseErr != nil {
+		io.Copy(io.Discard, stdoutPipe)
+	}
 
 	if waitErr := cmd.Wait(); waitErr != nil {
 		if parseErr != nil {
@@ -246,6 +252,11 @@ func generateGemini(
 	}
 
 	content, parseErr := parseStreamJSON(stdoutPipe)
+
+	// Drain remaining stdout so cmd.Wait doesn't block.
+	if parseErr != nil {
+		io.Copy(io.Discard, stdoutPipe)
+	}
 
 	if waitErr := cmd.Wait(); waitErr != nil {
 		if parseErr != nil {

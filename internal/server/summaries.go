@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -164,8 +166,11 @@ func (s *Server) handleGenerateSummary(
 		genCtx, req.Agent, prompt,
 	)
 	if err != nil {
+		log.Printf("summary generate error: %v", err)
 		stream.SendJSON("error", map[string]string{
-			"message": err.Error(),
+			"message": fmt.Sprintf(
+				"%s generation failed", req.Agent,
+			),
 		})
 		return
 	}
@@ -200,14 +205,17 @@ func (s *Server) handleGenerateSummary(
 		Content: result.Content,
 	})
 	if err != nil {
+		log.Printf("summary insert error: %v", err)
 		stream.SendJSON("error", map[string]string{
-			"message": err.Error(),
+			"message": "failed to save summary",
 		})
 		return
 	}
 
 	saved, err := s.db.GetSummary(r.Context(), id)
 	if err != nil || saved == nil {
+		log.Printf("summary get error: id=%d err=%v",
+			id, err)
 		stream.SendJSON("error", map[string]string{
 			"message": "failed to retrieve saved summary",
 		})
