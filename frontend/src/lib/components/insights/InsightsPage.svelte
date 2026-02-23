@@ -153,8 +153,8 @@
             {#if insights.generatingCount > 0}
               <span class="live-dot"></span>
             {/if}
-            Active
-            <span class="active-count">{insights.generatingCount}</span>
+            Tasks
+            <span class="active-count">{insights.tasks.length}</span>
           </span>
           {#if insights.generatingCount > 1}
             <button
@@ -328,6 +328,7 @@
   .insights-page {
     display: grid;
     grid-template-columns: 280px 1fr;
+    height: calc(100vh - 36px - 24px);
     height: calc(100dvh - 36px - 24px);
     overflow: hidden;
   }
