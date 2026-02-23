@@ -108,7 +108,12 @@ func Open(path string) (*DB, error) {
 // error on probe failures so callers can surface them.
 func needsRebuild(path string) (bool, error) {
 	if _, err := os.Stat(path); err != nil {
-		return false, nil // no existing DB
+		if os.IsNotExist(err) {
+			return false, nil // no existing DB
+		}
+		return false, fmt.Errorf(
+			"checking database file: %w", err,
+		)
 	}
 	conn, err := sql.Open("sqlite3", makeDSN(path, true))
 	if err != nil {

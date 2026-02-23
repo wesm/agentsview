@@ -234,6 +234,34 @@ func TestOpenCreatesFile(t *testing.T) {
 	}
 }
 
+func TestOpenProbeErrorPropagates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a valid DB first.
+	d, err := Open(path)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	d.Close()
+
+	// Remove read permission on the DB file so os.Stat
+	// succeeds but sql.Open probe fails.
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Skipf("cannot remove permissions: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+
+	_, err = Open(path)
+	if err == nil {
+		t.Fatal("expected error for unreadable DB")
+	}
+	if !strings.Contains(err.Error(), "checking schema") &&
+		!strings.Contains(err.Error(), "probing schema") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestSessionCRUD(t *testing.T) {
 	d := testDB(t)
 

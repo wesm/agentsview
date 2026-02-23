@@ -178,6 +178,35 @@ describe("generate", () => {
     expect(summaries.generateError).toBe("CLI not found");
   });
 
+  it("calls load instead of prepend when filters changed", async () => {
+    const newSummary = makeSummary({ id: 20 });
+    let resolveDone!: (s: Summary) => void;
+    const mockHandle = {
+      abort: vi.fn(),
+      done: new Promise<Summary>((resolve) => {
+        resolveDone = resolve;
+      }),
+    };
+    vi.mocked(api.generateSummary).mockReturnValueOnce(
+      mockHandle,
+    );
+    vi.mocked(api.listSummaries).mockResolvedValue({
+      summaries: [newSummary],
+    });
+
+    const promise = summaries.generate();
+
+    // Change date while generation is in flight.
+    summaries.date = "2025-03-01";
+
+    resolveDone(newSummary);
+    await promise;
+
+    // Should not have prepended — should have called load.
+    expect(api.listSummaries).toHaveBeenCalled();
+    expect(summaries.selectedId).not.toBe(20);
+  });
+
   it("ignores abort errors", async () => {
     const abortError = new DOMException(
       "Aborted",
