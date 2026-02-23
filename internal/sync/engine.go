@@ -560,8 +560,10 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 				ToolCalls: convertToolCalls(
 					pw.sess.ID, m.ToolCalls,
 				),
+				ToolResults: convertToolResults(m.ToolResults),
 			}
 		}
+		pairToolResults(msgs)
 
 		if err := e.db.ReplaceSessionMessages(
 			pw.sess.ID, msgs,
@@ -724,7 +726,53 @@ func convertToolCalls(
 			SessionID: sessionID,
 			ToolName:  tc.ToolName,
 			Category:  tc.Category,
+			ToolUseID: tc.ToolUseID,
+			InputJSON: tc.InputJSON,
+			SkillName: tc.SkillName,
 		}
 	}
 	return calls
+}
+
+// convertToolResults maps parsed tool results to db.ToolResult
+// structs for use in pairing before DB insert.
+func convertToolResults(
+	parsed []parser.ParsedToolResult,
+) []db.ToolResult {
+	if len(parsed) == 0 {
+		return nil
+	}
+	results := make([]db.ToolResult, len(parsed))
+	for i, tr := range parsed {
+		results[i] = db.ToolResult{
+			ToolUseID:     tr.ToolUseID,
+			ContentLength: tr.ContentLength,
+		}
+	}
+	return results
+}
+
+// pairToolResults matches tool_result content lengths to their
+// corresponding tool_calls across message boundaries using
+// tool_use_id.
+func pairToolResults(msgs []db.Message) {
+	idx := make(map[string]*db.ToolCall)
+	for i := range msgs {
+		for j := range msgs[i].ToolCalls {
+			tc := &msgs[i].ToolCalls[j]
+			if tc.ToolUseID != "" {
+				idx[tc.ToolUseID] = tc
+			}
+		}
+	}
+	if len(idx) == 0 {
+		return
+	}
+	for _, m := range msgs {
+		for _, tr := range m.ToolResults {
+			if tc, ok := idx[tr.ToolUseID]; ok {
+				tc.ResultContentLength = tr.ContentLength
+			}
+		}
+	}
 }
