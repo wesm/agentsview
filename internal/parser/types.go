@@ -44,8 +44,18 @@ type ParsedSession struct {
 // ParsedToolCall holds a single tool invocation extracted from
 // a message.
 type ParsedToolCall struct {
-	ToolName string // raw name from session data
-	Category string // normalized: Read, Edit, Write, Bash, etc.
+	ToolUseID string // tool_use block id from session data
+	ToolName  string // raw name from session data
+	Category  string // normalized: Read, Edit, Write, Bash, etc.
+	InputJSON string // raw JSON of the input object
+	SkillName string // skill name when ToolName is "Skill"
+}
+
+// ParsedToolResult holds metadata about a tool result block in a
+// user message (the response to a prior tool_use).
+type ParsedToolResult struct {
+	ToolUseID     string
+	ContentLength int
 }
 
 // ParsedMessage holds a single extracted message.
@@ -58,4 +68,5 @@ type ParsedMessage struct {
 	HasToolUse    bool
 	ContentLength int
 	ToolCalls     []ParsedToolCall
+	ToolResults   []ParsedToolResult
 }
