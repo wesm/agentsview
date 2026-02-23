@@ -44,6 +44,42 @@
     return meta.length ? meta : null;
   });
 
+  /** For TaskCreate, show subject and description */
+  let taskCreateMeta = $derived.by(() => {
+    if (toolCall?.tool_name !== "TaskCreate" || !inputParams)
+      return null;
+    const meta: { label: string; value: string }[] = [];
+    if (inputParams.subject) {
+      meta.push({ label: "subject", value: inputParams.subject });
+    }
+    if (inputParams.description) {
+      meta.push({ label: "description", value: inputParams.description });
+    }
+    return meta.length ? meta : null;
+  });
+
+  /** For TaskUpdate, show taskId and status */
+  let taskUpdateMeta = $derived.by(() => {
+    if (toolCall?.tool_name !== "TaskUpdate" || !inputParams)
+      return null;
+    const meta: { label: string; value: string }[] = [];
+    if (inputParams.taskId) {
+      meta.push({ label: "task", value: `#${inputParams.taskId}` });
+    }
+    if (inputParams.status) {
+      meta.push({ label: "status", value: inputParams.status });
+    }
+    if (inputParams.subject) {
+      meta.push({ label: "subject", value: inputParams.subject });
+    }
+    return meta.length ? meta : null;
+  });
+
+  /** Combined metadata for any tool type */
+  let metaTags = $derived(
+    taskMeta ?? taskCreateMeta ?? taskUpdateMeta ?? null,
+  );
+
   let taskPrompt = $derived(
     toolCall?.tool_name === "Task"
       ? inputParams?.prompt ?? null
@@ -67,9 +103,9 @@
     {/if}
   </button>
   {#if !collapsed}
-    {#if taskMeta}
+    {#if metaTags}
       <div class="tool-meta">
-        {#each taskMeta as { label: metaLabel, value }}
+        {#each metaTags as { label: metaLabel, value }}
           <span class="meta-tag">
             <span class="meta-label">{metaLabel}:</span>
             {value}

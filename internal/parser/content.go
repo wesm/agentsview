@@ -125,6 +125,30 @@ func formatToolUse(block gjson.Result) string {
 		return formatTask(input)
 	case "Skill":
 		return fmt.Sprintf("[Skill: %s]", input.Get("skill").Str)
+	case "TaskCreate":
+		subject := input.Get("subject").Str
+		if subject != "" {
+			return fmt.Sprintf("[TaskCreate: %s]", subject)
+		}
+		return "[TaskCreate]"
+	case "TaskUpdate":
+		taskID := input.Get("taskId").Str
+		status := input.Get("status").Str
+		if status != "" {
+			return fmt.Sprintf("[TaskUpdate: #%s %s]", taskID, status)
+		}
+		return fmt.Sprintf("[TaskUpdate: #%s]", taskID)
+	case "TaskGet":
+		return fmt.Sprintf("[TaskGet: #%s]", input.Get("taskId").Str)
+	case "TaskList":
+		return "[TaskList]"
+	case "SendMessage":
+		msgType := input.Get("type").Str
+		recipient := input.Get("recipient").Str
+		if recipient != "" {
+			return fmt.Sprintf("[SendMessage: %s to %s]", msgType, recipient)
+		}
+		return fmt.Sprintf("[SendMessage: %s]", msgType)
 	default:
 		return fmt.Sprintf("[Tool: %s]", name)
 	}

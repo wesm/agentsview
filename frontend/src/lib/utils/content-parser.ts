@@ -20,8 +20,8 @@ const THINKING_RE =
   /\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n\[|$)/g;
 
 const TOOL_NAMES =
-  "Tool|Read|Write|Edit|Bash|Glob|Grep|Task|Skill|" +
-  "Question|Todo List|Entering Plan Mode|" +
+  "Tool|Read|Write|Edit|Bash|Glob|Grep|TaskCreate|TaskUpdate|TaskGet|TaskList|Task|Skill|" +
+  "SendMessage|Question|Todo List|Entering Plan Mode|" +
   "Exiting Plan Mode|exec_command|shell_command|" +
   "write_stdin|apply_patch|shell|parallel|view_image|" +
   "request_user_input|update_plan";
