@@ -1829,7 +1829,7 @@ func TestToolCallSkillName(t *testing.T) {
 		ToolCalls: []ToolCall{{
 			SessionID: "s1",
 			ToolName:  "Skill",
-			Category:  "Other",
+			Category:  "Tool",
 			ToolUseID: "toolu_skill1",
 			InputJSON: `{"skill":"superpowers:brainstorming"}`,
 			SkillName: "superpowers:brainstorming",
@@ -1862,7 +1862,7 @@ func TestGetMessagesReturnsToolCalls(t *testing.T) {
 		ToolCalls: []ToolCall{{
 			SessionID:           "s1",
 			ToolName:            "Skill",
-			Category:            "Other",
+			Category:            "Tool",
 			ToolUseID:           "toolu_s1",
 			InputJSON:           `{"skill":"superpowers:brainstorming"}`,
 			SkillName:           "superpowers:brainstorming",
