@@ -9,6 +9,7 @@
   import ShortcutsModal from "./lib/components/modals/ShortcutsModal.svelte";
   import PublishModal from "./lib/components/modals/PublishModal.svelte";
   import AnalyticsPage from "./lib/components/analytics/AnalyticsPage.svelte";
+  import SummariesPage from "./lib/components/summaries/SummariesPage.svelte";
   import { sessions } from "./lib/stores/sessions.svelte.js";
   import { messages } from "./lib/stores/messages.svelte.js";
   import { sync } from "./lib/stores/sync.svelte.js";
@@ -156,7 +157,9 @@
   {/snippet}
 
   {#snippet content()}
-    {#if sessions.activeSessionId}
+    {#if router.route === "summaries"}
+      <SummariesPage />
+    {:else if sessions.activeSessionId}
       <MessageList bind:this={messageListRef} />
     {:else}
       <AnalyticsPage />

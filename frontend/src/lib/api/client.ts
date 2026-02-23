@@ -26,6 +26,9 @@ import type {
   Granularity,
   HeatmapMetric,
   TopSessionsMetric,
+  Summary,
+  SummariesResponse,
+  GenerateSummaryRequest,
 } from "./types.js";
 
 const BASE = "/api/v1";
@@ -408,4 +411,133 @@ export function getAnalyticsTopSessions(
   return fetchJSON(
     `/analytics/top-sessions${buildQuery({ ...params })}`,
   );
+}
+
+/* Summaries */
+
+export interface ListSummariesParams {
+  type?: string;
+  date?: string;
+  project?: string;
+}
+
+export function listSummaries(
+  params: ListSummariesParams = {},
+): Promise<SummariesResponse> {
+  return fetchJSON(
+    `/summaries${buildQuery({ ...params })}`,
+  );
+}
+
+export function getSummary(id: number): Promise<Summary> {
+  return fetchJSON(`/summaries/${id}`);
+}
+
+export interface GenerateSummaryHandle {
+  abort: () => void;
+  done: Promise<Summary>;
+}
+
+export function generateSummary(
+  req: GenerateSummaryRequest,
+  onStatus?: (phase: string) => void,
+): GenerateSummaryHandle {
+  const controller = new AbortController();
+
+  const done = (async () => {
+    const res = await fetch(`${BASE}/summaries/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(
+        `Generate request failed: ${res.status}`,
+      );
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let result: Summary | undefined;
+
+    for (;;) {
+      const { done: eof, value } = await reader.read();
+      if (eof) break;
+      buf += decoder.decode(value, { stream: true });
+      buf = buf.replaceAll("\r\n", "\n");
+
+      const parsed = processSummaryFrames(
+        buf, onStatus,
+      );
+      if (parsed) {
+        result = parsed;
+        reader.cancel();
+        break;
+      }
+      const last = buf.lastIndexOf("\n\n");
+      if (last !== -1) buf = buf.slice(last + 2);
+    }
+
+    if (!result && buf.trim()) {
+      result = processSummaryFrame(buf, onStatus);
+    }
+
+    if (!result) {
+      throw new Error(
+        "Generate stream ended without done event",
+      );
+    }
+
+    return result;
+  })();
+
+  return { abort: () => controller.abort(), done };
+}
+
+function processSummaryFrames(
+  buf: string,
+  onStatus?: (phase: string) => void,
+): Summary | undefined {
+  let idx: number;
+  let start = 0;
+  while ((idx = buf.indexOf("\n\n", start)) !== -1) {
+    const frame = buf.slice(start, idx);
+    start = idx + 2;
+    const result = processSummaryFrame(frame, onStatus);
+    if (result) return result;
+  }
+  return undefined;
+}
+
+function processSummaryFrame(
+  frame: string,
+  onStatus?: (phase: string) => void,
+): Summary | undefined {
+  let event = "";
+  const dataLines: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event: ")) {
+      event = line.slice(7);
+    } else if (line.startsWith("data: ")) {
+      dataLines.push(line.slice(6));
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5));
+    }
+  }
+  const data = dataLines.join("\n");
+  if (!data) return undefined;
+
+  if (event === "status") {
+    const parsed = JSON.parse(data) as { phase: string };
+    onStatus?.(parsed.phase);
+  } else if (event === "done") {
+    return JSON.parse(data) as Summary;
+  } else if (event === "error") {
+    const parsed = JSON.parse(data) as { message: string };
+    throw new Error(parsed.message);
+  }
+  return undefined;
 }

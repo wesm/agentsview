@@ -2,6 +2,7 @@
   import { ui } from "../../stores/ui.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { sync } from "../../stores/sync.svelte.js";
+  import { router } from "../../stores/router.svelte.js";
   import { getExportUrl } from "../../api/client.js";
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
@@ -55,6 +56,19 @@
         </option>
       {/each}
     </select>
+
+    <button
+      class="nav-btn"
+      class:active={router.route === "summaries"}
+      onclick={() => router.navigate("summaries")}
+      title="Summaries"
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M14.5 3a.5.5 0 01.5.5v9a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5h13zm-13-1A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0014.5 2h-13z"/>
+        <path d="M3 5.5a.5.5 0 01.5-.5h9a.5.5 0 010 1h-9a.5.5 0 01-.5-.5zM3 8a.5.5 0 01.5-.5h9a.5.5 0 010 1h-9A.5.5 0 013 8zm0 2.5a.5.5 0 01.5-.5h6a.5.5 0 010 1h-6a.5.5 0 01-.5-.5z"/>
+      </svg>
+      Summaries
+    </button>
 
     {#if hasActiveSession}
       <button
@@ -239,6 +253,29 @@
   .project-select:focus {
     outline: none;
     border-color: var(--accent-blue);
+  }
+
+  .nav-btn {
+    height: 24px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .nav-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+
+  .nav-btn.active {
+    color: var(--accent-blue);
   }
 
   .dashboard-btn {
