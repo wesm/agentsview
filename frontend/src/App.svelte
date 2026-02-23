@@ -161,6 +161,16 @@
 
     {#snippet content()}
       {#if sessions.activeSessionId}
+        <div class="session-breadcrumb">
+          <button
+            class="breadcrumb-link"
+            onclick={() => sessions.deselectSession()}
+          >Sessions</button>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-current">
+            {sessions.activeSession?.project ?? ""}
+          </span>
+        </div>
         <MessageList bind:this={messageListRef} />
       {:else}
         <AnalyticsPage />
@@ -182,3 +192,38 @@
 {#if ui.activeModal === "publish"}
   <PublishModal />
 {/if}
+
+<style>
+  .session-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-default);
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .breadcrumb-link {
+    color: var(--accent-blue);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .breadcrumb-link:hover {
+    text-decoration: underline;
+  }
+
+  .breadcrumb-sep {
+    opacity: 0.4;
+  }
+
+  .breadcrumb-current {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
