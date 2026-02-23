@@ -167,6 +167,18 @@ func TestExtractTextContent(t *testing.T) {
 			},
 		},
 		{
+			"tool_use with id and input",
+			`[{"type":"tool_use","id":"toolu_123","name":"Read","input":{"file_path":"main.go"}}]`,
+			"[Read: main.go]", false, true,
+			[]ParsedToolCall{{ToolUseID: "toolu_123", ToolName: "Read", Category: "Read", InputJSON: `{"file_path":"main.go"}`}},
+		},
+		{
+			"Skill tool extracts skill_name",
+			`[{"type":"tool_use","id":"toolu_456","name":"Skill","input":{"skill":"superpowers:brainstorming"}}]`,
+			"[Skill: superpowers:brainstorming]", false, true,
+			[]ParsedToolCall{{ToolUseID: "toolu_456", ToolName: "Skill", Category: "Tool", SkillName: "superpowers:brainstorming"}},
+		},
+		{
 			"tool_use with empty name",
 			`[{"type":"tool_use","name":"","input":{}}]`,
 			"[Tool: ]", false, true, nil,
@@ -279,6 +291,16 @@ func TestFormatToolUseVariants(t *testing.T) {
 			"TodoWrite unknown status",
 			`{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Something","status":"unknown"}]}}`,
 			"[Todo List]\n  ○ Something",
+		},
+		{
+			"Skill",
+			`{"type":"tool_use","name":"Skill","input":{"skill":"superpowers:brainstorming"}}`,
+			"[Skill: superpowers:brainstorming]",
+		},
+		{
+			"Skill with args",
+			`{"type":"tool_use","name":"Skill","input":{"skill":"commit","args":"-m 'Fix bug'"}}`,
+			"[Skill: commit]",
 		},
 	}
 

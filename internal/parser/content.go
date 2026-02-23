@@ -44,10 +44,16 @@ func ExtractTextContent(
 			hasToolUse = true
 			name := block.Get("name").Str
 			if name != "" {
-				toolCalls = append(toolCalls, ParsedToolCall{
-					ToolName: name,
-					Category: NormalizeToolCategory(name),
-				})
+				tc := ParsedToolCall{
+					ToolUseID: block.Get("id").Str,
+					ToolName:  name,
+					Category:  NormalizeToolCategory(name),
+					InputJSON: block.Get("input").Raw,
+				}
+				if name == "Skill" {
+					tc.SkillName = block.Get("input.skill").Str
+				}
+				toolCalls = append(toolCalls, tc)
 			}
 			parts = append(parts, formatToolUse(block))
 		}
@@ -91,6 +97,8 @@ func formatToolUse(block gjson.Result) string {
 		return formatBash(input)
 	case "Task":
 		return formatTask(input)
+	case "Skill":
+		return fmt.Sprintf("[Skill: %s]", input.Get("skill").Str)
 	default:
 		return fmt.Sprintf("[Tool: %s]", name)
 	}

@@ -16,6 +16,7 @@ func TestNormalizeToolCategory(t *testing.T) {
 		{"Grep", "Grep"},
 		{"Glob", "Glob"},
 		{"Task", "Task"},
+		{"Skill", "Tool"},
 
 		// Codex tools
 		{"shell_command", "Bash"},
