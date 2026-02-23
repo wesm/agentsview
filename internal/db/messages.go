@@ -22,10 +22,14 @@ const (
 // ToolCall represents a single tool invocation stored in
 // the tool_calls table.
 type ToolCall struct {
-	MessageID int64
-	SessionID string
-	ToolName  string
-	Category  string
+	MessageID           int64  `json:"-"`
+	SessionID           string `json:"-"`
+	ToolName            string `json:"tool_name"`
+	Category            string `json:"category"`
+	ToolUseID           string `json:"tool_use_id,omitempty"`
+	InputJSON           string `json:"input_json,omitempty"`
+	SkillName           string `json:"skill_name,omitempty"`
+	ResultContentLength int    `json:"result_content_length,omitempty"`
 }
 
 // Message represents a row in the messages table.
@@ -198,6 +202,20 @@ func (db *DB) insertMessagesTx(
 	return ids, nil
 }
 
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nilIfZero(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
 // insertToolCallsTx batch-inserts tool calls within an
 // existing transaction.
 func insertToolCallsTx(
@@ -208,8 +226,10 @@ func insertToolCallsTx(
 	}
 	stmt, err := tx.Prepare(`
 		INSERT INTO tool_calls
-			(message_id, session_id, tool_name, category)
-		VALUES (?, ?, ?, ?)`)
+			(message_id, session_id, tool_name, category,
+			 tool_use_id, input_json, skill_name,
+			 result_content_length)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("preparing tool_calls insert: %w", err)
 	}
@@ -219,6 +239,10 @@ func insertToolCallsTx(
 		if _, err := stmt.Exec(
 			tc.MessageID, tc.SessionID,
 			tc.ToolName, tc.Category,
+			nilIfEmpty(tc.ToolUseID),
+			nilIfEmpty(tc.InputJSON),
+			nilIfEmpty(tc.SkillName),
+			nilIfZero(tc.ResultContentLength),
 		); err != nil {
 			return fmt.Errorf(
 				"inserting tool_call %q: %w", tc.ToolName, err,
@@ -374,10 +398,14 @@ func resolveToolCalls(
 	for i, m := range msgs {
 		for _, tc := range m.ToolCalls {
 			calls = append(calls, ToolCall{
-				MessageID: ids[i],
-				SessionID: m.SessionID,
-				ToolName:  tc.ToolName,
-				Category:  tc.Category,
+				MessageID:           ids[i],
+				SessionID:           m.SessionID,
+				ToolName:            tc.ToolName,
+				Category:            tc.Category,
+				ToolUseID:           tc.ToolUseID,
+				InputJSON:           tc.InputJSON,
+				SkillName:           tc.SkillName,
+				ResultContentLength: tc.ResultContentLength,
 			})
 		}
 	}

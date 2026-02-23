@@ -88,13 +88,20 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     session_id TEXT NOT NULL
         REFERENCES sessions(id) ON DELETE CASCADE,
     tool_name  TEXT NOT NULL,
-    category   TEXT NOT NULL
+    category   TEXT NOT NULL,
+    tool_use_id TEXT,
+    input_json  TEXT,
+    skill_name  TEXT,
+    result_content_length INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session
     ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_category
     ON tool_calls(category);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_skill
+    ON tool_calls(skill_name)
+    WHERE skill_name IS NOT NULL;
 
 -- Insights table for AI-generated activity insights
 CREATE TABLE IF NOT EXISTS insights (

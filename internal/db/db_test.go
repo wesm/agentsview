@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -1889,6 +1890,78 @@ func TestResolveToolCallsPanicsOnLengthMismatch(t *testing.T) {
 	}
 	ids := []int64{1} // length mismatch
 	resolveToolCalls(msgs, ids)
+}
+
+func TestToolCallNewColumns(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, Message{
+		SessionID:     "s1",
+		Ordinal:       0,
+		Role:          "assistant",
+		Content:       "[Read: main.go]",
+		ContentLength: 15,
+		Timestamp:     tsZero,
+		ToolCalls: []ToolCall{{
+			SessionID:           "s1",
+			ToolName:            "Read",
+			Category:            "Read",
+			ToolUseID:           "toolu_abc",
+			InputJSON:           `{"file_path":"main.go"}`,
+			ResultContentLength: 500,
+		}},
+	})
+
+	var toolUseID, inputJSON sql.NullString
+	var resultLen sql.NullInt64
+	err := d.Reader().QueryRow(`
+        SELECT tool_use_id, input_json, result_content_length
+        FROM tool_calls WHERE session_id = 's1'
+    `).Scan(&toolUseID, &inputJSON, &resultLen)
+	if err != nil {
+		t.Fatalf("query tool_calls: %v", err)
+	}
+	if !toolUseID.Valid || toolUseID.String != "toolu_abc" {
+		t.Errorf("tool_use_id = %v, want toolu_abc", toolUseID)
+	}
+	if !inputJSON.Valid || inputJSON.String != `{"file_path":"main.go"}` {
+		t.Errorf("input_json = %v", inputJSON)
+	}
+	if !resultLen.Valid || resultLen.Int64 != 500 {
+		t.Errorf("result_content_length = %v, want 500", resultLen)
+	}
+}
+
+func TestToolCallSkillName(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, Message{
+		SessionID:     "s1",
+		Ordinal:       0,
+		Role:          "assistant",
+		Content:       "[Skill: superpowers:brainstorming]",
+		ContentLength: 34,
+		Timestamp:     tsZero,
+		ToolCalls: []ToolCall{{
+			SessionID: "s1",
+			ToolName:  "Skill",
+			Category:  "Other",
+			ToolUseID: "toolu_skill1",
+			InputJSON: `{"skill":"superpowers:brainstorming"}`,
+			SkillName: "superpowers:brainstorming",
+		}},
+	})
+
+	var skillName sql.NullString
+	err := d.Reader().QueryRow(`
+        SELECT skill_name FROM tool_calls WHERE session_id = 's1'
+    `).Scan(&skillName)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if !skillName.Valid || skillName.String != "superpowers:brainstorming" {
+		t.Errorf("skill_name = %v, want superpowers:brainstorming", skillName)
+	}
 }
 
 func TestFTSBackfill(t *testing.T) {

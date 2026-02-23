@@ -147,7 +147,21 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return insightCount == 0, nil
+	if insightCount == 0 {
+		return true, nil
+	}
+
+	var toolCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')
+		 WHERE name = 'tool_use_id'`,
+	).Scan(&toolCount)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
+	}
+	return toolCount == 0, nil
 }
 
 func dropDatabase(path string) error {
