@@ -149,6 +149,18 @@ func assertToolCalls(
 			t.Errorf("tool_calls[%d].Category = %q, want %q",
 				i, got[i].Category, want[i].Category)
 		}
+		if want[i].ToolUseID != "" && got[i].ToolUseID != want[i].ToolUseID {
+			t.Errorf("tool_calls[%d].ToolUseID = %q, want %q",
+				i, got[i].ToolUseID, want[i].ToolUseID)
+		}
+		if want[i].InputJSON != "" && got[i].InputJSON != want[i].InputJSON {
+			t.Errorf("tool_calls[%d].InputJSON = %q, want %q",
+				i, got[i].InputJSON, want[i].InputJSON)
+		}
+		if want[i].SkillName != "" && got[i].SkillName != want[i].SkillName {
+			t.Errorf("tool_calls[%d].SkillName = %q, want %q",
+				i, got[i].SkillName, want[i].SkillName)
+		}
 	}
 }
 
