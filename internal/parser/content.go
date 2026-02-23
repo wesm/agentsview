@@ -9,21 +9,22 @@ import (
 
 // ExtractTextContent extracts readable text from message content.
 // content can be a string or a JSON array of blocks.
-// Returns the text, hasThinking, hasToolUse, and tool calls.
+// Returns the text, hasThinking, hasToolUse, tool calls, and tool results.
 func ExtractTextContent(
 	content gjson.Result,
-) (string, bool, bool, []ParsedToolCall) {
+) (string, bool, bool, []ParsedToolCall, []ParsedToolResult) {
 	if content.Type == gjson.String {
-		return content.Str, false, false, nil
+		return content.Str, false, false, nil, nil
 	}
 
 	if !content.IsArray() {
-		return "", false, false, nil
+		return "", false, false, nil, nil
 	}
 
 	var (
 		parts       []string
 		toolCalls   []ParsedToolCall
+		toolResults []ParsedToolResult
 		hasThinking bool
 		hasToolUse  bool
 	)
@@ -56,12 +57,37 @@ func ExtractTextContent(
 				toolCalls = append(toolCalls, tc)
 			}
 			parts = append(parts, formatToolUse(block))
+		case "tool_result":
+			tuid := block.Get("tool_use_id").Str
+			if tuid != "" {
+				rc := block.Get("content")
+				cl := toolResultContentLength(rc)
+				toolResults = append(toolResults, ParsedToolResult{
+					ToolUseID:     tuid,
+					ContentLength: cl,
+				})
+			}
 		}
 		return true
 	})
 
 	return strings.Join(parts, "\n"),
-		hasThinking, hasToolUse, toolCalls
+		hasThinking, hasToolUse, toolCalls, toolResults
+}
+
+func toolResultContentLength(content gjson.Result) int {
+	if content.Type == gjson.String {
+		return len(content.Str)
+	}
+	if content.IsArray() {
+		total := 0
+		content.ForEach(func(_, block gjson.Result) bool {
+			total += len(block.Get("text").Str)
+			return true
+		})
+		return total
+	}
+	return 0
 }
 
 var todoIcons = map[string]string{
