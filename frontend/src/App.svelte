@@ -161,6 +161,7 @@
 
     {#snippet content()}
       {#if sessions.activeSessionId}
+        {@const session = sessions.activeSession}
         <div class="session-breadcrumb">
           <button
             class="breadcrumb-link"
@@ -168,8 +169,27 @@
           >Sessions</button>
           <span class="breadcrumb-sep">/</span>
           <span class="breadcrumb-current">
-            {sessions.activeSession?.project ?? ""}
+            {session?.project ?? ""}
           </span>
+          {#if session}
+            <span
+              class="agent-badge"
+              class:agent-claude={session.agent === "claude"}
+              class:agent-codex={session.agent === "codex"}
+            >{session.agent}</span>
+            {#if session.started_at}
+              <span class="session-time">
+                {new Date(session.started_at).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })}
+                {new Date(session.started_at).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            {/if}
+          {/if}
         </div>
         <MessageList bind:this={messageListRef} />
       {:else}
@@ -229,5 +249,34 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .agent-badge {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: white;
+    flex-shrink: 0;
+    margin-left: 4px;
+  }
+
+  .agent-claude {
+    background: var(--accent-blue);
+  }
+
+  .agent-codex {
+    background: var(--accent-green);
+  }
+
+  .session-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
   }
 </style>
