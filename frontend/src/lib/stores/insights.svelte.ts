@@ -59,7 +59,6 @@ class InsightsStore {
     this.loading = true;
     try {
       const res = await listInsights({
-        type: this.type,
         date: this.date,
         project: this.project || undefined,
       });
@@ -93,8 +92,6 @@ class InsightsStore {
 
   setType(type: InsightType) {
     this.type = type;
-    this.selectedId = null;
-    this.load();
   }
 
   setProject(project: string) {
@@ -159,7 +156,6 @@ class InsightsStore {
         );
 
         const filtersMatch =
-          this.type === snap.type &&
           this.date === snap.date &&
           this.project === snap.project;
         if (filtersMatch) {

@@ -52,7 +52,6 @@ describe("load", () => {
     await insights.load();
 
     expect(api.listInsights).toHaveBeenCalledWith({
-      type: "daily_activity",
       date: insights.date,
       project: undefined,
     });
@@ -99,15 +98,11 @@ describe("setDate", () => {
 });
 
 describe("setType", () => {
-  it("updates type and reloads", async () => {
-    vi.mocked(api.listInsights).mockResolvedValueOnce({
-      insights: [],
-    });
-
+  it("updates type without reloading", () => {
     insights.setType("agent_analysis");
 
     expect(insights.type).toBe("agent_analysis");
-    expect(api.listInsights).toHaveBeenCalled();
+    expect(api.listInsights).not.toHaveBeenCalled();
   });
 });
 
