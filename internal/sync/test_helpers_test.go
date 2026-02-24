@@ -46,35 +46,26 @@ func runSyncAndAssert(t *testing.T, engine *sync.Engine, wantSynced, wantSkipped
 	return stats
 }
 
-func clearSessionHash(t *testing.T, database *db.DB, sessionID string) {
-	t.Helper()
-	err := database.Update(func(tx *sql.Tx) error {
-		_, err := tx.Exec("UPDATE sessions SET file_hash = NULL WHERE id = ?", sessionID)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("failed to clear hash for %s: %v", sessionID, err)
-	}
-}
-
-// assertHashRoundTrip clears the session hash, verifies the
-// precondition, runs SyncSingleSession to recompute the hash,
-// and asserts the hash is stored and a subsequent SyncAll skips.
-func (e *testEnv) assertHashRoundTrip(
+// assertResyncRoundTrip clears file_mtime to force a resync,
+// runs SyncSingleSession, and verifies the session is stored
+// and a subsequent SyncAll skips.
+func (e *testEnv) assertResyncRoundTrip(
 	t *testing.T, sessionID string,
 ) {
 	t.Helper()
 
-	clearSessionHash(t, e.db, sessionID)
-
-	_, preHash, preOK := e.db.GetSessionFileInfo(sessionID)
-	if !preOK {
-		t.Fatal("session file info missing after hash clear")
-	}
-	if preHash != "" {
+	// Clear mtime to force resync on next check.
+	err := e.db.Update(func(tx *sql.Tx) error {
+		_, err := tx.Exec(
+			"UPDATE sessions SET file_mtime = NULL"+
+				" WHERE id = ?",
+			sessionID,
+		)
+		return err
+	})
+	if err != nil {
 		t.Fatalf(
-			"precondition failed: hash = %q, want empty",
-			preHash,
+			"clear mtime for %s: %v", sessionID, err,
 		)
 	}
 
@@ -82,12 +73,12 @@ func (e *testEnv) assertHashRoundTrip(
 		t.Fatalf("SyncSingleSession: %v", err)
 	}
 
-	_, hash, ok := e.db.GetSessionFileInfo(sessionID)
+	_, mtime, ok := e.db.GetSessionFileInfo(sessionID)
 	if !ok {
 		t.Fatal("session file info not found")
 	}
-	if hash == "" {
-		t.Error("SyncSingleSession did not store file hash")
+	if mtime == 0 {
+		t.Error("SyncSingleSession did not store mtime")
 	}
 
 	runSyncAndAssert(t, e.engine, 0, 1)

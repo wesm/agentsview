@@ -72,6 +72,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_parent
     ON sessions(parent_session_id)
     WHERE parent_session_id IS NOT NULL;
 
+CREATE INDEX IF NOT EXISTS idx_sessions_file_path
+    ON sessions(file_path)
+    WHERE file_path IS NOT NULL;
+
 -- Analytics indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_started
     ON sessions(started_at);

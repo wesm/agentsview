@@ -31,11 +31,13 @@ type Engine struct {
 	mu            gosync.RWMutex
 	lastSync      time.Time
 	lastSyncStats SyncStats
-	// failedFiles tracks paths that errored during parsing,
-	// keyed by path with the file mtime at time of failure.
-	// The file is only retried when its mtime changes.
-	failedMu    gosync.RWMutex
-	failedFiles map[string]int64
+	// skipCache tracks paths that should be skipped on
+	// subsequent syncs, keyed by path with the file mtime
+	// at time of caching. Covers parse errors and
+	// non-interactive sessions (nil result). The file is
+	// retried when its mtime changes.
+	skipMu    gosync.RWMutex
+	skipCache map[string]int64
 }
 
 // NewEngine creates a sync engine.
@@ -44,12 +46,12 @@ func NewEngine(
 	claudeDir, codexDir, geminiDir, machine string,
 ) *Engine {
 	return &Engine{
-		db:          database,
-		claudeDir:   claudeDir,
-		codexDir:    codexDir,
-		geminiDir:   geminiDir,
-		machine:     machine,
-		failedFiles: make(map[string]int64),
+		db:        database,
+		claudeDir: claudeDir,
+		codexDir:  codexDir,
+		geminiDir: geminiDir,
+		machine:   machine,
+		skipCache: make(map[string]int64),
 	}
 }
 
@@ -305,7 +307,7 @@ func (e *Engine) collectAndBatch(
 		r := <-results
 
 		if r.err != nil {
-			e.tombstoneFromPath(r.path)
+			e.cacheSkipFromPath(r.path)
 			log.Printf("sync error: %v", r.err)
 			continue
 		}
@@ -317,14 +319,15 @@ func (e *Engine) collectAndBatch(
 			}
 			continue
 		}
-		e.clearTombstone(r.path)
 		if r.sess == nil {
+			e.cacheSkipFromPath(r.path)
 			progress.SessionsDone++
 			if onProgress != nil {
 				onProgress(progress)
 			}
 			continue
 		}
+		e.clearSkip(r.path)
 
 		pending = append(pending, pendingWrite{
 			sess: *r.sess,
@@ -373,12 +376,13 @@ func (e *Engine) processFile(
 		return processResult{err: fmt.Errorf("stat %s: %w", file.Path, err)}
 	}
 
-	// Skip files that previously failed and haven't changed
+	// Skip files cached from a previous sync (parse errors
+	// or non-interactive sessions) whose mtime is unchanged.
 	mtime := info.ModTime().UnixNano()
-	e.failedMu.RLock()
-	failedMtime, failed := e.failedFiles[file.Path]
-	e.failedMu.RUnlock()
-	if failed && failedMtime == mtime {
+	e.skipMu.RLock()
+	cachedMtime, cached := e.skipCache[file.Path]
+	e.skipMu.RUnlock()
+	if cached && cachedMtime == mtime {
 		return processResult{skip: true}
 	}
 
@@ -396,34 +400,51 @@ func (e *Engine) processFile(
 	}
 }
 
-// tombstone records a failed file so it won't be retried
-// until its mtime changes.
-func (e *Engine) tombstone(path string, mtime int64) {
-	e.failedMu.Lock()
-	e.failedFiles[path] = mtime
-	e.failedMu.Unlock()
+// cacheSkip records a file so it won't be retried until
+// its mtime changes.
+func (e *Engine) cacheSkip(path string, mtime int64) {
+	e.skipMu.Lock()
+	e.skipCache[path] = mtime
+	e.skipMu.Unlock()
 }
 
-// clearTombstone removes a tombstone when a file succeeds.
-func (e *Engine) clearTombstone(path string) {
-	e.failedMu.Lock()
-	delete(e.failedFiles, path)
-	e.failedMu.Unlock()
+// clearSkip removes a skip-cache entry when a file
+// produces a valid session.
+func (e *Engine) clearSkip(path string) {
+	e.skipMu.Lock()
+	delete(e.skipCache, path)
+	e.skipMu.Unlock()
 }
 
-// shouldSkipFile returns true when the file's size and hash
-// match what is already stored in the database.
+// shouldSkipFile returns true when the file's size and mtime
+// match what is already stored in the database (by session ID).
 func (e *Engine) shouldSkipFile(
-	sessionID, path string, info os.FileInfo,
+	sessionID string, info os.FileInfo,
 ) bool {
-	storedSize, storedHash, ok := e.db.GetSessionFileInfo(
+	storedSize, storedMtime, ok := e.db.GetSessionFileInfo(
 		sessionID,
 	)
-	if !ok || storedSize != info.Size() {
+	if !ok {
 		return false
 	}
-	hash, err := ComputeFileHash(path)
-	return err == nil && hash == storedHash
+	return storedSize == info.Size() &&
+		storedMtime == info.ModTime().UnixNano()
+}
+
+// shouldSkipByPath checks file size and mtime against what is
+// stored in the database by file_path. Used for codex/gemini
+// files where the session ID requires parsing.
+func (e *Engine) shouldSkipByPath(
+	path string, info os.FileInfo,
+) bool {
+	storedSize, storedMtime, ok := e.db.GetFileInfoByPath(
+		path,
+	)
+	if !ok {
+		return false
+	}
+	return storedSize == info.Size() &&
+		storedMtime == info.ModTime().UnixNano()
 }
 
 func (e *Engine) processClaude(
@@ -432,7 +453,7 @@ func (e *Engine) processClaude(
 
 	sessionID := strings.TrimSuffix(info.Name(), ".jsonl")
 
-	if e.shouldSkipFile(sessionID, file.Path, info) {
+	if e.shouldSkipFile(sessionID, info) {
 		sess, _ := e.db.GetSession(
 			context.Background(), sessionID,
 		)
@@ -475,7 +496,11 @@ func (e *Engine) processCodex(
 	file DiscoveredFile, info os.FileInfo,
 ) processResult {
 
-	// For codex, we need to parse to get session_id
+	// Fast path: skip by file_path + mtime before parsing.
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
 	sess, msgs, err := parser.ParseCodexSession(
 		file.Path, e.machine, false,
 	)
@@ -484,10 +509,6 @@ func (e *Engine) processCodex(
 	}
 	if sess == nil {
 		return processResult{} // non-interactive
-	}
-
-	if e.shouldSkipFile(sess.ID, file.Path, info) {
-		return processResult{skip: true}
 	}
 
 	hash, err := ComputeFileHash(file.Path)
@@ -501,6 +522,11 @@ func (e *Engine) processCodex(
 func (e *Engine) processGemini(
 	file DiscoveredFile, info os.FileInfo,
 ) processResult {
+	// Fast path: skip by file_path + mtime before parsing.
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
 	sess, msgs, err := parser.ParseGeminiSession(
 		file.Path, file.Project, e.machine,
 	)
@@ -509,10 +535,6 @@ func (e *Engine) processGemini(
 	}
 	if sess == nil {
 		return processResult{}
-	}
-
-	if e.shouldSkipFile(sess.ID, file.Path, info) {
-		return processResult{skip: true}
 	}
 
 	hash, err := ComputeFileHash(file.Path)
@@ -630,7 +652,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		agent = parser.AgentClaude
 	}
 
-	// Reuse processFile for tombstone check, stat, and hash
+	// Reuse processFile for skip-cache check, stat, and hash
 	// skip logic. For Claude this is the full pipeline; for
 	// Codex we need includeExec=true so we call the parser
 	// directly.
@@ -651,7 +673,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 
 	res := e.processFile(file)
 	if res.err != nil {
-		e.tombstoneFromPath(path)
+		e.cacheSkipFromPath(path)
 		return res.err
 	}
 	if res.skip {
@@ -664,7 +686,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 	if res.sess == nil && agent == parser.AgentCodex {
 		res = e.processCodexIncludeExec(file)
 		if res.err != nil {
-			e.tombstoneFromPath(path)
+			e.cacheSkipFromPath(path)
 			return res.err
 		}
 		if res.sess == nil {
@@ -676,7 +698,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		return nil
 	}
 
-	e.clearTombstone(path)
+	e.clearSkip(path)
 	e.writeBatch([]pendingWrite{
 		{sess: *res.sess, msgs: res.msgs},
 	})
@@ -703,9 +725,9 @@ func (e *Engine) processCodexIncludeExec(
 	return processResult{sess: sess, msgs: msgs}
 }
 
-func (e *Engine) tombstoneFromPath(path string) {
+func (e *Engine) cacheSkipFromPath(path string) {
 	if info, err := os.Stat(path); err == nil {
-		e.tombstone(path, info.ModTime().UnixNano())
+		e.cacheSkip(path, info.ModTime().UnixNano())
 	}
 }
 

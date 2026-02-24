@@ -1167,15 +1167,15 @@ func TestSessionFileInfo(t *testing.T) {
 		s.FileHash = Ptr("abc123def456")
 	})
 
-	gotSize, gotHash, ok := d.GetSessionFileInfo("s1")
+	gotSize, gotMtime, ok := d.GetSessionFileInfo("s1")
 	if !ok {
 		t.Fatal("expected ok")
 	}
 	if gotSize != 1024 {
 		t.Errorf("got size=%d, want 1024", gotSize)
 	}
-	if gotHash != "abc123def456" {
-		t.Errorf("got hash=%q, want %q", gotHash, "abc123def456")
+	if gotMtime != 1700000000 {
+		t.Errorf("got mtime=%d, want 1700000000", gotMtime)
 	}
 
 	_, _, ok = d.GetSessionFileInfo("nonexistent")

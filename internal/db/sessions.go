@@ -383,20 +383,38 @@ func (db *DB) UpsertSession(s Session) error {
 	return nil
 }
 
-// GetSessionFileInfo returns file_size and file_hash for a session.
+// GetSessionFileInfo returns file_size and file_mtime for a
+// session. Used for fast skip checks during sync.
 func (db *DB) GetSessionFileInfo(
 	id string,
-) (size int64, hash string, ok bool) {
-	var s sql.NullInt64
-	var h sql.NullString
+) (size int64, mtime int64, ok bool) {
+	var s, m sql.NullInt64
 	err := db.reader.QueryRow(
-		"SELECT file_size, file_hash FROM sessions WHERE id = ?",
+		"SELECT file_size, file_mtime FROM sessions WHERE id = ?",
 		id,
-	).Scan(&s, &h)
+	).Scan(&s, &m)
 	if err != nil || !s.Valid {
-		return 0, "", false
+		return 0, 0, false
 	}
-	return s.Int64, h.String, true
+	return s.Int64, m.Int64, true
+}
+
+// GetFileInfoByPath returns file_size and file_mtime for a
+// session identified by file_path. Used for codex/gemini files
+// where the session ID requires parsing.
+func (db *DB) GetFileInfoByPath(
+	path string,
+) (size int64, mtime int64, ok bool) {
+	var s, m sql.NullInt64
+	err := db.reader.QueryRow(
+		"SELECT file_size, file_mtime FROM sessions"+
+			" WHERE file_path = ?",
+		path,
+	).Scan(&s, &m)
+	if err != nil || !s.Valid {
+		return 0, 0, false
+	}
+	return s.Int64, m.Int64, true
 }
 
 // DeleteSession removes a session and its messages (cascading).
