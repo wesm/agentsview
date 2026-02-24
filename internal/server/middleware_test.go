@@ -134,11 +134,13 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 	t.Parallel()
 
 	// Positive: wrapped routes must produce a timeout with an
-	// impossibly short deadline (1 ns). Any real handler (DB query,
-	// serialization, etc.) will exceed this.
+	// impossibly short deadline. Any real handler (DB query,
+	// serialization, etc.) will exceed this. Use Microsecond
+	// instead of Nanosecond because Windows timer resolution
+	// (~15ms) can miss a 1ns deadline.
 	t.Run("WrappedRoutesTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServer(t, time.Nanosecond)
+		srv := testServer(t, time.Microsecond)
 
 		ts := httptest.NewServer(srv.Handler())
 		defer ts.Close()
@@ -173,7 +175,7 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 	// even with the same short deadline.
 	t.Run("UnwrappedRoutesNoTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServer(t, time.Nanosecond)
+		srv := testServer(t, time.Microsecond)
 
 		ts := httptest.NewServer(srv.Handler())
 		defer ts.Close()
