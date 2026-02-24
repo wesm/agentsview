@@ -90,6 +90,7 @@ func parseAnalyticsFilter(
 		To:        to,
 		Machine:   q.Get("machine"),
 		Project:   q.Get("project"),
+		Agent:     q.Get("agent"),
 		Timezone:  tz,
 		DayOfWeek: dow,
 		Hour:      hour,

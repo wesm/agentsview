@@ -14,17 +14,18 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Host             string        `json:"host"`
-	Port             int           `json:"port"`
-	NoBrowser        bool          `json:"no_browser"`
-	ClaudeProjectDir string        `json:"claude_project_dir"`
-	CodexSessionsDir string        `json:"codex_sessions_dir"`
-	GeminiDir        string        `json:"gemini_dir"`
-	DataDir          string        `json:"data_dir"`
-	DBPath           string        `json:"-"`
-	CursorSecret     string        `json:"cursor_secret"`
-	GithubToken      string        `json:"github_token,omitempty"`
-	WriteTimeout     time.Duration `json:"-"`
+	Host              string        `json:"host"`
+	Port              int           `json:"port"`
+	NoBrowser         bool          `json:"no_browser"`
+	ClaudeProjectDir  string        `json:"claude_project_dir"`
+	CodexSessionsDir  string        `json:"codex_sessions_dir"`
+	GeminiDir         string        `json:"gemini_dir"`
+	CursorProjectsDir string        `json:"cursor_projects_dir"`
+	DataDir           string        `json:"data_dir"`
+	DBPath            string        `json:"-"`
+	CursorSecret      string        `json:"cursor_secret"`
+	GithubToken       string        `json:"github_token,omitempty"`
+	WriteTimeout      time.Duration `json:"-"`
 }
 
 // Default returns a Config with default values.
@@ -37,14 +38,15 @@ func Default() (Config, error) {
 	}
 	dataDir := filepath.Join(home, ".agentsview")
 	return Config{
-		Host:             "127.0.0.1",
-		Port:             8080,
-		ClaudeProjectDir: filepath.Join(home, ".claude", "projects"),
-		CodexSessionsDir: filepath.Join(home, ".codex", "sessions"),
-		GeminiDir:        filepath.Join(home, ".gemini"),
-		DataDir:          dataDir,
-		DBPath:           filepath.Join(dataDir, "sessions.db"),
-		WriteTimeout:     30 * time.Second,
+		Host:              "127.0.0.1",
+		Port:              8080,
+		ClaudeProjectDir:  filepath.Join(home, ".claude", "projects"),
+		CodexSessionsDir:  filepath.Join(home, ".codex", "sessions"),
+		GeminiDir:         filepath.Join(home, ".gemini"),
+		CursorProjectsDir: filepath.Join(home, ".cursor", "projects"),
+		DataDir:           dataDir,
+		DBPath:            filepath.Join(dataDir, "sessions.db"),
+		WriteTimeout:      30 * time.Second,
 	}, nil
 }
 
@@ -157,6 +159,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("GEMINI_DIR"); v != "" {
 		c.GeminiDir = v
+	}
+	if v := os.Getenv("CURSOR_PROJECTS_DIR"); v != "" {
+		c.CursorProjectsDir = v
 	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v

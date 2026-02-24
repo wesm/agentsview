@@ -129,6 +129,7 @@
       sessions.initFromParams(params);
       sessions.load();
       sessions.loadProjects();
+      sessions.loadAgents();
     });
   });
 

@@ -38,7 +38,7 @@ func testServer(
 		DBPath:       dbPath,
 		WriteTimeout: writeTimeout,
 	}
-	engine := sync.NewEngine(database, dir, "", "", "test")
+	engine := sync.NewEngine(database, dir, "", "", "", "test")
 	return New(cfg, database, engine)
 }
 

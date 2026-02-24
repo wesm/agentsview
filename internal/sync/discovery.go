@@ -370,6 +370,91 @@ func confirmGeminiSessionID(
 	return parser.GeminiSessionID(data) == sessionID
 }
 
+// DiscoverCursorSessions finds all agent transcript files under
+// the Cursor projects dir (<projectsDir>/<project>/agent-transcripts/<uuid>.txt).
+func DiscoverCursorSessions(
+	projectsDir string,
+) []DiscoveredFile {
+	if projectsDir == "" {
+		return nil
+	}
+
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		transcriptsDir := filepath.Join(
+			projectsDir, entry.Name(), "agent-transcripts",
+		)
+		transcripts, err := os.ReadDir(transcriptsDir)
+		if err != nil {
+			continue
+		}
+
+		project := parser.DecodeCursorProjectDir(entry.Name())
+		if project == "" {
+			project = "unknown"
+		}
+
+		for _, sf := range transcripts {
+			if sf.IsDir() {
+				continue
+			}
+			if !strings.HasSuffix(sf.Name(), ".txt") {
+				continue
+			}
+			files = append(files, DiscoveredFile{
+				Path:    filepath.Join(transcriptsDir, sf.Name()),
+				Project: project,
+				Agent:   parser.AgentCursor,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindCursorSourceFile finds a Cursor transcript file by
+// session UUID. Searches all project directories for a
+// matching agent-transcripts/<uuid>.txt file.
+func FindCursorSourceFile(
+	projectsDir, sessionID string,
+) string {
+	if projectsDir == "" || !isValidSessionID(sessionID) {
+		return ""
+	}
+
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	target := sessionID + ".txt"
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(
+			projectsDir, entry.Name(),
+			"agent-transcripts", target,
+		)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // geminiProjectsFile holds the structure of
 // ~/.gemini/projects.json.
 type geminiProjectsFile struct {
