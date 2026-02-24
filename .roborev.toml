@@ -38,6 +38,12 @@ Key assumptions reviewers MUST account for:
    ORDER BY id or references to tool_calls.id as missing-column
    errors without verifying the actual schema.
 
+8. SUBPROCESS ENVIRONMENT: Agent CLI subprocesses (claude, codex,
+   gemini) intentionally inherit the parent process environment.
+   Environment sanitization is the user's responsibility when
+   launching agentsview. Do not flag env var inheritance to agent
+   CLIs as a security issue.
+
 Do NOT flag issues that only apply to public-facing, multi-tenant,
 or network-exposed services. Focus on bugs, logic errors, data
 corruption risks, and code quality issues.

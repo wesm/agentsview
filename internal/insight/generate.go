@@ -123,6 +123,7 @@ func generateClaude(
 		ctx, path,
 		"-p", "--output-format", "json",
 	)
+	cmd.Env = append(os.Environ(), "CLAUDE_NO_SOUND=1")
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
 
 	var stdout, stderr bytes.Buffer
