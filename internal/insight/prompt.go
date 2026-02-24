@@ -12,10 +12,11 @@ const maxSessions = 50
 
 // GenerateRequest describes what insight to generate.
 type GenerateRequest struct {
-	Type    string
-	Date    string
-	Project string
-	Prompt  string
+	Type     string
+	DateFrom string
+	DateTo   string
+	Project  string
+	Prompt   string
 }
 
 // BuildPrompt queries sessions for the given date and assembles
@@ -26,8 +27,9 @@ func BuildPrompt(
 	req GenerateRequest,
 ) (string, error) {
 	filter := db.SessionFilter{
-		Date:  req.Date,
-		Limit: maxSessions + 1,
+		DateFrom: req.DateFrom,
+		DateTo:   req.DateTo,
+		Limit:    maxSessions + 1,
 	}
 	if req.Project != "" {
 		filter.Project = req.Project
@@ -40,8 +42,15 @@ func BuildPrompt(
 
 	var b strings.Builder
 	writeSystemInstruction(&b, req.Type)
-	b.WriteString("\n## Date: ")
-	b.WriteString(req.Date)
+	if req.DateFrom == req.DateTo {
+		b.WriteString("\n## Date: ")
+		b.WriteString(req.DateFrom)
+	} else {
+		b.WriteString("\n## Date Range: ")
+		b.WriteString(req.DateFrom)
+		b.WriteString(" to ")
+		b.WriteString(req.DateTo)
+	}
 	b.WriteString("\n\n")
 
 	if req.Project != "" {

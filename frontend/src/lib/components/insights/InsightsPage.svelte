@@ -7,9 +7,39 @@
 
   let promptExpanded = $state(false);
 
-  function handleDateChange(e: Event) {
+  function handleDateFromChange(e: Event) {
     const input = e.target as HTMLInputElement;
-    insights.setDate(input.value);
+    insights.setDateFrom(input.value);
+    if (input.value > insights.dateTo) {
+      insights.setDateTo(input.value);
+    }
+  }
+
+  function handleDateToChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    insights.setDateTo(input.value);
+    if (input.value < insights.dateFrom) {
+      insights.setDateFrom(input.value);
+    }
+  }
+
+  function setPreset(days: number) {
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() - days);
+    insights.setDateFrom(
+      days === 0
+        ? localDateStr(today)
+        : localDateStr(from),
+    );
+    insights.setDateTo(localDateStr(today));
+  }
+
+  function localDateStr(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   }
 
   function handleTypeChange(e: Event) {
@@ -48,6 +78,22 @@
     });
   }
 
+  function formatDateShort(date: string): string {
+    const d = new Date(date + "T00:00:00");
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function formatDateRange(
+    from: string,
+    to: string,
+  ): string {
+    if (from === to) return formatDateShort(from);
+    return `${formatDateShort(from)} – ${formatDateShort(to)}`;
+  }
+
   function typeLabel(type: InsightType): string {
     return type === "daily_activity"
       ? "Daily Activity"
@@ -73,9 +119,20 @@
         <input
           type="date"
           class="ctrl date-ctrl"
-          value={insights.date}
-          onchange={handleDateChange}
+          value={insights.dateFrom}
+          onchange={handleDateFromChange}
         />
+        <input
+          type="date"
+          class="ctrl date-ctrl"
+          value={insights.dateTo}
+          onchange={handleDateToChange}
+        />
+      </div>
+      <div class="presets-row">
+        <button class="preset-btn" onclick={() => setPreset(0)}>Today</button>
+        <button class="preset-btn" onclick={() => setPreset(6)}>7 days</button>
+        <button class="preset-btn" onclick={() => setPreset(29)}>30 days</button>
         <select
           class="ctrl type-ctrl"
           value={insights.type}
@@ -246,7 +303,10 @@
                 </span>
               </span>
               <span class="row-meta">
-                {formatTime(s.created_at)}
+                {formatDateRange(s.date_from, s.date_to)}
+                <span class="row-time">
+                  {formatTime(s.created_at)}
+                </span>
               </span>
             </span>
             <span class="row-agent">{s.agent}</span>
@@ -269,7 +329,11 @@
               {typeLabel(insights.selectedItem.type)}
             </span>
             <span class="header-date">
-              {formatDate(insights.selectedItem.date)}
+              {#if insights.selectedItem.date_from === insights.selectedItem.date_to}
+                {formatDate(insights.selectedItem.date_from)}
+              {:else}
+                {formatDateShort(insights.selectedItem.date_from)} – {formatDateShort(insights.selectedItem.date_to)}
+              {/if}
             </span>
             <button
               class="delete-btn"
@@ -389,7 +453,30 @@
   }
 
   .date-ctrl {
-    flex: 1.2;
+    flex: 1;
+  }
+
+  .presets-row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .preset-btn {
+    height: 22px;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-muted);
+    transition: background 0.1s, color 0.1s;
+    white-space: nowrap;
+  }
+
+  .preset-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-secondary);
   }
 
   .prompt-area {
@@ -727,6 +814,11 @@
     font-size: 10px;
     color: var(--text-muted);
     line-height: 1.3;
+  }
+
+  .row-time {
+    margin-left: 4px;
+    opacity: 0.7;
   }
 
   .row-agent {

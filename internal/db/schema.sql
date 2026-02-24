@@ -100,7 +100,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_category
 CREATE TABLE IF NOT EXISTS insights (
     id          INTEGER PRIMARY KEY,
     type        TEXT NOT NULL,
-    date        TEXT NOT NULL,
+    date_from   TEXT NOT NULL,
+    date_to     TEXT NOT NULL,
     project     TEXT,
     agent       TEXT NOT NULL,
     model       TEXT,
@@ -111,4 +112,4 @@ CREATE TABLE IF NOT EXISTS insights (
 );
 
 CREATE INDEX IF NOT EXISTS idx_insights_lookup
-    ON insights(type, date, project);
+    ON insights(type, date_from, project);

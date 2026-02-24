@@ -21,7 +21,8 @@ function localDateStr(d: Date): string {
 export interface InsightTask {
   clientId: string;
   type: InsightType;
-  date: string;
+  dateFrom: string;
+  dateTo: string;
   project: string;
   agent: AgentName;
   status: "generating" | "done" | "error";
@@ -31,7 +32,8 @@ export interface InsightTask {
 }
 
 class InsightsStore {
-  date: string = $state(localDateStr(new Date()));
+  dateFrom: string = $state(localDateStr(new Date()));
+  dateTo: string = $state(localDateStr(new Date()));
   type: InsightType = $state("daily_activity");
   project: string = $state("");
   agent: AgentName = $state("claude");
@@ -61,7 +63,6 @@ class InsightsStore {
     this.loading = true;
     try {
       const res = await listInsights({
-        date: this.date,
         project: this.project || undefined,
       });
       if (this.#version === v) {
@@ -86,10 +87,12 @@ class InsightsStore {
     }
   }
 
-  setDate(date: string) {
-    this.date = date;
-    this.selectedId = null;
-    this.load();
+  setDateFrom(date: string) {
+    this.dateFrom = date;
+  }
+
+  setDateTo(date: string) {
+    this.dateTo = date;
   }
 
   setType(type: InsightType) {
@@ -114,7 +117,8 @@ class InsightsStore {
     const clientId = crypto.randomUUID();
     const snap = {
       type: this.type,
-      date: this.date,
+      dateFrom: this.dateFrom,
+      dateTo: this.dateTo,
       project: this.project,
       agent: this.agent,
     };
@@ -122,7 +126,8 @@ class InsightsStore {
     const task: InsightTask = {
       clientId,
       type: snap.type,
-      date: snap.date,
+      dateFrom: snap.dateFrom,
+      dateTo: snap.dateTo,
       project: snap.project,
       agent: snap.agent,
       status: "generating",
@@ -135,7 +140,8 @@ class InsightsStore {
     const handle = generateInsight(
       {
         type: snap.type,
-        date: snap.date,
+        date_from: snap.dateFrom,
+        date_to: snap.dateTo,
         project: snap.project || undefined,
         prompt: this.promptText || undefined,
         agent: snap.agent,
@@ -158,7 +164,6 @@ class InsightsStore {
         );
 
         const filtersMatch =
-          this.date === snap.date &&
           this.project === snap.project;
         if (filtersMatch) {
           this.items = [insight, ...this.items];

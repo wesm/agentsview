@@ -133,7 +133,21 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return count == 0, nil
+	if count == 0 {
+		return true, nil
+	}
+
+	var insightCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('insights')
+		 WHERE name = 'date_from'`,
+	).Scan(&insightCount)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
+	}
+	return insightCount == 0, nil
 }
 
 func dropDatabase(path string) error {

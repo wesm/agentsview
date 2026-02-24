@@ -1,7 +1,8 @@
 export interface Insight {
   id: number;
   type: InsightType;
-  date: string;
+  date_from: string;
+  date_to: string;
   project: string | null;
   agent: string;
   model: string | null;
@@ -22,7 +23,8 @@ export type AgentName = "claude" | "codex" | "gemini";
 
 export interface GenerateInsightRequest {
   type: InsightType;
-  date: string;
+  date_from: string;
+  date_to: string;
   project?: string;
   prompt?: string;
   agent?: AgentName;

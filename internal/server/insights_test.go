@@ -67,7 +67,7 @@ func TestListInsights_TypeFilter(t *testing.T) {
 	}
 }
 
-func TestListInsights_DateFilter(t *testing.T) {
+func TestListInsights_ReturnsAll(t *testing.T) {
 	te := setup(t)
 
 	te.seedInsight(t, "daily_activity", "2025-01-15",
@@ -75,15 +75,15 @@ func TestListInsights_DateFilter(t *testing.T) {
 	te.seedInsight(t, "daily_activity", "2025-01-16",
 		strPtr("my-app"))
 
-	w := te.get(t, "/api/v1/insights?date=2025-01-15")
+	w := te.get(t, "/api/v1/insights")
 	assertStatus(t, w, http.StatusOK)
 
 	type resp struct {
 		Insights []db.Insight `json:"insights"`
 	}
 	r := decode[resp](t, w)
-	if len(r.Insights) != 1 {
-		t.Fatalf("expected 1 insight, got %d",
+	if len(r.Insights) != 2 {
+		t.Fatalf("expected 2 insights, got %d",
 			len(r.Insights))
 	}
 }
@@ -94,14 +94,6 @@ func TestListInsights_InvalidType(t *testing.T) {
 	w := te.get(t, "/api/v1/insights?type=invalid")
 	assertStatus(t, w, http.StatusBadRequest)
 	assertBodyContains(t, w, "invalid type")
-}
-
-func TestListInsights_InvalidDate(t *testing.T) {
-	te := setup(t)
-
-	w := te.get(t, "/api/v1/insights?date=not-a-date")
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "invalid date")
 }
 
 func TestGetInsight_Found(t *testing.T) {
@@ -140,16 +132,35 @@ func TestGenerateInsight_InvalidType(t *testing.T) {
 	te := setup(t)
 
 	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"bad","date":"2025-01-15"}`)
+		`{"type":"bad","date_from":"2025-01-15","date_to":"2025-01-15"}`)
 	assertStatus(t, w, http.StatusBadRequest)
 }
 
-func TestGenerateInsight_InvalidDate(t *testing.T) {
+func TestGenerateInsight_InvalidDateFrom(t *testing.T) {
 	te := setup(t)
 
 	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date":"bad"}`)
+		`{"type":"daily_activity","date_from":"bad","date_to":"2025-01-15"}`)
 	assertStatus(t, w, http.StatusBadRequest)
+	assertBodyContains(t, w, "date_from")
+}
+
+func TestGenerateInsight_InvalidDateTo(t *testing.T) {
+	te := setup(t)
+
+	w := te.post(t, "/api/v1/insights/generate",
+		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"bad"}`)
+	assertStatus(t, w, http.StatusBadRequest)
+	assertBodyContains(t, w, "date_to")
+}
+
+func TestGenerateInsight_DateToBeforeDateFrom(t *testing.T) {
+	te := setup(t)
+
+	w := te.post(t, "/api/v1/insights/generate",
+		`{"type":"daily_activity","date_from":"2025-01-16","date_to":"2025-01-15"}`)
+	assertStatus(t, w, http.StatusBadRequest)
+	assertBodyContains(t, w, "date_to must be")
 }
 
 func TestGenerateInsight_InvalidJSON(t *testing.T) {
@@ -164,7 +175,7 @@ func TestGenerateInsight_InvalidAgent(t *testing.T) {
 	te := setup(t)
 
 	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date":"2025-01-15","agent":"gpt"}`)
+		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"gpt"}`)
 	assertStatus(t, w, http.StatusBadRequest)
 	assertBodyContains(t, w, "invalid agent")
 }
@@ -173,7 +184,7 @@ func TestGenerateInsight_DefaultAgent(t *testing.T) {
 	te := setup(t)
 
 	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date":"2025-01-15"}`)
+		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15"}`)
 	assertStatus(t, w, http.StatusOK)
 	assertBodyContains(t, w, "event: error")
 }
@@ -217,11 +228,12 @@ func (te *testEnv) seedInsight(
 ) int64 {
 	t.Helper()
 	id, err := te.db.InsertInsight(db.Insight{
-		Type:    typ,
-		Date:    date,
-		Project: project,
-		Agent:   "claude",
-		Content: "Test insight content",
+		Type:     typ,
+		DateFrom: date,
+		DateTo:   date,
+		Project:  project,
+		Agent:    "claude",
+		Content:  "Test insight content",
 	})
 	if err != nil {
 		t.Fatalf("seeding insight: %v", err)

@@ -12,13 +12,14 @@ func TestInsights_InsertAndGet(t *testing.T) {
 	ctx := context.Background()
 
 	s := Insight{
-		Type:    "daily_activity",
-		Date:    "2025-01-15",
-		Project: ptr("my-app"),
-		Agent:   "claude",
-		Model:   ptr("claude-sonnet-4-20250514"),
-		Prompt:  ptr("What happened today?"),
-		Content: "# Summary\nStuff happened.",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
+		Project:  ptr("my-app"),
+		Agent:    "claude",
+		Model:    ptr("claude-sonnet-4-20250514"),
+		Prompt:   ptr("What happened today?"),
+		Content:  "# Summary\nStuff happened.",
 	}
 
 	id, err := d.InsertInsight(s)
@@ -39,8 +40,17 @@ func TestInsights_InsertAndGet(t *testing.T) {
 	if got.Type != "daily_activity" {
 		t.Errorf("type = %q, want daily_activity", got.Type)
 	}
-	if got.Date != "2025-01-15" {
-		t.Errorf("date = %q, want 2025-01-15", got.Date)
+	if got.DateFrom != "2025-01-15" {
+		t.Errorf(
+			"date_from = %q, want 2025-01-15",
+			got.DateFrom,
+		)
+	}
+	if got.DateTo != "2025-01-15" {
+		t.Errorf(
+			"date_to = %q, want 2025-01-15",
+			got.DateTo,
+		)
 	}
 	if got.Project == nil || *got.Project != "my-app" {
 		t.Errorf("project = %v, want my-app", got.Project)
@@ -72,21 +82,25 @@ func TestInsights_ListWithFilters(t *testing.T) {
 
 	entries := []Insight{
 		{
-			Type: "daily_activity", Date: "2025-01-15",
+			Type:     "daily_activity",
+			DateFrom: "2025-01-15", DateTo: "2025-01-15",
 			Project: ptr("app-a"), Agent: "claude",
 			Content: "Day 1 app-a",
 		},
 		{
-			Type: "daily_activity", Date: "2025-01-15",
+			Type:     "daily_activity",
+			DateFrom: "2025-01-15", DateTo: "2025-01-15",
 			Project: ptr("app-b"), Agent: "claude",
 			Content: "Day 1 app-b",
 		},
 		{
-			Type: "agent_analysis", Date: "2025-01-15",
+			Type:     "agent_analysis",
+			DateFrom: "2025-01-15", DateTo: "2025-01-15",
 			Agent: "claude", Content: "Analysis",
 		},
 		{
-			Type: "daily_activity", Date: "2025-01-16",
+			Type:     "daily_activity",
+			DateFrom: "2025-01-16", DateTo: "2025-01-16",
 			Project: ptr("app-a"), Agent: "claude",
 			Content: "Day 2 app-a",
 		},
@@ -113,19 +127,6 @@ func TestInsights_ListWithFilters(t *testing.T) {
 			3,
 		},
 		{
-			"ByDate",
-			InsightFilter{Date: "2025-01-15"},
-			3,
-		},
-		{
-			"ByTypeAndDate",
-			InsightFilter{
-				Type: "daily_activity",
-				Date: "2025-01-15",
-			},
-			2,
-		},
-		{
 			"ByProject",
 			InsightFilter{Project: "app-a"},
 			2,
@@ -137,10 +138,8 @@ func TestInsights_ListWithFilters(t *testing.T) {
 		},
 		{
 			"NoMatch",
-			InsightFilter{
-				Type: "daily_activity",
-				Date: "2025-12-31",
-			},
+			InsightFilter{Type: "agent_analysis",
+				Project: "nonexistent"},
 			0,
 		},
 	}
@@ -168,7 +167,8 @@ func TestInsights_OrderByCreatedAtDesc(t *testing.T) {
 	ids := make([]int64, 3)
 	for i, content := range []string{"first", "second", "third"} {
 		id, err := d.InsertInsight(Insight{
-			Type: "daily_activity", Date: "2025-01-15",
+			Type:     "daily_activity",
+			DateFrom: "2025-01-15", DateTo: "2025-01-15",
 			Agent: "claude", Content: content,
 		})
 		if err != nil {
@@ -197,7 +197,8 @@ func TestInsights_Delete(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := d.InsertInsight(Insight{
-		Type: "daily_activity", Date: "2025-01-15",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15", DateTo: "2025-01-15",
 		Agent: "claude", Content: "to be deleted",
 	})
 	if err != nil {

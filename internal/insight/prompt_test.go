@@ -28,8 +28,9 @@ func TestBuildPrompt_WithSessions(t *testing.T) {
 	})
 
 	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type: "daily_activity",
-		Date: "2025-01-15",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
 	})
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
@@ -68,9 +69,10 @@ func TestBuildPrompt_ProjectFilter(t *testing.T) {
 	})
 
 	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:    "daily_activity",
-		Date:    "2025-01-15",
-		Project: "my-app",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
+		Project:  "my-app",
 	})
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
@@ -89,9 +91,10 @@ func TestBuildPrompt_UserPrompt(t *testing.T) {
 	ctx := context.Background()
 
 	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:   "daily_activity",
-		Date:   "2025-01-15",
-		Prompt: "Focus on security improvements",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
+		Prompt:   "Focus on security improvements",
 	})
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
@@ -112,8 +115,9 @@ func TestBuildPrompt_AgentAnalysis(t *testing.T) {
 	ctx := context.Background()
 
 	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type: "agent_analysis",
-		Date: "2025-01-15",
+		Type:     "agent_analysis",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
 	})
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
@@ -147,8 +151,9 @@ func TestBuildPrompt_Truncation(t *testing.T) {
 	}
 
 	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type: "daily_activity",
-		Date: "2025-01-15",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
 	})
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
@@ -168,8 +173,9 @@ func TestBuildPrompt_NoSessions(t *testing.T) {
 	ctx := context.Background()
 
 	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type: "daily_activity",
-		Date: "2025-01-15",
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
 	})
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)

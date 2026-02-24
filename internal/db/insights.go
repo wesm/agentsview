@@ -11,7 +11,8 @@ import (
 type Insight struct {
 	ID        int64   `json:"id"`
 	Type      string  `json:"type"`
-	Date      string  `json:"date"`
+	DateFrom  string  `json:"date_from"`
+	DateTo    string  `json:"date_to"`
 	Project   *string `json:"project"`
 	Agent     string  `json:"agent"`
 	Model     *string `json:"model"`
@@ -23,18 +24,18 @@ type Insight struct {
 // InsightFilter specifies how to query insights.
 type InsightFilter struct {
 	Type       string // "daily_activity" or "agent_analysis"
-	Date       string // YYYY-MM-DD
 	Project    string // "" = no filter
 	GlobalOnly bool   // true = project IS NULL only
 }
 
-const insightBaseCols = `id, type, date, project, agent,
-	model, prompt, content, created_at`
+const insightBaseCols = `id, type, date_from, date_to,
+	project, agent, model, prompt, content, created_at`
 
 func scanInsightRow(rs rowScanner) (Insight, error) {
 	var s Insight
 	err := rs.Scan(
-		&s.ID, &s.Type, &s.Date, &s.Project, &s.Agent,
+		&s.ID, &s.Type, &s.DateFrom, &s.DateTo,
+		&s.Project, &s.Agent,
 		&s.Model, &s.Prompt, &s.Content, &s.CreatedAt,
 	)
 	return s, err
@@ -49,10 +50,6 @@ func buildInsightFilter(
 	if f.Type != "" {
 		preds = append(preds, "type = ?")
 		args = append(args, f.Type)
-	}
-	if f.Date != "" {
-		preds = append(preds, "date = ?")
-		args = append(args, f.Date)
 	}
 	if f.GlobalOnly {
 		preds = append(preds, "project IS NULL")
@@ -74,11 +71,11 @@ func (db *DB) InsertInsight(s Insight) (int64, error) {
 
 	res, err := db.writer.Exec(`
 		INSERT INTO insights (
-			type, date, project, agent,
-			model, prompt, content
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		s.Type, s.Date, s.Project, s.Agent,
-		s.Model, s.Prompt, s.Content,
+			type, date_from, date_to, project,
+			agent, model, prompt, content
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.Type, s.DateFrom, s.DateTo, s.Project,
+		s.Agent, s.Model, s.Prompt, s.Content,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("inserting insight: %w", err)

@@ -430,7 +430,6 @@ export function getAnalyticsTopSessions(
 
 export interface ListInsightsParams {
   type?: string;
-  date?: string;
   project?: string;
 }
 

@@ -31,16 +31,8 @@ func (s *Server) handleListInsights(
 		return
 	}
 
-	date := q.Get("date")
-	if date != "" && !isValidDate(date) {
-		writeError(w, http.StatusBadRequest,
-			"invalid date format: use YYYY-MM-DD")
-		return
-	}
-
 	filter := db.InsightFilter{
 		Type:    typ,
-		Date:    date,
 		Project: q.Get("project"),
 	}
 
@@ -129,11 +121,12 @@ func (s *Server) handleDeleteInsight(
 }
 
 type generateInsightRequest struct {
-	Type    string `json:"type"`
-	Date    string `json:"date"`
-	Project string `json:"project"`
-	Prompt  string `json:"prompt"`
-	Agent   string `json:"agent"`
+	Type     string `json:"type"`
+	DateFrom string `json:"date_from"`
+	DateTo   string `json:"date_to"`
+	Project  string `json:"project"`
+	Prompt   string `json:"prompt"`
+	Agent    string `json:"agent"`
 }
 
 func (s *Server) handleGenerateInsight(
@@ -151,9 +144,19 @@ func (s *Server) handleGenerateInsight(
 			"invalid type: must be daily_activity or agent_analysis")
 		return
 	}
-	if !isValidDate(req.Date) {
+	if !isValidDate(req.DateFrom) {
 		writeError(w, http.StatusBadRequest,
-			"invalid date format: use YYYY-MM-DD")
+			"invalid date_from: use YYYY-MM-DD")
+		return
+	}
+	if !isValidDate(req.DateTo) {
+		writeError(w, http.StatusBadRequest,
+			"invalid date_to: use YYYY-MM-DD")
+		return
+	}
+	if req.DateTo < req.DateFrom {
+		writeError(w, http.StatusBadRequest,
+			"date_to must be >= date_from")
 		return
 	}
 
@@ -179,10 +182,11 @@ func (s *Server) handleGenerateInsight(
 
 	prompt, err := insight.BuildPrompt(
 		r.Context(), s.db, insight.GenerateRequest{
-			Type:    req.Type,
-			Date:    req.Date,
-			Project: req.Project,
-			Prompt:  req.Prompt,
+			Type:     req.Type,
+			DateFrom: req.DateFrom,
+			DateTo:   req.DateTo,
+			Project:  req.Project,
+			Prompt:   req.Prompt,
 		},
 	)
 	if err != nil {
@@ -232,13 +236,14 @@ func (s *Server) handleGenerateInsight(
 	}
 
 	id, err := s.db.InsertInsight(db.Insight{
-		Type:    req.Type,
-		Date:    req.Date,
-		Project: project,
-		Agent:   result.Agent,
-		Model:   model,
-		Prompt:  promptPtr,
-		Content: result.Content,
+		Type:     req.Type,
+		DateFrom: req.DateFrom,
+		DateTo:   req.DateTo,
+		Project:  project,
+		Agent:    result.Agent,
+		Model:    model,
+		Prompt:   promptPtr,
+		Content:  result.Content,
 	})
 	if err != nil {
 		log.Printf("insight insert error: %v", err)

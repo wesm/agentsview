@@ -242,14 +242,6 @@ describe("insights query serialization", () => {
     expect(lastUrl()).toBe("/api/v1/insights");
   });
 
-  it("lists insights with date filter", async () => {
-    const { listInsights } = await import("./client.js");
-    await listInsights({ date: "2025-01-15" });
-    expect(lastUrl()).toBe(
-      "/api/v1/insights?date=2025-01-15",
-    );
-  });
-
   it("lists insights with type and project", async () => {
     const { listInsights } = await import("./client.js");
     await listInsights({
@@ -265,12 +257,9 @@ describe("insights query serialization", () => {
     const { listInsights } = await import("./client.js");
     await listInsights({
       type: "",
-      date: "2025-01-15",
       project: "",
     });
-    expect(lastUrl()).toBe(
-      "/api/v1/insights?date=2025-01-15",
-    );
+    expect(lastUrl()).toBe("/api/v1/insights");
   });
 
   it("gets single insight by id", async () => {
@@ -309,7 +298,8 @@ describe("generateInsight SSE parsing", () => {
     const insight = {
       id: 1,
       type: "daily_activity",
-      date: "2025-01-15",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
       content: "# Report",
     };
     mockStream([
@@ -322,7 +312,8 @@ describe("generateInsight SSE parsing", () => {
     const handle = generateInsight(
       {
         type: "daily_activity",
-        date: "2025-01-15",
+        date_from: "2025-01-15",
+        date_to: "2025-01-15",
       },
       (p) => phases.push(p),
     );
@@ -343,7 +334,8 @@ describe("generateInsight SSE parsing", () => {
     const { generateInsight } = await import("./client.js");
     const handle = generateInsight({
       type: "daily_activity",
-      date: "2025-01-15",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
     });
     activeHandles.push(handle);
 
@@ -360,7 +352,8 @@ describe("generateInsight SSE parsing", () => {
     const { generateInsight } = await import("./client.js");
     const handle = generateInsight({
       type: "daily_activity",
-      date: "2025-01-15",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
     });
     activeHandles.push(handle);
 
@@ -382,7 +375,8 @@ describe("generateInsight SSE parsing", () => {
     const { generateInsight } = await import("./client.js");
     const handle = generateInsight({
       type: "daily_activity",
-      date: "2025-01-15",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
     });
     activeHandles.push(handle);
 

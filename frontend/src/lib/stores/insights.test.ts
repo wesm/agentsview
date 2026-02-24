@@ -28,7 +28,8 @@ function makeInsight(
   return {
     id: 1,
     type: "daily_activity",
-    date: "2025-01-15",
+    date_from: "2025-01-15",
+    date_to: "2025-01-15",
     project: null,
     agent: "claude",
     model: "claude-sonnet-4-20250514",
@@ -59,7 +60,6 @@ describe("load", () => {
     await insights.load();
 
     expect(api.listInsights).toHaveBeenCalledWith({
-      date: insights.date,
       project: undefined,
     });
     expect(insights.items).toHaveLength(2);
@@ -89,18 +89,19 @@ describe("load", () => {
   });
 });
 
-describe("setDate", () => {
-  it("updates date, clears selection, and reloads", async () => {
-    insights.selectedId = 1;
-    vi.mocked(api.listInsights).mockResolvedValueOnce({
-      insights: [],
-    });
+describe("setDateFrom / setDateTo", () => {
+  it("updates dateFrom without reloading", () => {
+    insights.setDateFrom("2025-02-01");
 
-    insights.setDate("2025-02-01");
+    expect(insights.dateFrom).toBe("2025-02-01");
+    expect(api.listInsights).not.toHaveBeenCalled();
+  });
 
-    expect(insights.date).toBe("2025-02-01");
-    expect(insights.selectedId).toBeNull();
-    expect(api.listInsights).toHaveBeenCalled();
+  it("updates dateTo without reloading", () => {
+    insights.setDateTo("2025-02-07");
+
+    expect(insights.dateTo).toBe("2025-02-07");
+    expect(api.listInsights).not.toHaveBeenCalled();
   });
 });
 
@@ -245,8 +246,8 @@ describe("generate (multi-task)", () => {
 
     insights.generate();
 
-    // Change date while generation is in flight.
-    insights.date = "2025-03-01";
+    // Change project while generation is in flight.
+    insights.project = "other-project";
 
     resolveDone(newInsight);
     await new Promise((r) => setTimeout(r, 0));
