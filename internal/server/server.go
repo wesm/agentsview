@@ -132,6 +132,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/v1/search", s.withTimeout(s.handleSearch))
 	s.mux.Handle("GET /api/v1/projects", s.withTimeout(s.handleListProjects))
 	s.mux.Handle("GET /api/v1/machines", s.withTimeout(s.handleListMachines))
+	s.mux.Handle("GET /api/v1/agents", s.withTimeout(s.handleListAgents))
 	s.mux.Handle("GET /api/v1/stats", s.withTimeout(s.handleGetStats))
 	s.mux.Handle("GET /api/v1/version", s.withTimeout(s.handleGetVersion))
 	s.mux.HandleFunc("POST /api/v1/sync", s.handleTriggerSync)

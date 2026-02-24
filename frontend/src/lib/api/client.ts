@@ -6,6 +6,7 @@ import type {
   SearchResponse,
   ProjectsResponse,
   MachinesResponse,
+  AgentsResponse,
   Stats,
   VersionInfo,
   SyncStatus,
@@ -43,38 +44,22 @@ export class ApiError extends Error {
   }
 }
 
-function apiErrorMessage(
-  status: number,
-  body: string,
-): string {
+function apiErrorMessage(status: number, body: string): string {
   return body.trim() || `API ${status}`;
 }
 
-async function fetchJSON<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
+async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
     const body = await res.text();
-    throw new ApiError(
-      res.status,
-      apiErrorMessage(res.status, body),
-    );
+    throw new ApiError(res.status, apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<T>;
 }
 
-type QueryValue =
-  | string
-  | number
-  | boolean
-  | undefined
-  | null;
+type QueryValue = string | number | boolean | undefined | null;
 
-function buildQuery(
-  params: Record<string, QueryValue>,
-): string {
+function buildQuery(params: Record<string, QueryValue>): string {
   const q = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") {
@@ -106,10 +91,7 @@ export function listSessions(
   return fetchJSON(`/sessions${buildQuery({ ...params })}`);
 }
 
-export function getSession(
-  id: string,
-  init?: RequestInit,
-): Promise<Session> {
+export function getSession(id: string, init?: RequestInit): Promise<Session> {
   return fetchJSON(`/sessions/${id}`, init);
 }
 
@@ -160,10 +142,7 @@ export function search(
   if (!query) {
     throw new Error("search query must not be empty");
   }
-  return fetchJSON(
-    `/search${buildQuery({ q: query, ...params })}`,
-    init,
-  );
+  return fetchJSON(`/search${buildQuery({ q: query, ...params })}`, init);
 }
 
 /* Metadata */
@@ -174,6 +153,10 @@ export function getProjects(): Promise<ProjectsResponse> {
 
 export function getMachines(): Promise<MachinesResponse> {
   return fetchJSON("/machines");
+}
+
+export function getAgents(): Promise<AgentsResponse> {
+  return fetchJSON("/agents");
 }
 
 export function getStats(): Promise<Stats> {
@@ -302,9 +285,7 @@ export function watchSession(
   sessionId: string,
   onUpdate: () => void,
 ): EventSource {
-  const es = new EventSource(
-    `${BASE}/sessions/${sessionId}/watch`,
-  );
+  const es = new EventSource(`${BASE}/sessions/${sessionId}/watch`);
 
   es.addEventListener("session_updated", () => {
     onUpdate();
@@ -324,9 +305,7 @@ export function getExportUrl(sessionId: string): string {
 
 /* Publish / GitHub config */
 
-export function publishSession(
-  sessionId: string,
-): Promise<PublishResponse> {
+export function publishSession(sessionId: string): Promise<PublishResponse> {
   return fetchJSON(`/sessions/${sessionId}/publish`, {
     method: "POST",
   });
@@ -354,6 +333,7 @@ export interface AnalyticsParams {
   timezone?: string;
   machine?: string;
   project?: string;
+  agent?: string;
   dow?: number;
   hour?: number;
 }
@@ -361,9 +341,7 @@ export interface AnalyticsParams {
 export function getAnalyticsSummary(
   params: AnalyticsParams,
 ): Promise<AnalyticsSummary> {
-  return fetchJSON(
-    `/analytics/summary${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/summary${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsActivity(
@@ -371,9 +349,7 @@ export function getAnalyticsActivity(
     granularity?: Granularity;
   },
 ): Promise<ActivityResponse> {
-  return fetchJSON(
-    `/analytics/activity${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/activity${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsHeatmap(
@@ -381,49 +357,37 @@ export function getAnalyticsHeatmap(
     metric?: HeatmapMetric;
   },
 ): Promise<HeatmapResponse> {
-  return fetchJSON(
-    `/analytics/heatmap${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/heatmap${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsProjects(
   params: AnalyticsParams,
 ): Promise<ProjectsAnalyticsResponse> {
-  return fetchJSON(
-    `/analytics/projects${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/projects${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsHourOfWeek(
   params: AnalyticsParams,
 ): Promise<HourOfWeekResponse> {
-  return fetchJSON(
-    `/analytics/hour-of-week${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/hour-of-week${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsSessionShape(
   params: AnalyticsParams,
 ): Promise<SessionShapeResponse> {
-  return fetchJSON(
-    `/analytics/sessions${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/sessions${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsVelocity(
   params: AnalyticsParams,
 ): Promise<VelocityResponse> {
-  return fetchJSON(
-    `/analytics/velocity${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/velocity${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsTools(
   params: AnalyticsParams,
 ): Promise<ToolsAnalyticsResponse> {
-  return fetchJSON(
-    `/analytics/tools${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/tools${buildQuery({ ...params })}`);
 }
 
 export function getAnalyticsTopSessions(
@@ -431,9 +395,7 @@ export function getAnalyticsTopSessions(
     metric?: TopSessionsMetric;
   },
 ): Promise<TopSessionsResponse> {
-  return fetchJSON(
-    `/analytics/top-sessions${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/analytics/top-sessions${buildQuery({ ...params })}`);
 }
 
 /* Insights */
@@ -446,9 +408,7 @@ export interface ListInsightsParams {
 export function listInsights(
   params: ListInsightsParams = {},
 ): Promise<InsightsResponse> {
-  return fetchJSON(
-    `/insights${buildQuery({ ...params })}`,
-  );
+  return fetchJSON(`/insights${buildQuery({ ...params })}`);
 }
 
 export function getInsight(id: number): Promise<Insight> {
@@ -461,10 +421,7 @@ export async function deleteInsight(id: number): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new ApiError(
-      res.status,
-      apiErrorMessage(res.status, body),
-    );
+    throw new ApiError(res.status, apiErrorMessage(res.status, body));
   }
 }
 
@@ -488,9 +445,7 @@ export function generateInsight(
     });
 
     if (!res.ok || !res.body) {
-      throw new Error(
-        `Generate request failed: ${res.status}`,
-      );
+      throw new Error(`Generate request failed: ${res.status}`);
     }
 
     const reader = res.body.getReader();
@@ -504,9 +459,7 @@ export function generateInsight(
       buf += decoder.decode(value, { stream: true });
       buf = buf.replaceAll("\r\n", "\n");
 
-      const parsed = processInsightFrames(
-        buf, onStatus,
-      );
+      const parsed = processInsightFrames(buf, onStatus);
       if (parsed) {
         result = parsed;
         reader.cancel();
@@ -524,9 +477,7 @@ export function generateInsight(
     }
 
     if (!result) {
-      throw new Error(
-        "Generate stream ended without done event",
-      );
+      throw new Error("Generate stream ended without done event");
     }
 
     return result;

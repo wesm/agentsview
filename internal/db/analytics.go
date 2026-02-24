@@ -46,6 +46,7 @@ type AnalyticsFilter struct {
 	To        string // ISO date YYYY-MM-DD, inclusive
 	Machine   string // optional machine filter
 	Project   string // optional project filter
+	Agent     string // optional agent filter
 	Timezone  string // IANA timezone for day bucketing
 	DayOfWeek *int   // nil = all, 0=Mon, 6=Sun (ISO)
 	Hour      *int   // nil = all, 0-23
@@ -107,6 +108,11 @@ func (f AnalyticsFilter) buildWhere(
 	if f.Project != "" {
 		preds = append(preds, "project = ?")
 		args = append(args, f.Project)
+	}
+
+	if f.Agent != "" {
+		preds = append(preds, "agent = ?")
+		args = append(args, f.Agent)
 	}
 
 	return strings.Join(preds, " AND "), args

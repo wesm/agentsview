@@ -55,6 +55,14 @@ func NormalizeToolCategory(rawName string) string {
 	case "task":
 		return "Task"
 
+	// Cursor tools
+	case "Shell":
+		return "Bash"
+	case "StrReplace":
+		return "Edit"
+	case "LS":
+		return "Read"
+
 	default:
 		return "Other"
 	}

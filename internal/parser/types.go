@@ -10,6 +10,7 @@ const (
 	AgentCodex    AgentType = "codex"
 	AgentGemini   AgentType = "gemini"
 	AgentOpenCode AgentType = "opencode"
+	AgentCursor   AgentType = "cursor"
 )
 
 // RoleType identifies the role of a message sender.

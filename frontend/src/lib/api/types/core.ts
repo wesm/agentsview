@@ -62,11 +62,7 @@ export interface Message {
 /** Matches Go MinimapEntry struct */
 export type MinimapEntry = Pick<
   Message,
-  | "ordinal"
-  | "role"
-  | "content_length"
-  | "has_thinking"
-  | "has_tool_use"
+  "ordinal" | "role" | "content_length" | "has_thinking" | "has_tool_use"
 >;
 
 /** Matches Go SearchResult struct in internal/db/search.go */
@@ -111,4 +107,14 @@ export interface ProjectsResponse {
 
 export interface MachinesResponse {
   machines: string[];
+}
+
+/** Matches Go AgentInfo struct */
+export interface AgentInfo {
+  name: string;
+  session_count: number;
+}
+
+export interface AgentsResponse {
+  agents: AgentInfo[];
 }

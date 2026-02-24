@@ -62,6 +62,7 @@ class AnalyticsStore {
   metric: HeatmapMetric = $state("messages");
   selectedDate: string | null = $state(null);
   project: string = $state("");
+  agent: string = $state("");
   selectedDow: number | null = $state(null);
   selectedHour: number | null = $state(null);
 
@@ -120,6 +121,7 @@ class AnalyticsStore {
     return (
       this.selectedDate !== null ||
       this.project !== "" ||
+      this.agent !== "" ||
       this.selectedDow !== null ||
       this.selectedHour !== null
     );
@@ -128,6 +130,7 @@ class AnalyticsStore {
   clearAllFilters() {
     this.selectedDate = null;
     this.project = "";
+    this.agent = "";
     this.selectedDow = null;
     this.selectedHour = null;
     this.fetchAll();
@@ -177,6 +180,9 @@ class AnalyticsStore {
     if (includeProject && this.project) {
       p.project = this.project;
     }
+    if (this.agent) {
+      p.agent = this.agent;
+    }
     if (includeTime) {
       if (this.selectedDow !== null) p.dow = this.selectedDow;
       if (this.selectedHour !== null) {
@@ -202,6 +208,9 @@ class AnalyticsStore {
       };
       if (includeProject && this.project) {
         p.project = this.project;
+      }
+      if (this.agent) {
+        p.agent = this.agent;
       }
       if (includeTime) {
         if (this.selectedDow !== null) {
@@ -231,8 +240,7 @@ class AnalyticsStore {
       }
     } catch (e) {
       if (this.versions[panel] === v) {
-        this.errors[panel] =
-          e instanceof Error ? e.message : "Failed to load";
+        this.errors[panel] = e instanceof Error ? e.message : "Failed to load";
       }
     } finally {
       if (this.versions[panel] === v) {
@@ -259,7 +267,9 @@ class AnalyticsStore {
     await this.executeFetch(
       "summary",
       () => getAnalyticsSummary(this.filterParams()),
-      (data) => { this.summary = data; },
+      (data) => {
+        this.summary = data;
+      },
     );
   }
 
@@ -269,22 +279,28 @@ class AnalyticsStore {
   async fetchActivity() {
     await this.executeFetch(
       "activity",
-      () => getAnalyticsActivity({
-        ...this.baseParams(),
-        granularity: this.granularity,
-      }),
-      (data) => { this.activity = data; },
+      () =>
+        getAnalyticsActivity({
+          ...this.baseParams(),
+          granularity: this.granularity,
+        }),
+      (data) => {
+        this.activity = data;
+      },
     );
   }
 
   async fetchHeatmap() {
     await this.executeFetch(
       "heatmap",
-      () => getAnalyticsHeatmap({
-        ...this.baseParams(),
-        metric: this.metric,
-      }),
-      (data) => { this.heatmap = data; },
+      () =>
+        getAnalyticsHeatmap({
+          ...this.baseParams(),
+          metric: this.metric,
+        }),
+      (data) => {
+        this.heatmap = data;
+      },
     );
   }
 
@@ -294,20 +310,20 @@ class AnalyticsStore {
   async fetchProjects() {
     await this.executeFetch(
       "projects",
-      () => getAnalyticsProjects(
-        this.filterParams({ includeProject: false }),
-      ),
-      (data) => { this.projects = data; },
+      () => getAnalyticsProjects(this.filterParams({ includeProject: false })),
+      (data) => {
+        this.projects = data;
+      },
     );
   }
 
   async fetchHourOfWeek() {
     await this.executeFetch(
       "hourOfWeek",
-      () => getAnalyticsHourOfWeek(
-        this.baseParams({ includeTime: false }),
-      ),
-      (data) => { this.hourOfWeek = data; },
+      () => getAnalyticsHourOfWeek(this.baseParams({ includeTime: false })),
+      (data) => {
+        this.hourOfWeek = data;
+      },
     );
   }
 
@@ -315,7 +331,9 @@ class AnalyticsStore {
     await this.executeFetch(
       "sessionShape",
       () => getAnalyticsSessionShape(this.filterParams()),
-      (data) => { this.sessionShape = data; },
+      (data) => {
+        this.sessionShape = data;
+      },
     );
   }
 
@@ -323,7 +341,9 @@ class AnalyticsStore {
     await this.executeFetch(
       "velocity",
       () => getAnalyticsVelocity(this.filterParams()),
-      (data) => { this.velocity = data; },
+      (data) => {
+        this.velocity = data;
+      },
     );
   }
 
@@ -331,18 +351,23 @@ class AnalyticsStore {
     await this.executeFetch(
       "tools",
       () => getAnalyticsTools(this.filterParams()),
-      (data) => { this.tools = data; },
+      (data) => {
+        this.tools = data;
+      },
     );
   }
 
   async fetchTopSessions() {
     await this.executeFetch(
       "topSessions",
-      () => getAnalyticsTopSessions({
-        ...this.filterParams(),
-        metric: this.topMetric,
-      }),
-      (data) => { this.topSessions = data; },
+      () =>
+        getAnalyticsTopSessions({
+          ...this.filterParams(),
+          metric: this.topMetric,
+        }),
+      (data) => {
+        this.topSessions = data;
+      },
     );
   }
 
@@ -384,15 +409,9 @@ class AnalyticsStore {
     this.fetchHeatmap();
   }
 
-  selectHourOfWeek(
-    dow: number | null,
-    hour: number | null,
-  ) {
+  selectHourOfWeek(dow: number | null, hour: number | null) {
     // Toggle off if clicking the same selection
-    if (
-      this.selectedDow === dow &&
-      this.selectedHour === hour
-    ) {
+    if (this.selectedDow === dow && this.selectedHour === hour) {
       this.selectedDow = null;
       this.selectedHour = null;
     } else {

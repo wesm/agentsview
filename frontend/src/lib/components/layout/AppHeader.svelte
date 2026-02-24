@@ -13,6 +13,11 @@
     sessions.setProjectFilter(select.value);
   }
 
+  function handleAgentChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    sessions.setAgentFilter(select.value);
+  }
+
   function handleExport() {
     if (sessions.activeSessionId) {
       window.open(
@@ -56,6 +61,19 @@
       {#each sessions.projects as project}
         <option value={project.name}>
           {project.name} ({project.session_count})
+        </option>
+      {/each}
+    </select>
+
+    <select
+      class="project-select"
+      value={sessions.filters.agent}
+      onchange={handleAgentChange}
+    >
+      <option value="">All Agents</option>
+      {#each sessions.agents as agent}
+        <option value={agent.name}>
+          {agent.name} ({agent.session_count})
         </option>
       {/each}
     </select>

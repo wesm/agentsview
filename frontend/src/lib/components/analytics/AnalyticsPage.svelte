@@ -46,16 +46,20 @@
     );
   });
 
-  // Sync header project filter to analytics dashboard and
-  // handle the initial fetch. Runs on mount (setting the
-  // initial project) and whenever the header project changes.
-  // Uses untrack on analytics.project so that local
-  // drill-downs (clicking a project bar) don't re-trigger.
+  // Sync header filters to analytics dashboard and handle
+  // the initial fetch. Runs on mount and whenever the header
+  // project or agent changes. Uses untrack on analytics
+  // fields so that local drill-downs don't re-trigger.
   $effect(() => {
     const headerProject = sessions.filters.project;
-    const current = untrack(() => analytics.project);
-    if (current !== headerProject) {
+    const headerAgent = sessions.filters.agent;
+    const currentProject = untrack(() => analytics.project);
+    const currentAgent = untrack(() => analytics.agent);
+    if (currentProject !== headerProject) {
       analytics.project = headerProject;
+    }
+    if (currentAgent !== headerAgent) {
+      analytics.agent = headerAgent;
     }
     untrack(() => analytics.fetchAll());
   });

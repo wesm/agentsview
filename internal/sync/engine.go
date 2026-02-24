@@ -29,6 +29,7 @@ type Engine struct {
 	codexDir      string
 	geminiDir     string
 	opencodeDir   string
+	cursorDir     string
 	machine       string
 	mu            gosync.RWMutex
 	lastSync      time.Time
@@ -48,7 +49,7 @@ type Engine struct {
 func NewEngine(
 	database *db.DB,
 	claudeDir, codexDir, geminiDir,
-	opencodeDir, machine string,
+	opencodeDir, cursorDir, machine string,
 ) *Engine {
 	skipCache := make(map[string]int64)
 	if loaded, err := database.LoadSkippedFiles(); err == nil {
@@ -63,6 +64,7 @@ func NewEngine(
 		codexDir:    codexDir,
 		geminiDir:   geminiDir,
 		opencodeDir: opencodeDir,
+		cursorDir:   cursorDir,
 		machine:     machine,
 		skipCache:   skipCache,
 	}
@@ -232,6 +234,31 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// Cursor: <cursorDir>/<project>/agent-transcripts/<uuid>.txt
+	if e.cursorDir != "" {
+		if rel, ok := isUnder(e.cursorDir, path); ok {
+			parts := strings.Split(rel, sep)
+			if len(parts) != 3 {
+				return DiscoveredFile{}, false
+			}
+			if parts[1] != "agent-transcripts" {
+				return DiscoveredFile{}, false
+			}
+			if !strings.HasSuffix(parts[2], ".txt") {
+				return DiscoveredFile{}, false
+			}
+			project := parser.DecodeCursorProjectDir(parts[0])
+			if project == "" {
+				project = "unknown"
+			}
+			return DiscoveredFile{
+				Path:    path,
+				Project: project,
+				Agent:   parser.AgentCursor,
+			}, true
+		}
+	}
+
 	return DiscoveredFile{}, false
 }
 
@@ -241,14 +268,16 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	claude := DiscoverClaudeProjects(e.claudeDir)
 	codex := DiscoverCodexSessions(e.codexDir)
 	gemini := DiscoverGeminiSessions(e.geminiDir)
+	cursor := DiscoverCursorSessions(e.cursorDir)
 
 	all := make(
 		[]DiscoveredFile, 0,
-		len(claude)+len(codex)+len(gemini),
+		len(claude)+len(codex)+len(gemini)+len(cursor),
 	)
 	all = append(all, claude...)
 	all = append(all, codex...)
 	all = append(all, gemini...)
+	all = append(all, cursor...)
 
 	log.Printf(
 		"discovered %d files (%d claude, %d codex, %d gemini) in %s",
@@ -514,6 +543,8 @@ func (e *Engine) processFile(
 		res = e.processCodex(file, info)
 	case parser.AgentGemini:
 		res = e.processGemini(file, info)
+	case parser.AgentCursor:
+		res = e.processCursor(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -690,6 +721,35 @@ func (e *Engine) processGemini(
 	return processResult{sess: sess, msgs: msgs}
 }
 
+func (e *Engine) processCursor(
+	file DiscoveredFile, info os.FileInfo,
+) processResult {
+	sessionID := "cursor:" + strings.TrimSuffix(
+		info.Name(), ".txt",
+	)
+
+	if e.shouldSkipFile(sessionID, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseCursorSession(
+		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{sess: sess, msgs: msgs}
+}
+
 type pendingWrite struct {
 	sess parser.ParsedSession
 	msgs []parser.ParsedMessage
@@ -840,6 +900,10 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 		return FindGeminiSourceFile(
 			e.geminiDir, sessionID[7:],
 		)
+	case strings.HasPrefix(sessionID, "cursor:"):
+		return FindCursorSourceFile(
+			e.cursorDir, sessionID[7:],
+		)
 	default:
 		return FindClaudeSourceFile(e.claudeDir, sessionID)
 	}
@@ -866,6 +930,8 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		agent = parser.AgentCodex
 	case strings.HasPrefix(sessionID, "gemini:"):
 		agent = parser.AgentGemini
+	case strings.HasPrefix(sessionID, "cursor:"):
+		agent = parser.AgentCursor
 	default:
 		agent = parser.AgentClaude
 	}
@@ -882,7 +948,8 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		Path:  path,
 		Agent: agent,
 	}
-	if agent == parser.AgentClaude {
+	switch agent {
+	case parser.AgentClaude:
 		// Try to preserve existing project from DB first
 		if sess, _ := e.db.GetSession(context.Background(), sessionID); sess != nil &&
 			sess.Project != "" &&
@@ -891,6 +958,13 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		} else {
 			file.Project = filepath.Base(filepath.Dir(path))
 		}
+	case parser.AgentCursor:
+		// path is <cursorDir>/<project>/agent-transcripts/<uuid>.txt
+		// Extract project dir name from two levels up
+		projDir := filepath.Base(
+			filepath.Dir(filepath.Dir(path)),
+		)
+		file.Project = parser.DecodeCursorProjectDir(projDir)
 	}
 
 	res := e.processFile(file)

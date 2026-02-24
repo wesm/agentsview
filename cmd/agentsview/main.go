@@ -60,8 +60,8 @@ func main() {
 func printUsage() {
 	fmt.Printf(`agentsview %s - local web viewer for AI agent sessions
 
-Syncs Claude Code, Codex, Gemini CLI, and OpenCode session data into
-SQLite, serves an analytics dashboard and session browser via a local
+Syncs Claude Code, Codex, Gemini CLI, OpenCode, and Cursor session data
+into SQLite, serves an analytics dashboard and session browser via a local
 web UI.
 
 Usage:
@@ -95,6 +95,7 @@ Environment variables:
   CODEX_SESSIONS_DIR      Codex sessions directory
   GEMINI_DIR              Gemini CLI directory
   OPENCODE_DIR            OpenCode data directory
+  CURSOR_PROJECTS_DIR     Cursor projects directory
   AGENT_VIEWER_DATA_DIR   Data directory (database, config)
 
 Data is stored in ~/.agentsview/ by default.
@@ -110,7 +111,8 @@ func runServe(args []string) {
 	engine := sync.NewEngine(
 		database, cfg.ClaudeProjectDir,
 		cfg.CodexSessionsDir, cfg.GeminiDir,
-		cfg.OpenCodeDir, "local",
+		cfg.OpenCodeDir, cfg.CursorProjectsDir,
+		"local",
 	)
 
 	runInitialSync(engine)
@@ -240,6 +242,10 @@ func startFileWatcher(
 			n, _ := watcher.WatchRecursive(geminiTmp)
 			dirs += n
 		}
+	}
+	if _, err := os.Stat(cfg.CursorProjectsDir); err == nil {
+		n, _ := watcher.WatchRecursive(cfg.CursorProjectsDir)
+		dirs += n
 	}
 	fmt.Printf(
 		"Watching %d directories for changes (%s)\n",

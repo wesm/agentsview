@@ -458,6 +458,38 @@ type ProjectInfo struct {
 	SessionCount int    `json:"session_count"`
 }
 
+// GetAgents returns distinct agent names with session counts.
+func (db *DB) GetAgents(
+	ctx context.Context,
+) ([]AgentInfo, error) {
+	rows, err := db.reader.QueryContext(ctx, `
+		SELECT agent, COUNT(*) as session_count
+		FROM sessions
+		WHERE message_count > 0
+		GROUP BY agent
+		ORDER BY agent`)
+	if err != nil {
+		return nil, fmt.Errorf("querying agents: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []AgentInfo
+	for rows.Next() {
+		var a AgentInfo
+		if err := rows.Scan(&a.Name, &a.SessionCount); err != nil {
+			return nil, fmt.Errorf("scanning agent: %w", err)
+		}
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
+}
+
+// AgentInfo holds an agent name and its session count.
+type AgentInfo struct {
+	Name         string `json:"name"`
+	SessionCount int    `json:"session_count"`
+}
+
 // GetMachines returns distinct machine names.
 func (db *DB) GetMachines(
 	ctx context.Context,
