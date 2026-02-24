@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -63,11 +61,7 @@ func (s *Server) handleSearch(
 
 	page, err := s.db.Search(r.Context(), filter)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			writeError(w, http.StatusGatewayTimeout, "search timed out")
+		if handleContextError(w, err) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
