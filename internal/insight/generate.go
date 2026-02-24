@@ -304,6 +304,7 @@ func generateGemini(
 ) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
+		"--model", "gemini-3-pro-preview",
 		"--output-format", "stream-json",
 	)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -350,6 +351,7 @@ func generateGemini(
 	return Result{
 		Content: content,
 		Agent:   "gemini",
+		Model:   "gemini-3-pro-preview",
 	}, nil
 }
 
