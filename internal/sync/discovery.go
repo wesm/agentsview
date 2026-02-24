@@ -429,11 +429,18 @@ func DiscoverCopilotSessions(
 		return nil
 	}
 
-	// Collect directory entries first so we can skip bare
-	// files that also have a directory counterpart.
+	// Collect directories that actually contain events.jsonl
+	// so we can skip bare files that have a valid directory
+	// counterpart.
 	dirs := make(map[string]struct{})
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.IsDir() {
+			continue
+		}
+		eventsPath := filepath.Join(
+			stateDir, entry.Name(), "events.jsonl",
+		)
+		if _, err := os.Stat(eventsPath); err == nil {
 			dirs[entry.Name()] = struct{}{}
 		}
 	}
@@ -485,16 +492,17 @@ func FindCopilotSourceFile(
 
 	stateDir := filepath.Join(copilotDir, "session-state")
 
-	// Check bare format first.
-	bare := filepath.Join(stateDir, rawID+".jsonl")
-	if _, err := os.Stat(bare); err == nil {
-		return bare
-	}
-
-	// Check directory format.
+	// Check directory format first (matches discovery
+	// precedence which prefers directory over bare).
 	dirFmt := filepath.Join(stateDir, rawID, "events.jsonl")
 	if _, err := os.Stat(dirFmt); err == nil {
 		return dirFmt
+	}
+
+	// Fall back to bare format.
+	bare := filepath.Join(stateDir, rawID+".jsonl")
+	if _, err := os.Stat(bare); err == nil {
+		return bare
 	}
 
 	return ""

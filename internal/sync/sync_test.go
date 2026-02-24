@@ -494,6 +494,42 @@ func TestDiscoverCopilotSessions_Mixed(t *testing.T) {
 	}
 }
 
+func TestDiscoverCopilotSessions_BareWithInvalidDir(
+	t *testing.T,
+) {
+	// A directory without events.jsonl should not suppress
+	// the bare file with the same stem.
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "session-state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	uuid := "invalid-dir-uuid"
+	if err := os.WriteFile(
+		filepath.Join(stateDir, uuid+".jsonl"),
+		[]byte("{}"), 0o644,
+	); err != nil {
+		t.Fatalf("write bare: %v", err)
+	}
+	// Directory exists but has no events.jsonl.
+	if err := os.MkdirAll(
+		filepath.Join(stateDir, uuid), 0o755,
+	); err != nil {
+		t.Fatalf("mkdir dir: %v", err)
+	}
+
+	files := DiscoverCopilotSessions(dir)
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	wantPath := filepath.Join(stateDir, uuid+".jsonl")
+	if files[0].Path != wantPath {
+		t.Errorf("path = %q, want %q",
+			files[0].Path, wantPath)
+	}
+}
+
 func TestDiscoverCopilotSessions_DedupBareAndDir(
 	t *testing.T,
 ) {
@@ -639,9 +675,9 @@ func TestFindCopilotSourceFile_EmptyDir(t *testing.T) {
 	}
 }
 
-func TestFindCopilotSourceFile_BarePreferred(t *testing.T) {
-	// When both bare and directory format exist, bare is
-	// checked first.
+func TestFindCopilotSourceFile_DirPreferred(t *testing.T) {
+	// When both bare and directory format exist, directory is
+	// preferred (matching discovery precedence).
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "session-state")
 
@@ -649,9 +685,9 @@ func TestFindCopilotSourceFile_BarePreferred(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	barePath := filepath.Join(stateDir, "dual-1.jsonl")
 	if err := os.WriteFile(
-		barePath, []byte("{}"), 0o644,
+		filepath.Join(stateDir, "dual-1.jsonl"),
+		[]byte("{}"), 0o644,
 	); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -661,15 +697,15 @@ func TestFindCopilotSourceFile_BarePreferred(t *testing.T) {
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
+	dirPath := filepath.Join(sessDir, "events.jsonl")
 	if err := os.WriteFile(
-		filepath.Join(sessDir, "events.jsonl"),
-		[]byte("{}"), 0o644,
+		dirPath, []byte("{}"), 0o644,
 	); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
 	got := FindCopilotSourceFile(dir, "dual-1")
-	if got != barePath {
-		t.Errorf("got %q, want bare path %q", got, barePath)
+	if got != dirPath {
+		t.Errorf("got %q, want dir path %q", got, dirPath)
 	}
 }
