@@ -390,13 +390,15 @@ func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
 }
 
 func TestGenerateClaude_CancelledContext(t *testing.T) {
+	// Pre-cancelled context: cmd.Run fails (runErr != nil)
+	// and ctx.Err() != nil → cancellation error.
 	bin := fakeClaudeBin(
 		t, `{"result":"OK","model":"m1"}`, 0,
 	)
 	ctx, cancel := context.WithCancel(
 		context.Background(),
 	)
-	cancel() // cancel before invocation
+	cancel()
 
 	_, err := generateClaude(ctx, bin, "test")
 	if err == nil {
@@ -404,5 +406,23 @@ func TestGenerateClaude_CancelledContext(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cancel") {
 		t.Errorf("error = %q, want cancel", err)
+	}
+}
+
+func TestGenerateClaude_SuccessNotDiscarded(t *testing.T) {
+	// Successful cmd.Run should return the result even if
+	// the context is not fresh (regression test for gating
+	// ctx.Err() on runErr != nil).
+	bin := fakeClaudeBin(
+		t, `{"result":"OK","model":"m1"}`, 0,
+	)
+	result, err := generateClaude(
+		context.Background(), bin, "test",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Content != "OK" {
+		t.Errorf("content = %q, want OK", result.Content)
 	}
 }
