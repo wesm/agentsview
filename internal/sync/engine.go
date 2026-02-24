@@ -287,11 +287,15 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	all = append(all, copilot...)
 	all = append(all, gemini...)
 
-	log.Printf(
-		"discovered %d files (%d claude, %d codex, %d copilot, %d gemini) in %s",
-		len(all), len(claude), len(codex), len(copilot), len(gemini),
-		time.Since(t0).Round(time.Millisecond),
-	)
+	verbose := onProgress == nil
+
+	if verbose {
+		log.Printf(
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini) in %s",
+			len(all), len(claude), len(codex), len(copilot), len(gemini),
+			time.Since(t0).Round(time.Millisecond),
+		)
+	}
 
 	if onProgress != nil {
 		onProgress(Progress{
@@ -303,11 +307,13 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	tWorkers := time.Now()
 	results := e.startWorkers(all)
 	stats := e.collectAndBatch(results, len(all), onProgress)
-	log.Printf(
-		"file sync: %d synced, %d skipped in %s",
-		stats.Synced, stats.Skipped,
-		time.Since(tWorkers).Round(time.Millisecond),
-	)
+	if verbose {
+		log.Printf(
+			"file sync: %d synced, %d skipped in %s",
+			stats.Synced, stats.Skipped,
+			time.Since(tWorkers).Round(time.Millisecond),
+		)
+	}
 
 	// Sync OpenCode sessions (DB-backed, not file-based).
 	// Uses full replace because OpenCode messages can change
@@ -321,23 +327,30 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 		for _, pw := range ocPending {
 			e.writeSessionFull(pw)
 		}
+		if verbose {
+			log.Printf(
+				"opencode write: %d sessions in %s",
+				len(ocPending),
+				time.Since(tWrite).Round(time.Millisecond),
+			)
+		}
+	}
+	if verbose {
 		log.Printf(
-			"opencode write: %d sessions in %s",
-			len(ocPending),
-			time.Since(tWrite).Round(time.Millisecond),
+			"opencode sync: %s",
+			time.Since(tOC).Round(time.Millisecond),
 		)
 	}
-	log.Printf(
-		"opencode sync: %s", time.Since(tOC).Round(time.Millisecond),
-	)
 
 	tPersist := time.Now()
 	skipCount := e.persistSkipCache()
-	log.Printf(
-		"persist skip cache (%d entries): %s",
-		skipCount,
-		time.Since(tPersist).Round(time.Millisecond),
-	)
+	if verbose {
+		log.Printf(
+			"persist skip cache (%d entries): %s",
+			skipCount,
+			time.Since(tPersist).Round(time.Millisecond),
+		)
+	}
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
