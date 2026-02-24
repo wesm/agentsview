@@ -372,10 +372,18 @@ func confirmGeminiSessionID(
 
 // DiscoverCursorSessions finds all agent transcript files under
 // the Cursor projects dir (<projectsDir>/<project>/agent-transcripts/<uuid>.txt).
+// All discovered paths are validated to resolve within the
+// canonical projectsDir, preventing symlink escapes.
 func DiscoverCursorSessions(
 	projectsDir string,
 ) []DiscoveredFile {
 	if projectsDir == "" {
+		return nil
+	}
+
+	// Canonicalize root once for containment checks.
+	resolvedRoot, err := filepath.EvalSymlinks(projectsDir)
+	if err != nil {
 		return nil
 	}
 
@@ -389,10 +397,28 @@ func DiscoverCursorSessions(
 		if !entry.IsDir() {
 			continue
 		}
+		// Reject symlinked project directory entries.
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
 
 		transcriptsDir := filepath.Join(
 			projectsDir, entry.Name(), "agent-transcripts",
 		)
+
+		// Verify the transcripts directory resolves within
+		// the canonical root. This catches symlinked
+		// agent-transcripts directories pointing outside.
+		resolvedDir, err := filepath.EvalSymlinks(
+			transcriptsDir,
+		)
+		if err != nil {
+			continue
+		}
+		if !isContainedIn(resolvedDir, resolvedRoot) {
+			continue
+		}
+
 		transcripts, err := os.ReadDir(transcriptsDir)
 		if err != nil {
 			continue
@@ -527,4 +553,15 @@ func isRegularFile(path string) bool {
 		return false
 	}
 	return info.Mode().IsRegular()
+}
+
+// isContainedIn returns true if child is a path strictly
+// under root. Both paths must be absolute / canonical (no
+// symlinks) for this to be reliable.
+func isContainedIn(child, root string) bool {
+	rel, err := filepath.Rel(root, child)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..")
 }

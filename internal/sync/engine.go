@@ -742,11 +742,8 @@ func (e *Engine) processCursor(
 		return processResult{}
 	}
 
-	hash, err := ComputeFileHash(file.Path)
-	if err == nil {
-		sess.File.Hash = hash
-	}
-
+	// Hash is computed inside ParseCursorSession from the
+	// already-read data to avoid re-opening the file by path.
 	return processResult{sess: sess, msgs: msgs}
 }
 

@@ -1,12 +1,19 @@
 package parser
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+// maxCursorTranscriptSize is the maximum transcript file size
+// we'll read into memory. Cursor transcripts are typically
+// under 500 KB; 10 MB provides generous headroom.
+const maxCursorTranscriptSize = 10 << 20
 
 // ParseCursorSession parses a Cursor agent transcript file.
 // Transcripts are plain text with "user:" and "assistant:" role
@@ -14,8 +21,18 @@ import (
 func ParseCursorSession(
 	path, project, machine string,
 ) (*ParsedSession, []ParsedMessage, error) {
-	// Use Lstat to detect symlinks before reading.
-	info, err := os.Lstat(path)
+	// Open the file once and use the fd for all operations
+	// (fstat + read) to eliminate TOCTOU races between
+	// validation and read.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	// Use Fstat on the open fd — this reflects the actual
+	// opened file, not whatever the path currently points to.
+	info, err := f.Stat()
 	if err != nil {
 		return nil, nil, fmt.Errorf("stat %s: %w", path, err)
 	}
@@ -24,23 +41,15 @@ func ParseCursorSession(
 			"skip %s: not a regular file", path,
 		)
 	}
-
-	// Verify the resolved path contains an agent-transcripts
-	// directory component. This prevents ingestion of files
-	// outside the expected transcript directory structure.
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
+	if info.Size() > maxCursorTranscriptSize {
 		return nil, nil, fmt.Errorf(
-			"resolve %s: %w", path, err,
-		)
-	}
-	if filepath.Base(filepath.Dir(resolved)) != "agent-transcripts" {
-		return nil, nil, fmt.Errorf(
-			"skip %s: not under agent-transcripts", path,
+			"skip %s: file too large (%d bytes, max %d)",
+			path, info.Size(), maxCursorTranscriptSize,
 		)
 	}
 
-	data, err := os.ReadFile(path)
+	// Read from the already-open fd, not by re-opening path.
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -65,6 +74,11 @@ func ParseCursorSession(
 		}
 	}
 
+	// Compute hash from the already-read data to avoid
+	// re-opening the file by path (which would be another
+	// TOCTOU opportunity).
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+
 	mtime := info.ModTime()
 	sess := &ParsedSession{
 		ID:           sessionID,
@@ -79,6 +93,7 @@ func ParseCursorSession(
 			Path:  path,
 			Size:  info.Size(),
 			Mtime: mtime.UnixNano(),
+			Hash:  hash,
 		},
 	}
 	return sess, messages, nil
