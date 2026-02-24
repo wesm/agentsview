@@ -6,9 +6,10 @@ import "time"
 type AgentType string
 
 const (
-	AgentClaude AgentType = "claude"
-	AgentCodex  AgentType = "codex"
-	AgentGemini AgentType = "gemini"
+	AgentClaude   AgentType = "claude"
+	AgentCodex    AgentType = "codex"
+	AgentGemini   AgentType = "gemini"
+	AgentOpenCode AgentType = "opencode"
 )
 
 // RoleType identifies the role of a message sender.

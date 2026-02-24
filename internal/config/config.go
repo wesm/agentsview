@@ -20,6 +20,7 @@ type Config struct {
 	ClaudeProjectDir string        `json:"claude_project_dir"`
 	CodexSessionsDir string        `json:"codex_sessions_dir"`
 	GeminiDir        string        `json:"gemini_dir"`
+	OpenCodeDir      string        `json:"opencode_dir"`
 	DataDir          string        `json:"data_dir"`
 	DBPath           string        `json:"-"`
 	CursorSecret     string        `json:"cursor_secret"`
@@ -42,6 +43,7 @@ func Default() (Config, error) {
 		ClaudeProjectDir: filepath.Join(home, ".claude", "projects"),
 		CodexSessionsDir: filepath.Join(home, ".codex", "sessions"),
 		GeminiDir:        filepath.Join(home, ".gemini"),
+		OpenCodeDir:      filepath.Join(home, ".local", "share", "opencode"),
 		DataDir:          dataDir,
 		DBPath:           filepath.Join(dataDir, "sessions.db"),
 		WriteTimeout:     30 * time.Second,
@@ -157,6 +159,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("GEMINI_DIR"); v != "" {
 		c.GeminiDir = v
+	}
+	if v := os.Getenv("OPENCODE_DIR"); v != "" {
+		c.OpenCodeDir = v
 	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v

@@ -36,7 +36,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	env.engine = sync.NewEngine(
 		env.db, env.claudeDir, env.codexDir,
-		env.geminiDir, "local",
+		env.geminiDir, "", "local",
 	)
 	return env
 }
@@ -798,7 +798,7 @@ func TestSyncPathsTrailingSlashDirs(t *testing.T) {
 	codexDir := t.TempDir() + "/"
 	database := dbtest.OpenTestDB(t)
 	engine := sync.NewEngine(
-		database, claudeDir, codexDir, "", "local",
+		database, claudeDir, codexDir, "", "", "local",
 	)
 
 	content := testjsonl.NewSessionBuilder().

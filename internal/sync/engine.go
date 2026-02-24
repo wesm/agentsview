@@ -27,6 +27,7 @@ type Engine struct {
 	claudeDir     string
 	codexDir      string
 	geminiDir     string
+	opencodeDir   string
 	machine       string
 	mu            gosync.RWMutex
 	lastSync      time.Time
@@ -43,15 +44,17 @@ type Engine struct {
 // NewEngine creates a sync engine.
 func NewEngine(
 	database *db.DB,
-	claudeDir, codexDir, geminiDir, machine string,
+	claudeDir, codexDir, geminiDir,
+	opencodeDir, machine string,
 ) *Engine {
 	return &Engine{
-		db:        database,
-		claudeDir: claudeDir,
-		codexDir:  codexDir,
-		geminiDir: geminiDir,
-		machine:   machine,
-		skipCache: make(map[string]int64),
+		db:          database,
+		claudeDir:   claudeDir,
+		codexDir:    codexDir,
+		geminiDir:   geminiDir,
+		opencodeDir: opencodeDir,
+		machine:     machine,
+		skipCache:   make(map[string]int64),
 	}
 }
 
@@ -252,11 +255,75 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	results := e.startWorkers(all)
 	stats := e.collectAndBatch(results, len(all), onProgress)
 
+	// Sync OpenCode sessions (DB-backed, not file-based).
+	ocPending := e.syncOpenCode()
+	if len(ocPending) > 0 {
+		stats.TotalSessions += len(ocPending)
+		stats.RecordSynced(len(ocPending))
+		e.writeBatch(ocPending)
+	}
+
 	e.mu.Lock()
 	e.lastSync = time.Now()
 	e.lastSyncStats = stats
 	e.mu.Unlock()
 	return stats
+}
+
+// syncOpenCode syncs sessions from the OpenCode SQLite database.
+// Returns pending writes for changed/new sessions.
+func (e *Engine) syncOpenCode() []pendingWrite {
+	if e.opencodeDir == "" {
+		return nil
+	}
+	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
+
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return nil
+	}
+
+	dbMtime := info.ModTime().UnixNano()
+
+	e.skipMu.RLock()
+	cachedMtime, cached := e.skipCache[dbPath]
+	e.skipMu.RUnlock()
+	if cached && cachedMtime == dbMtime {
+		return nil
+	}
+
+	sessions, err := parser.ParseOpenCodeDB(
+		dbPath, e.machine,
+	)
+	if err != nil {
+		log.Printf("sync opencode: %v", err)
+		return nil
+	}
+
+	var pending []pendingWrite
+	for _, ocs := range sessions {
+		virtualPath := ocs.Session.File.Path
+		storedSize, storedMtime, ok :=
+			e.db.GetFileInfoByPath(virtualPath)
+		if ok && storedSize == ocs.Session.File.Size &&
+			storedMtime == ocs.Session.File.Mtime {
+			continue
+		}
+		pending = append(pending, pendingWrite{
+			sess: ocs.Session,
+			msgs: ocs.Messages,
+		})
+	}
+
+	e.cacheSkip(dbPath, dbMtime)
+
+	if len(pending) > 0 {
+		log.Printf(
+			"sync: %d opencode session(s) updated",
+			len(pending),
+		)
+	}
+	return pending
 }
 
 // startWorkers fans out file processing across a worker pool
@@ -637,6 +704,8 @@ func countMessages(batch []pendingWrite) int {
 // session ID.
 func (e *Engine) FindSourceFile(sessionID string) string {
 	switch {
+	case strings.HasPrefix(sessionID, "opencode:"):
+		return ""
 	case strings.HasPrefix(sessionID, "codex:"):
 		return FindCodexSourceFile(e.codexDir, sessionID[6:])
 	case strings.HasPrefix(sessionID, "gemini:"):
@@ -652,6 +721,10 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 // Unlike the bulk SyncAll path, this includes exec-originated
 // Codex sessions and uses the existing DB project as fallback.
 func (e *Engine) SyncSingleSession(sessionID string) error {
+	if strings.HasPrefix(sessionID, "opencode:") {
+		return e.syncSingleOpenCode(sessionID)
+	}
+
 	path := e.FindSourceFile(sessionID)
 	if path == "" {
 		return fmt.Errorf(
@@ -749,6 +822,34 @@ func (e *Engine) processCodexIncludeExec(
 		sess.File.Hash = h
 	}
 	return processResult{sess: sess, msgs: msgs}
+}
+
+// syncSingleOpenCode re-syncs a single OpenCode session.
+func (e *Engine) syncSingleOpenCode(
+	sessionID string,
+) error {
+	if e.opencodeDir == "" {
+		return fmt.Errorf(
+			"opencode dir not configured",
+		)
+	}
+	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
+	rawID := strings.TrimPrefix(sessionID, "opencode:")
+
+	sess, msgs, err := parser.ParseOpenCodeSession(
+		dbPath, rawID, e.machine,
+	)
+	if err != nil {
+		return err
+	}
+	if sess == nil {
+		return nil
+	}
+
+	e.writeBatch([]pendingWrite{
+		{sess: *sess, msgs: msgs},
+	})
+	return nil
 }
 
 func strPtr(s string) *string {
