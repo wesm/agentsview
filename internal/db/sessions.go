@@ -393,7 +393,7 @@ func (db *DB) GetSessionFileInfo(
 		"SELECT file_size, file_mtime FROM sessions WHERE id = ?",
 		id,
 	).Scan(&s, &m)
-	if err != nil || !s.Valid {
+	if err != nil {
 		return 0, 0, false
 	}
 	return s.Int64, m.Int64, true
@@ -412,7 +412,7 @@ func (db *DB) GetFileInfoByPath(
 			" ORDER BY file_mtime DESC LIMIT 1",
 		path,
 	).Scan(&s, &m)
-	if err != nil || !s.Valid {
+	if err != nil {
 		return 0, 0, false
 	}
 	return s.Int64, m.Int64, true

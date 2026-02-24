@@ -737,13 +737,50 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 		}
 		msgs = pairAndFilter(msgs)
 
-		if err := e.db.ReplaceSessionMessages(
-			pw.sess.ID, msgs,
-		); err != nil {
+		e.writeMessages(pw.sess.ID, msgs)
+	}
+}
+
+// writeMessages uses an incremental append when possible.
+// Session files are append-only, so if the DB already has
+// messages for this session and the new set is larger, we
+// only insert the new messages (avoiding expensive FTS5
+// delete+reinsert of existing content).
+func (e *Engine) writeMessages(
+	sessionID string, msgs []db.Message,
+) {
+	maxOrd := e.db.MaxOrdinal(sessionID)
+
+	// No existing messages — insert all.
+	if maxOrd < 0 {
+		if err := e.db.InsertMessages(msgs); err != nil {
 			log.Printf(
-				"replace messages for %s: %v", pw.sess.ID, err,
+				"insert messages for %s: %v",
+				sessionID, err,
 			)
 		}
+		return
+	}
+
+	// Find new messages (ordinal > maxOrd).
+	delta := 0
+	for i, m := range msgs {
+		if m.Ordinal > maxOrd {
+			delta = len(msgs) - i
+			msgs = msgs[i:]
+			break
+		}
+	}
+
+	if delta == 0 {
+		return
+	}
+
+	if err := e.db.InsertMessages(msgs); err != nil {
+		log.Printf(
+			"append messages for %s: %v",
+			sessionID, err,
+		)
 	}
 }
 

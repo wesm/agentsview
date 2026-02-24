@@ -305,6 +305,21 @@ func (db *DB) InsertMessages(msgs []Message) error {
 	return tx.Commit()
 }
 
+// MaxOrdinal returns the highest ordinal for a session,
+// or -1 if the session has no messages.
+func (db *DB) MaxOrdinal(sessionID string) int {
+	var n sql.NullInt64
+	err := db.reader.QueryRow(
+		"SELECT MAX(ordinal) FROM messages"+
+			" WHERE session_id = ?",
+		sessionID,
+	).Scan(&n)
+	if err != nil || !n.Valid {
+		return -1
+	}
+	return int(n.Int64)
+}
+
 // DeleteSessionMessages removes all messages for a session.
 func (db *DB) DeleteSessionMessages(sessionID string) error {
 	db.mu.Lock()
