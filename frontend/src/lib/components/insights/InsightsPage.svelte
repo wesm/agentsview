@@ -5,7 +5,34 @@
   import { renderMarkdown } from "../../utils/markdown.js";
   import type { InsightType, AgentName } from "../../api/types.js";
 
+  type UIMode =
+    | "daily_activity"
+    | "range_activity"
+    | "agent_analysis";
+
+  let uiMode: UIMode = $state("daily_activity");
   let promptExpanded = $state(false);
+
+  function isRangeMode(mode: UIMode): boolean {
+    return mode === "range_activity";
+  }
+
+  function handleModeChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    uiMode = select.value as UIMode;
+    if (uiMode === "range_activity") {
+      insights.setType("daily_activity");
+    } else {
+      insights.setType(uiMode);
+      insights.setDateTo(insights.dateFrom);
+    }
+  }
+
+  function handleDateChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    insights.setDateFrom(input.value);
+    insights.setDateTo(input.value);
+  }
 
   function handleDateFromChange(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -27,11 +54,7 @@
     const today = new Date();
     const from = new Date(today);
     from.setDate(from.getDate() - days);
-    insights.setDateFrom(
-      days === 0
-        ? localDateStr(today)
-        : localDateStr(from),
-    );
+    insights.setDateFrom(localDateStr(from));
     insights.setDateTo(localDateStr(today));
   }
 
@@ -40,11 +63,6 @@
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
-  }
-
-  function handleTypeChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    insights.setType(select.value as InsightType);
   }
 
   function handleProjectChange(e: Event) {
@@ -94,16 +112,24 @@
     return `${formatDateShort(from)} – ${formatDateShort(to)}`;
   }
 
-  function typeLabel(type: InsightType): string {
-    return type === "daily_activity"
+  function typeLabel(
+    type: InsightType,
+    from: string,
+    to: string,
+  ): string {
+    if (type === "agent_analysis") return "Agent Analysis";
+    return from === to
       ? "Daily Activity"
-      : "Agent Analysis";
+      : "Date Range Activity";
   }
 
-  function typeShort(type: InsightType): string {
-    return type === "daily_activity"
-      ? "Daily"
-      : "Analysis";
+  function typeShort(
+    type: InsightType,
+    from: string,
+    to: string,
+  ): string {
+    if (type === "agent_analysis") return "Analysis";
+    return from === to ? "Daily" : "Range";
   }
 
   onMount(() => {
@@ -115,33 +141,52 @@
 <div class="insights-page">
   <div class="sidebar-panel">
     <div class="controls">
-      <div class="controls-row">
+      <select
+        class="ctrl mode-ctrl"
+        value={uiMode}
+        onchange={handleModeChange}
+      >
+        <option value="daily_activity">Daily Activity</option>
+        <option value="range_activity">Date Range Activity</option>
+        <option value="agent_analysis">Agent Analysis</option>
+      </select>
+
+      {#if isRangeMode(uiMode)}
+        <div class="date-range-group">
+          <div class="controls-row">
+            <label class="date-label">
+              <span class="date-label-text">From</span>
+              <input
+                type="date"
+                class="ctrl date-ctrl"
+                value={insights.dateFrom}
+                onchange={handleDateFromChange}
+              />
+            </label>
+            <label class="date-label">
+              <span class="date-label-text">To</span>
+              <input
+                type="date"
+                class="ctrl date-ctrl"
+                value={insights.dateTo}
+                onchange={handleDateToChange}
+              />
+            </label>
+          </div>
+          <div class="presets-row">
+            <button class="preset-btn" onclick={() => setPreset(6)}>Last 7 days</button>
+            <button class="preset-btn" onclick={() => setPreset(29)}>Last 30 days</button>
+          </div>
+        </div>
+      {:else}
         <input
           type="date"
           class="ctrl date-ctrl"
           value={insights.dateFrom}
-          onchange={handleDateFromChange}
+          onchange={handleDateChange}
         />
-        <input
-          type="date"
-          class="ctrl date-ctrl"
-          value={insights.dateTo}
-          onchange={handleDateToChange}
-        />
-      </div>
-      <div class="presets-row">
-        <button class="preset-btn" onclick={() => setPreset(0)}>Today</button>
-        <button class="preset-btn" onclick={() => setPreset(6)}>7 days</button>
-        <button class="preset-btn" onclick={() => setPreset(29)}>30 days</button>
-        <select
-          class="ctrl type-ctrl"
-          value={insights.type}
-          onchange={handleTypeChange}
-        >
-          <option value="daily_activity">Daily Activity</option>
-          <option value="agent_analysis">Agent Analysis</option>
-        </select>
-      </div>
+      {/if}
+
       <div class="controls-row">
         <select
           class="ctrl project-ctrl"
@@ -236,7 +281,7 @@
             </div>
             <div class="task-body">
               <span class="task-label">
-                {typeShort(task.type)}
+                {typeShort(task.type, task.dateFrom, task.dateTo)}
               </span>
               <span class="task-scope">
                 {task.project || "global"}
@@ -297,7 +342,7 @@
             ></span>
             <span class="row-body">
               <span class="row-title">
-                {typeShort(s.type)}
+                {typeShort(s.type, s.date_from, s.date_to)}
                 <span class="row-scope">
                   {s.project || "global"}
                 </span>
@@ -326,7 +371,7 @@
               class:badge-blue={insights.selectedItem.type === "daily_activity"}
               class:badge-purple={insights.selectedItem.type === "agent_analysis"}
             >
-              {typeLabel(insights.selectedItem.type)}
+              {typeLabel(insights.selectedItem.type, insights.selectedItem.date_from, insights.selectedItem.date_to)}
             </span>
             <span class="header-date">
               {#if insights.selectedItem.date_from === insights.selectedItem.date_to}
@@ -452,19 +497,43 @@
     border-color: var(--accent-blue);
   }
 
+  .mode-ctrl {
+    width: 100%;
+    flex: none;
+  }
+
   .date-ctrl {
     flex: 1;
+  }
+
+  .date-range-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .date-label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .date-label-text {
+    font-size: 10px;
+    color: var(--text-muted);
+    padding-left: 2px;
   }
 
   .presets-row {
     display: flex;
     gap: 4px;
-    align-items: center;
   }
 
   .preset-btn {
     height: 22px;
-    padding: 0 6px;
+    padding: 0 8px;
     border-radius: var(--radius-sm);
     font-size: 10px;
     color: var(--text-muted);
