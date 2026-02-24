@@ -732,6 +732,23 @@ func (e *Engine) processCursor(
 		return processResult{skip: true}
 	}
 
+	// Re-validate containment immediately before parsing to
+	// close the TOCTOU window between discovery and read.
+	// The parser opens with O_NOFOLLOW (rejecting symlinked
+	// final components), and this check catches parent
+	// directory swaps.
+	if e.cursorDir != "" {
+		if err := validateCursorContainment(
+			e.cursorDir, file.Path,
+		); err != nil {
+			return processResult{
+				err: fmt.Errorf(
+					"containment check: %w", err,
+				),
+			}
+		}
+	}
+
 	sess, msgs, err := parser.ParseCursorSession(
 		file.Path, file.Project, e.machine,
 	)
@@ -745,6 +762,29 @@ func (e *Engine) processCursor(
 	// Hash is computed inside ParseCursorSession from the
 	// already-read data to avoid re-opening the file by path.
 	return processResult{sess: sess, msgs: msgs}
+}
+
+// validateCursorContainment re-resolves both root and path
+// to verify the file still resides within the cursor projects
+// directory. Returns an error if containment fails.
+func validateCursorContainment(
+	cursorDir, path string,
+) error {
+	resolvedRoot, err := filepath.EvalSymlinks(cursorDir)
+	if err != nil {
+		return fmt.Errorf("resolve root: %w", err)
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf(
+			"%s escapes %s", path, cursorDir,
+		)
+	}
+	return nil
 }
 
 type pendingWrite struct {

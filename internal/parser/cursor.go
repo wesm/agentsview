@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,10 +20,10 @@ const maxCursorTranscriptSize = 10 << 20
 func ParseCursorSession(
 	path, project, machine string,
 ) (*ParsedSession, []ParsedMessage, error) {
-	// Open the file once and use the fd for all operations
-	// (fstat + read) to eliminate TOCTOU races between
-	// validation and read.
-	f, err := os.Open(path)
+	// Open with O_NOFOLLOW (Unix) to reject symlinks at the
+	// final path component, closing the TOCTOU window between
+	// discovery validation and file read.
+	f, err := openNoFollow(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -41,17 +40,21 @@ func ParseCursorSession(
 			"skip %s: not a regular file", path,
 		)
 	}
-	if info.Size() > maxCursorTranscriptSize {
-		return nil, nil, fmt.Errorf(
-			"skip %s: file too large (%d bytes, max %d)",
-			path, info.Size(), maxCursorTranscriptSize,
-		)
-	}
 
-	// Read from the already-open fd, not by re-opening path.
-	data, err := io.ReadAll(f)
+	// Use LimitReader to enforce the size cap even if the
+	// file grows after Fstat. Read one extra byte so we can
+	// detect truncation.
+	data, err := io.ReadAll(
+		io.LimitReader(f, maxCursorTranscriptSize+1),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if int64(len(data)) > maxCursorTranscriptSize {
+		return nil, nil, fmt.Errorf(
+			"skip %s: file too large (read %d bytes, max %d)",
+			path, len(data), maxCursorTranscriptSize,
+		)
 	}
 
 	lines := strings.Split(string(data), "\n")
