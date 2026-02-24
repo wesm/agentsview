@@ -123,7 +123,6 @@ func generateClaude(
 		ctx, path,
 		"-p", "--output-format", "json",
 	)
-	cmd.Env = cleanEnv()
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
 
 	var stdout, stderr bytes.Buffer
@@ -167,7 +166,6 @@ func generateCodex(
 		"exec", "--json",
 		"--sandbox", "read-only", "-",
 	)
-	cmd.Env = cleanEnv()
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stderr bytes.Buffer
@@ -296,7 +294,6 @@ func generateGemini(
 		ctx, path,
 		"--output-format", "stream-json",
 	)
-	cmd.Env = cleanEnv()
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stderr bytes.Buffer
