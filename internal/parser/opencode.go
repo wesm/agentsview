@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -52,6 +53,9 @@ func ParseOpenCodeDB(
 			db, s, worktree, dbPath, machine,
 		)
 		if err != nil {
+			log.Printf(
+				"opencode session %s: %v", s.id, err,
+			)
 			continue
 		}
 		if parsed == nil {
@@ -302,9 +306,10 @@ func buildOpenCodeSession(
 		parsed       []ParsedMessage
 		firstMsg     string
 		hasUserOrAst bool
+		ordinal      int
 	)
 
-	for i, m := range msgs {
+	for _, m := range msgs {
 		role := normalizeOpenCodeRole(m.role)
 		if role == "" {
 			continue
@@ -318,7 +323,7 @@ func buildOpenCodeSession(
 		})
 
 		pm := buildOpenCodeMessage(
-			i, role, m.timeCreated, msgParts,
+			ordinal, role, m.timeCreated, msgParts,
 		)
 		if strings.TrimSpace(pm.Content) == "" &&
 			!pm.HasToolUse {
@@ -333,6 +338,7 @@ func buildOpenCodeSession(
 		}
 
 		parsed = append(parsed, pm)
+		ordinal++
 	}
 
 	if !hasUserOrAst || len(parsed) == 0 {

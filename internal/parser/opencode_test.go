@@ -383,6 +383,111 @@ func TestParseOpenCodeSession_SingleSession(t *testing.T) {
 	}
 }
 
+func TestParseOpenCodeDB_OrdinalContinuity(t *testing.T) {
+	dbPath := createTestOpenCodeDB(t)
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	// Insert messages with mixed roles including "system"
+	// (which should be skipped) and an empty-content user
+	// message (also skipped). Ordinals of the remaining
+	// messages must be contiguous 0,1,2.
+	stmts := []string{
+		`INSERT INTO project (id, path)
+		 VALUES ('prj_1', '/tmp/proj')`,
+		`INSERT INTO session
+		 (id, project_id, time_created, time_updated)
+		 VALUES ('ses_ord', 'prj_1',
+		         1700000000000, 1700000050000)`,
+		// msg 0: user (kept, ordinal 0)
+		`INSERT INTO message
+		 (id, session_id, role, time_created)
+		 VALUES ('msg_1', 'ses_ord', 'user',
+		         1700000000000)`,
+		`INSERT INTO part
+		 (id, message_id, type, data, time_created)
+		 VALUES ('prt_1', 'msg_1', 'text',
+		         '{"content":"first"}', 1700000000000)`,
+		// msg 1: system (skipped role)
+		`INSERT INTO message
+		 (id, session_id, role, time_created)
+		 VALUES ('msg_2', 'ses_ord', 'system',
+		         1700000010000)`,
+		`INSERT INTO part
+		 (id, message_id, type, data, time_created)
+		 VALUES ('prt_2', 'msg_2', 'text',
+		         '{"content":"system msg"}',
+		         1700000010000)`,
+		// msg 2: user with empty content (skipped)
+		`INSERT INTO message
+		 (id, session_id, role, time_created)
+		 VALUES ('msg_3', 'ses_ord', 'user',
+		         1700000020000)`,
+		`INSERT INTO part
+		 (id, message_id, type, data, time_created)
+		 VALUES ('prt_3', 'msg_3', 'text',
+		         '{"content":""}', 1700000020000)`,
+		// msg 3: assistant (kept, ordinal 1)
+		`INSERT INTO message
+		 (id, session_id, role, time_created)
+		 VALUES ('msg_4', 'ses_ord', 'assistant',
+		         1700000030000)`,
+		`INSERT INTO part
+		 (id, message_id, type, data, time_created)
+		 VALUES ('prt_4', 'msg_4', 'text',
+		         '{"content":"response"}',
+		         1700000030000)`,
+		// msg 4: user (kept, ordinal 2)
+		`INSERT INTO message
+		 (id, session_id, role, time_created)
+		 VALUES ('msg_5', 'ses_ord', 'user',
+		         1700000040000)`,
+		`INSERT INTO part
+		 (id, message_id, type, data, time_created)
+		 VALUES ('prt_5', 'msg_5', 'text',
+		         '{"content":"follow up"}',
+		         1700000040000)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	db.Close()
+
+	sessions, err := ParseOpenCodeDB(dbPath, "m")
+	if err != nil {
+		t.Fatalf("ParseOpenCodeDB: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(sessions))
+	}
+
+	msgs := sessions[0].Messages
+	if len(msgs) != 3 {
+		t.Fatalf("got %d messages, want 3", len(msgs))
+	}
+
+	for i, m := range msgs {
+		if m.Ordinal != i {
+			t.Errorf("msg[%d].Ordinal = %d, want %d",
+				i, m.Ordinal, i)
+		}
+	}
+
+	if msgs[0].Content != "first" {
+		t.Errorf("msgs[0].Content = %q", msgs[0].Content)
+	}
+	if msgs[1].Content != "response" {
+		t.Errorf("msgs[1].Content = %q", msgs[1].Content)
+	}
+	if msgs[2].Content != "follow up" {
+		t.Errorf("msgs[2].Content = %q", msgs[2].Content)
+	}
+}
+
 func TestParseOpenCodeDB_ParentSession(t *testing.T) {
 	dbPath := createTestOpenCodeDB(t)
 	db, err := sql.Open("sqlite3", dbPath)

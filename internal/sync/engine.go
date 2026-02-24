@@ -278,17 +278,19 @@ func (e *Engine) syncOpenCode() []pendingWrite {
 	}
 	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
 
-	info, err := os.Stat(dbPath)
-	if err != nil {
+	if _, err := os.Stat(dbPath); err != nil {
 		return nil
 	}
 
-	dbMtime := info.ModTime().UnixNano()
+	// SQLite WAL mode: recent writes may live in the -wal
+	// file while the main DB mtime is unchanged. Use a
+	// composite fingerprint from both files.
+	fp := sqliteFingerprint(dbPath)
 
 	e.skipMu.RLock()
-	cachedMtime, cached := e.skipCache[dbPath]
+	cachedFP, cached := e.skipCache[dbPath]
 	e.skipMu.RUnlock()
-	if cached && cachedMtime == dbMtime {
+	if cached && cachedFP == fp {
 		return nil
 	}
 
@@ -315,7 +317,7 @@ func (e *Engine) syncOpenCode() []pendingWrite {
 		})
 	}
 
-	e.cacheSkip(dbPath, dbMtime)
+	e.cacheSkip(dbPath, fp)
 
 	if len(pending) > 0 {
 		log.Printf(
@@ -324,6 +326,23 @@ func (e *Engine) syncOpenCode() []pendingWrite {
 		)
 	}
 	return pending
+}
+
+// sqliteFingerprint returns a composite fingerprint for a
+// SQLite database file by combining the mtime and size of
+// both the main DB file and its WAL file (if present).
+// This ensures WAL-mode writes are detected even when the
+// main DB file mtime hasn't changed.
+func sqliteFingerprint(dbPath string) int64 {
+	var fp int64
+	if info, err := os.Stat(dbPath); err == nil {
+		fp = info.ModTime().UnixNano() ^ info.Size()
+	}
+	walPath := dbPath + "-wal"
+	if info, err := os.Stat(walPath); err == nil {
+		fp ^= info.ModTime().UnixNano() ^ info.Size()
+	}
+	return fp
 }
 
 // startWorkers fans out file processing across a worker pool
