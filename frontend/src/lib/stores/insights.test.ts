@@ -114,6 +114,67 @@ describe("setType", () => {
   });
 });
 
+describe("date range mode switching", () => {
+  it("syncs dateTo = dateFrom for single-day mode", () => {
+    insights.setDateFrom("2025-01-13");
+    insights.setDateTo("2025-01-17");
+    expect(insights.dateTo).toBe("2025-01-17");
+
+    // Simulate switching to single-day mode
+    insights.setDateTo(insights.dateFrom);
+    expect(insights.dateFrom).toBe("2025-01-13");
+    expect(insights.dateTo).toBe("2025-01-13");
+  });
+
+  it("generates with range dates when set", async () => {
+    insights.setDateFrom("2025-01-13");
+    insights.setDateTo("2025-01-17");
+    insights.setType("daily_activity");
+
+    const mockHandle = {
+      abort: vi.fn(),
+      done: Promise.resolve(makeInsight({ id: 1 })),
+    };
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
+      mockHandle,
+    );
+
+    insights.generate();
+
+    expect(api.generateInsight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        date_from: "2025-01-13",
+        date_to: "2025-01-17",
+        type: "daily_activity",
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it("generates with same date when synced", async () => {
+    insights.setDateFrom("2025-01-15");
+    insights.setDateTo("2025-01-15");
+
+    const mockHandle = {
+      abort: vi.fn(),
+      done: Promise.resolve(makeInsight({ id: 1 })),
+    };
+    vi.mocked(api.generateInsight).mockReturnValueOnce(
+      mockHandle,
+    );
+
+    insights.generate();
+
+    expect(api.generateInsight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        date_from: "2025-01-15",
+        date_to: "2025-01-15",
+      }),
+      expect.any(Function),
+    );
+  });
+});
+
 describe("setProject", () => {
   it("updates project and reloads", async () => {
     vi.mocked(api.listInsights).mockResolvedValueOnce({

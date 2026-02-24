@@ -10,8 +10,22 @@
     | "range_activity"
     | "agent_analysis";
 
-  let uiMode: UIMode = $state("daily_activity");
+  let modeOverride: UIMode | null = $state(null);
   let promptExpanded = $state(false);
+
+  function deriveMode(): UIMode {
+    if (insights.type === "agent_analysis") {
+      return "agent_analysis";
+    }
+    if (insights.dateFrom !== insights.dateTo) {
+      return "range_activity";
+    }
+    return "daily_activity";
+  }
+
+  const uiMode: UIMode = $derived(
+    modeOverride ?? deriveMode(),
+  );
 
   function isRangeMode(mode: UIMode): boolean {
     return mode === "range_activity";
@@ -19,11 +33,16 @@
 
   function handleModeChange(e: Event) {
     const select = e.target as HTMLSelectElement;
-    uiMode = select.value as UIMode;
-    if (uiMode === "range_activity") {
+    const mode = select.value as UIMode;
+    modeOverride = mode;
+    if (mode === "range_activity") {
       insights.setType("daily_activity");
     } else {
-      insights.setType(uiMode);
+      insights.setType(
+        mode === "agent_analysis"
+          ? "agent_analysis"
+          : "daily_activity",
+      );
       insights.setDateTo(insights.dateFrom);
     }
   }
