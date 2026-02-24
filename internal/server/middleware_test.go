@@ -174,10 +174,17 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 	})
 
 	// Negative: unwrapped routes must NOT produce a timeout
-	// response with a normal (fast) DB.
+	// even when handlerDelay is active. The delay only
+	// affects timeout-wrapped handlers, so unwrapped routes
+	// complete instantly. If a route were accidentally
+	// wrapped, the delay would exceed the short timeout
+	// and this test would catch the regression.
 	t.Run("UnwrappedRoutesNoTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServer(t, 5*time.Second)
+		srv := testServerOpts(
+			t, 10*time.Millisecond,
+			withHandlerDelay(100*time.Millisecond),
+		)
 
 		ts := httptest.NewServer(srv.Handler())
 		defer ts.Close()
