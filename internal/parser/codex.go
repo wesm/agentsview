@@ -519,6 +519,11 @@ func ParseCodexSession(
 		}
 	}
 
+	if err := lr.Err(); err != nil {
+		return nil, nil,
+			fmt.Errorf("reading codex %s: %w", path, err)
+	}
+
 	sessionID := b.sessionID
 	if sessionID == "" {
 		sessionID = strings.TrimSuffix(

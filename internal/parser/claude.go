@@ -133,6 +133,11 @@ func ParseClaudeSession(
 		}
 	}
 
+	if err := lr.Err(); err != nil {
+		return ParsedSession{}, nil,
+			fmt.Errorf("reading %s: %w", path, err)
+	}
+
 	sess := ParsedSession{
 		ID:              sessionID,
 		Project:         project,

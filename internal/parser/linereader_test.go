@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -87,5 +89,53 @@ func TestLineReader(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// errAfterReader yields data from buf, then returns errIO on the
+// next read.
+type errAfterReader struct {
+	buf   *strings.Reader
+	errIO error
+	done  bool
+}
+
+func (r *errAfterReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, r.errIO
+	}
+	n, err := r.buf.Read(p)
+	if err == io.EOF {
+		r.done = true
+		return n, r.errIO
+	}
+	return n, err
+}
+
+func TestLineReaderIOError(t *testing.T) {
+	ioErr := errors.New("disk read failed")
+	r := &errAfterReader{
+		buf:   strings.NewReader("aaa\nbbb\n"),
+		errIO: ioErr,
+	}
+
+	lr := newLineReader(r, 100)
+	var got []string
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
+		}
+		got = append(got, line)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d lines, want 2: %v", len(got), got)
+	}
+	if lr.Err() == nil {
+		t.Fatal("expected non-nil Err() after I/O failure")
+	}
+	if !errors.Is(lr.Err(), ioErr) {
+		t.Fatalf("Err() = %v, want %v", lr.Err(), ioErr)
 	}
 }
