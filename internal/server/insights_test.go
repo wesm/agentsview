@@ -1,11 +1,14 @@
 package server_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/insight"
+	"github.com/wesm/agentsview/internal/server"
 )
 
 func TestListInsights_Empty(t *testing.T) {
@@ -181,7 +184,14 @@ func TestGenerateInsight_InvalidAgent(t *testing.T) {
 }
 
 func TestGenerateInsight_DefaultAgent(t *testing.T) {
-	te := setup(t)
+	stubGen := func(
+		_ context.Context, _, _ string,
+	) (insight.Result, error) {
+		return insight.Result{}, fmt.Errorf("stub: no CLI")
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateFunc(stubGen),
+	})
 
 	w := te.post(t, "/api/v1/insights/generate",
 		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15"}`)

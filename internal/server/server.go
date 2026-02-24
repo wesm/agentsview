@@ -14,6 +14,7 @@ import (
 
 	"github.com/wesm/agentsview/internal/config"
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/insight"
 	"github.com/wesm/agentsview/internal/sync"
 	"github.com/wesm/agentsview/internal/web"
 )
@@ -35,8 +36,9 @@ type Server struct {
 	httpSrv *http.Server
 	version VersionInfo
 
-	spaFS      fs.FS
-	spaHandler http.Handler
+	generateFunc insight.GenerateFunc
+	spaFS        fs.FS
+	spaHandler   http.Handler
 }
 
 // New creates a new Server.
@@ -50,12 +52,13 @@ func New(
 	}
 
 	s := &Server{
-		cfg:        cfg,
-		db:         database,
-		engine:     engine,
-		mux:        http.NewServeMux(),
-		spaFS:      dist,
-		spaHandler: http.FileServerFS(dist),
+		cfg:          cfg,
+		db:           database,
+		engine:       engine,
+		mux:          http.NewServeMux(),
+		generateFunc: insight.Generate,
+		spaFS:        dist,
+		spaHandler:   http.FileServerFS(dist),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -70,6 +73,12 @@ type Option func(*Server)
 // WithVersion sets the build-time version metadata.
 func WithVersion(v VersionInfo) Option {
 	return func(s *Server) { s.version = v }
+}
+
+// WithGenerateFunc overrides the insight generation function,
+// allowing tests to substitute a stub.
+func WithGenerateFunc(f insight.GenerateFunc) Option {
+	return func(s *Server) { s.generateFunc = f }
 }
 
 func (s *Server) routes() {

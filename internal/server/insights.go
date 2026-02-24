@@ -202,7 +202,7 @@ func (s *Server) handleGenerateInsight(
 	)
 	defer cancel()
 
-	result, err := insight.Generate(
+	result, err := s.generateFunc(
 		genCtx, req.Agent, prompt,
 	)
 	if err != nil {

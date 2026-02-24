@@ -26,6 +26,12 @@ var ValidAgents = map[string]bool{
 	"gemini": true,
 }
 
+// GenerateFunc is the signature for insight generation,
+// allowing tests to substitute a stub.
+type GenerateFunc func(
+	ctx context.Context, agent, prompt string,
+) (Result, error)
+
 // Generate invokes an AI agent CLI to generate an insight.
 // The agent parameter selects which CLI to use (claude,
 // codex, gemini). The prompt is passed via stdin.
