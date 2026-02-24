@@ -84,6 +84,13 @@ func TestAnalyticsSummary(t *testing.T) {
 		// Should not error — defaults to last 30 days
 	})
 
+	t.Run("NonUTCTimezone", func(t *testing.T) {
+		w := te.get(t,
+			"/api/v1/analytics/summary"+
+				analyticsRange+"&timezone=America/New_York")
+		assertStatus(t, w, http.StatusOK)
+	})
+
 	t.Run("InvalidTimezone", func(t *testing.T) {
 		w := te.get(t,
 			"/api/v1/analytics/summary?timezone=Fake/Zone")

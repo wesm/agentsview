@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/wesm/agentsview/internal/config"
 	"github.com/wesm/agentsview/internal/db"
