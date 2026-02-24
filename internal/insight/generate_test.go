@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -262,8 +263,9 @@ func TestValidAgents(t *testing.T) {
 	}
 }
 
-// fakeClaudeBin writes a shell script that prints the given
-// stdout and exits with the given code, ignoring all flags.
+// fakeClaudeBin writes a script that prints the given stdout
+// and exits with the given code, ignoring all flags. Uses a
+// .cmd batch file on Windows and a shell script elsewhere.
 func fakeClaudeBin(
 	t *testing.T, stdout string, exitCode int,
 ) string {
@@ -275,6 +277,21 @@ func fakeClaudeBin(
 	); err != nil {
 		t.Fatal(err)
 	}
+
+	if runtime.GOOS == "windows" {
+		bin := filepath.Join(dir, "claude.cmd")
+		script := fmt.Sprintf(
+			"@type %q\r\n@exit /b %d\r\n",
+			dataFile, exitCode,
+		)
+		if err := os.WriteFile(
+			bin, []byte(script), 0o755,
+		); err != nil {
+			t.Fatal(err)
+		}
+		return bin
+	}
+
 	bin := filepath.Join(dir, "claude")
 	script := fmt.Sprintf(
 		"#!/bin/sh\ncat %s\nexit %d\n",
