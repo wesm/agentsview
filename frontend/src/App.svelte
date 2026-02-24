@@ -172,23 +172,25 @@
             {session?.project ?? ""}
           </span>
           {#if session}
-            <span
-              class="agent-badge"
-              class:agent-claude={session.agent === "claude"}
-              class:agent-codex={session.agent === "codex"}
-            >{session.agent}</span>
-            {#if session.started_at}
-              <span class="session-time">
-                {new Date(session.started_at).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}
-                {new Date(session.started_at).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            {/if}
+            <span class="breadcrumb-meta">
+              <span
+                class="agent-badge"
+                class:agent-claude={session.agent === "claude"}
+                class:agent-codex={session.agent === "codex"}
+              >{session.agent}</span>
+              {#if session.started_at}
+                <span class="session-time">
+                  {new Date(session.started_at).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                  {new Date(session.started_at).toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              {/if}
+            </span>
           {/if}
         </div>
         <MessageList bind:this={messageListRef} />
@@ -249,6 +251,16 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .breadcrumb-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
   }
 
   .agent-badge {
@@ -260,7 +272,7 @@
     letter-spacing: 0.03em;
     color: white;
     flex-shrink: 0;
-    margin-left: 4px;
+    background: var(--text-muted);
   }
 
   .agent-claude {
@@ -277,6 +289,5 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     flex-shrink: 0;
-    margin-left: auto;
   }
 </style>

@@ -352,18 +352,126 @@ describe("deleteItem", () => {
     expect(insights.selectedId).toBe(1);
   });
 
-  it("does not remove on API error", async () => {
+  it("does not remove on non-404 API error", async () => {
     const s = makeInsight({ id: 5 });
     insights.items = [s];
     insights.selectedId = 5;
     vi.mocked(api.deleteInsight).mockRejectedValueOnce(
-      new Error("not found"),
+      new Error("API 500: internal error"),
     );
 
     await insights.deleteItem(5);
 
     expect(insights.items).toHaveLength(1);
     expect(insights.selectedId).toBe(5);
+  });
+
+  it("removes item locally when server returns 404", async () => {
+    const s = makeInsight({ id: 5 });
+    insights.items = [s];
+    insights.selectedId = 5;
+    vi.mocked(api.deleteInsight).mockRejectedValueOnce(
+      new Error("API 404: not found"),
+    );
+
+    await insights.deleteItem(5);
+
+    expect(insights.items).toHaveLength(0);
+    expect(insights.selectedId).toBeNull();
+  });
+});
+
+describe("setAgent", () => {
+  it("updates agent without reloading", () => {
+    insights.setAgent("codex");
+
+    expect(insights.agent).toBe("codex");
+    expect(api.listInsights).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancelAll", () => {
+  it("aborts all generating tasks", async () => {
+    const abort1 = vi.fn();
+    const abort2 = vi.fn();
+    let reject1!: (err: Error) => void;
+    let reject2!: (err: Error) => void;
+
+    vi.mocked(api.generateInsight)
+      .mockReturnValueOnce({
+        abort: abort1,
+        done: new Promise<Insight>((_r, rej) => {
+          reject1 = rej;
+        }),
+      })
+      .mockReturnValueOnce({
+        abort: abort2,
+        done: new Promise<Insight>((_r, rej) => {
+          reject2 = rej;
+        }),
+      });
+
+    insights.generate();
+    insights.generate();
+
+    expect(insights.tasks).toHaveLength(2);
+
+    insights.cancelAll();
+
+    expect(abort1).toHaveBeenCalled();
+    expect(abort2).toHaveBeenCalled();
+
+    const abortErr = new DOMException(
+      "Aborted",
+      "AbortError",
+    );
+    reject1(abortErr);
+    reject2(abortErr);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(insights.tasks).toHaveLength(0);
+  });
+});
+
+describe("load error handling", () => {
+  it("clears items on API error", async () => {
+    insights.items = [makeInsight({ id: 1 })];
+    vi.mocked(api.listInsights).mockRejectedValueOnce(
+      new Error("network error"),
+    );
+
+    await insights.load();
+
+    expect(insights.items).toHaveLength(0);
+    expect(insights.loading).toBe(false);
+  });
+
+  it("discards stale responses", async () => {
+    let resolve1!: (v: { insights: Insight[] }) => void;
+    vi.mocked(api.listInsights)
+      .mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolve1 = r;
+          }),
+      )
+      .mockResolvedValueOnce({
+        insights: [makeInsight({ id: 2 })],
+      });
+
+    // Start first load (will be slow)
+    const p1 = insights.load();
+    // Start second load (resolves immediately)
+    const p2 = insights.load();
+    await p2;
+
+    // First response arrives late
+    resolve1({ insights: [makeInsight({ id: 1 })] });
+    await p1;
+
+    // Stale response should be ignored
+    expect(insights.items).toHaveLength(1);
+    expect(insights.items[0]!.id).toBe(2);
   });
 });
 

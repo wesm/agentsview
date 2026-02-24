@@ -154,6 +154,233 @@ describe("triggerSync SSE parsing", () => {
   });
 });
 
+describe("deleteInsight", () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends DELETE request to correct endpoint", async () => {
+    fetchSpy.mockResolvedValue({ ok: true });
+    const { deleteInsight } = await import("./client.js");
+    await deleteInsight(42);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/insights/42",
+      { method: "DELETE" },
+    );
+  });
+
+  it("throws on non-ok response", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: () => Promise.resolve("not found"),
+    });
+    const { deleteInsight } = await import("./client.js");
+
+    await expect(deleteInsight(99)).rejects.toThrow(
+      "API 404: not found",
+    );
+  });
+
+  it("throws on server error", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve("internal error"),
+    });
+    const { deleteInsight } = await import("./client.js");
+
+    await expect(deleteInsight(1)).rejects.toThrow(
+      "API 500",
+    );
+  });
+});
+
+describe("insights query serialization", () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function lastUrl(): string {
+    const call = fetchSpy.mock.calls[0] as [
+      string,
+      ...unknown[],
+    ];
+    return call[0];
+  }
+
+  it("lists insights with no filters", async () => {
+    const { listInsights } = await import("./client.js");
+    await listInsights();
+    expect(lastUrl()).toBe("/api/v1/insights");
+  });
+
+  it("lists insights with date filter", async () => {
+    const { listInsights } = await import("./client.js");
+    await listInsights({ date: "2025-01-15" });
+    expect(lastUrl()).toBe(
+      "/api/v1/insights?date=2025-01-15",
+    );
+  });
+
+  it("lists insights with type and project", async () => {
+    const { listInsights } = await import("./client.js");
+    await listInsights({
+      type: "daily_activity",
+      project: "my-app",
+    });
+    expect(lastUrl()).toBe(
+      "/api/v1/insights?type=daily_activity&project=my-app",
+    );
+  });
+
+  it("omits empty string filters", async () => {
+    const { listInsights } = await import("./client.js");
+    await listInsights({
+      type: "",
+      date: "2025-01-15",
+      project: "",
+    });
+    expect(lastUrl()).toBe(
+      "/api/v1/insights?date=2025-01-15",
+    );
+  });
+
+  it("gets single insight by id", async () => {
+    const { getInsight } = await import("./client.js");
+    await getInsight(42);
+    expect(lastUrl()).toBe("/api/v1/insights/42");
+  });
+});
+
+describe("generateInsight SSE parsing", () => {
+  let activeHandles: { abort: () => void }[];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    activeHandles = [];
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const h of activeHandles) h.abort();
+    activeHandles = [];
+  });
+
+  function mockStream(chunks: string[]) {
+    const stream = makeSSEStream(chunks);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: stream,
+      }),
+    );
+  }
+
+  it("parses done event into Insight", async () => {
+    const insight = {
+      id: 1,
+      type: "daily_activity",
+      date: "2025-01-15",
+      content: "# Report",
+    };
+    mockStream([
+      `event: status\ndata: {"phase":"generating"}\n\n`,
+      `event: done\ndata: ${JSON.stringify(insight)}\n\n`,
+    ]);
+
+    const { generateInsight } = await import("./client.js");
+    const phases: string[] = [];
+    const handle = generateInsight(
+      {
+        type: "daily_activity",
+        date: "2025-01-15",
+      },
+      (p) => phases.push(p),
+    );
+    activeHandles.push(handle);
+
+    const result = await handle.done;
+
+    expect(result.id).toBe(1);
+    expect(result.content).toBe("# Report");
+    expect(phases).toContain("generating");
+  });
+
+  it("throws on error event", async () => {
+    mockStream([
+      `event: error\ndata: {"message":"CLI not found"}\n\n`,
+    ]);
+
+    const { generateInsight } = await import("./client.js");
+    const handle = generateInsight({
+      type: "daily_activity",
+      date: "2025-01-15",
+    });
+    activeHandles.push(handle);
+
+    await expect(handle.done).rejects.toThrow(
+      "CLI not found",
+    );
+  });
+
+  it("throws when stream ends without done", async () => {
+    mockStream([
+      `event: status\ndata: {"phase":"generating"}\n\n`,
+    ]);
+
+    const { generateInsight } = await import("./client.js");
+    const handle = generateInsight({
+      type: "daily_activity",
+      date: "2025-01-15",
+    });
+    activeHandles.push(handle);
+
+    await expect(handle.done).rejects.toThrow(
+      "without done event",
+    );
+  });
+
+  it("rejects for non-ok response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        body: null,
+      }),
+    );
+
+    const { generateInsight } = await import("./client.js");
+    const handle = generateInsight({
+      type: "daily_activity",
+      date: "2025-01-15",
+    });
+    activeHandles.push(handle);
+
+    await expect(handle.done).rejects.toThrow("500");
+  });
+});
+
 describe("query serialization", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 

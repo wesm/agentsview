@@ -203,8 +203,10 @@ class InsightsStore {
   async deleteItem(id: number) {
     try {
       await deleteInsight(id);
-    } catch {
-      return;
+    } catch (e) {
+      const is404 =
+        e instanceof Error && e.message.includes("404");
+      if (!is404) return;
     }
     this.items = this.items.filter((s) => s.id !== id);
     if (this.selectedId === id) {
