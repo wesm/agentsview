@@ -123,6 +123,19 @@ func assertRecorderStatus(
 	}
 }
 
+// assertContentType checks that the recorder has the expected
+// Content-Type header.
+func assertContentType(
+	t *testing.T, w *httptest.ResponseRecorder, expected string,
+) {
+	t.Helper()
+	if got := w.Header().Get("Content-Type"); got != expected {
+		t.Errorf(
+			"Content-Type = %q, want %q", got, expected,
+		)
+	}
+}
+
 // newTestServerMinimal creates a lightweight Server with only the
 // config set (no database, engine, or temp dirs). Use this for
 // handler-level tests that only need withTimeout or similar

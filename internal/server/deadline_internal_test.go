@@ -52,17 +52,11 @@ func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			// Call handler directly, bypassing middleware.
-			// handleContextError returns true without writing
-			// a response, so the handler should return with
-			// an empty body (no 500 or other error written).
+			// handleContextError writes 504 for deadline exceeded.
 			tt.handler(w, req)
 
-			if w.Body.Len() > 0 {
-				t.Errorf(
-					"expected empty body on expired context, got: %s",
-					w.Body.String(),
-				)
-			}
+			assertRecorderStatus(t, w, http.StatusGatewayTimeout)
+			assertContentType(t, w, "application/json")
 		})
 	}
 }
