@@ -438,9 +438,13 @@ func (e *Engine) processClaude(
 
 	// Determine project name from cwd if possible
 	project := parser.GetProjectName(file.Project)
-	cwd := parser.ExtractCwdFromSession(file.Path)
+	cwd, gitBranch := parser.ExtractClaudeProjectHints(
+		file.Path,
+	)
 	if cwd != "" {
-		if p := parser.ExtractProjectFromCwd(cwd); p != "" {
+		if p := parser.ExtractProjectFromCwdWithBranch(
+			cwd, gitBranch,
+		); p != "" {
 			project = p
 		}
 	}

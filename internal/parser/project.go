@@ -1,8 +1,10 @@
 package parser
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 var projectMarkers = []string{
@@ -55,19 +57,228 @@ func GetProjectName(dirName string) string {
 }
 
 // ExtractProjectFromCwd extracts a project name from a working
-// directory path. Returns the last path component, normalized.
+// directory path. If cwd is inside a git repository (including
+// linked worktrees), this returns the repository root directory
+// name. Otherwise it falls back to the last path component.
 func ExtractProjectFromCwd(cwd string) string {
+	return ExtractProjectFromCwdWithBranch(cwd, "")
+}
+
+// ExtractProjectFromCwdWithBranch extracts a canonical project
+// name from cwd and optionally git branch metadata. Branch is
+// used as a fallback heuristic when the original worktree path no
+// longer exists on disk.
+func ExtractProjectFromCwdWithBranch(
+	cwd, gitBranch string,
+) string {
 	if cwd == "" {
 		return ""
 	}
-	name := filepath.Base(filepath.Clean(cwd))
-	if name == "." || name == ".." || name == "/" || name == string(filepath.Separator) {
+	cleaned := filepath.Clean(cwd)
+	if root := findGitRepoRoot(cleaned); root != "" {
+		name := filepath.Base(root)
+		if isInvalidPathBase(name) {
+			return ""
+		}
+		return normalizeName(name)
+	}
+
+	name := filepath.Base(cleaned)
+	if isInvalidPathBase(name) {
 		return ""
 	}
-	if strings.ContainsAny(name, "/\\") {
+	name = trimBranchSuffix(name, gitBranch)
+	if isInvalidPathBase(name) {
 		return ""
 	}
 	return normalizeName(name)
+}
+
+func isInvalidPathBase(name string) bool {
+	if name == "." || name == ".." || name == "/" || name == string(filepath.Separator) {
+		return true
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return true
+	}
+	return false
+}
+
+// findGitRepoRoot walks upward from cwd to find the enclosing git
+// repository root. Supports both standard repos (.git directory)
+// and linked worktrees/submodules (.git file).
+func findGitRepoRoot(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+
+	dir := cwd
+	if info, err := os.Stat(dir); err == nil {
+		if !info.IsDir() {
+			dir = filepath.Dir(dir)
+		}
+	} else {
+		// Avoid treating non-path strings as cwd.
+		if !strings.ContainsRune(dir, filepath.Separator) {
+			return ""
+		}
+		dir = filepath.Dir(dir)
+	}
+
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		info, err := os.Stat(gitPath)
+		if err == nil {
+			if info.IsDir() {
+				return dir
+			}
+			if info.Mode().IsRegular() {
+				if root := repoRootFromGitFile(dir, gitPath); root != "" {
+					return root
+				}
+				// Keep conservative fallback for gitfile repos
+				// when metadata cannot be parsed.
+				return dir
+			}
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func repoRootFromGitFile(repoDir, gitFilePath string) string {
+	gitDir := readGitDirFromFile(gitFilePath)
+	if gitDir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Clean(
+			filepath.Join(filepath.Dir(gitFilePath), gitDir),
+		)
+	}
+
+	commonDir := readCommonDir(gitDir)
+	if commonDir != "" {
+		if filepath.Base(commonDir) == ".git" {
+			return filepath.Dir(commonDir)
+		}
+	}
+
+	// Fallback for linked worktrees if commondir is missing.
+	marker := string(filepath.Separator) + ".git" +
+		string(filepath.Separator) + "worktrees" +
+		string(filepath.Separator)
+	if root, _, found := strings.Cut(gitDir, marker); found {
+		if root != "" {
+			return filepath.Clean(root)
+		}
+	}
+
+	return repoDir
+}
+
+func readGitDirFromFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		const prefix = "gitdir:"
+		if strings.HasPrefix(strings.ToLower(line), prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
+	}
+	return ""
+}
+
+func readCommonDir(gitDir string) string {
+	b, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return ""
+	}
+	value := strings.TrimSpace(string(b))
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Clean(filepath.Join(gitDir, value))
+}
+
+func trimBranchSuffix(name, gitBranch string) string {
+	branch := strings.TrimSpace(gitBranch)
+	if name == "" || branch == "" {
+		return name
+	}
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	branchToken := normalizeBranchToken(branch)
+	if branchToken == "" {
+		return name
+	}
+	if isDefaultBranchToken(branchToken) {
+		return name
+	}
+
+	for _, sep := range []string{"-", "_"} {
+		suffix := sep + branchToken
+		if strings.HasSuffix(
+			strings.ToLower(name),
+			strings.ToLower(suffix),
+		) {
+			base := strings.TrimRight(
+				name[:len(name)-len(suffix)], "-_",
+			)
+			if base != "" {
+				return base
+			}
+		}
+	}
+	return name
+}
+
+func normalizeBranchToken(branch string) string {
+	var b strings.Builder
+	b.Grow(len(branch))
+
+	lastDash := false
+	for _, r := range branch {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			b.WriteRune(unicode.ToLower(r))
+			lastDash = false
+		case r == '/', r == '-', r == '_', r == '.', unicode.IsSpace(r):
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+
+	out := strings.Trim(b.String(), "-")
+	return out
+}
+
+func isDefaultBranchToken(branch string) bool {
+	switch strings.ToLower(strings.TrimSpace(branch)) {
+	case "main", "master", "trunk", "develop", "dev":
+		return true
+	default:
+		return false
+	}
 }
 
 // NeedsProjectReparse checks if a stored project name looks like

@@ -1521,6 +1521,63 @@ func TestExtractCwdFromSession(t *testing.T) {
 	})
 }
 
+func TestParseCodexSession_WorktreeBranchFallback(t *testing.T) {
+	content := `{"type":"session_meta","timestamp":"2024-01-01T00:00:00Z","payload":{"id":"test-uuid","cwd":"/Users/wesm/code/agentsview-worktree-tool-call-arguments","originator":"user","git":{"branch":"worktree-tool-call-arguments"}}}` + "\n" +
+		`{"type":"response_item","timestamp":"2024-01-01T00:00:01Z","payload":{"role":"user","content":[{"type":"input_text","text":"hello"}]}}` + "\n"
+	path := createTestFile(t, "codex-worktree.jsonl", content)
+
+	sess, _, err := ParseCodexSession(path, "local", false)
+	if err != nil {
+		t.Fatalf("ParseCodexSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+	if sess.Project != "agentsview" {
+		t.Fatalf("project = %q, want %q", sess.Project, "agentsview")
+	}
+}
+
+func TestExtractClaudeProjectHints(t *testing.T) {
+	t.Run("extracts cwd and gitBranch", func(t *testing.T) {
+		content := `{"type":"user","timestamp":"2024-01-01T00:00:00Z","cwd":"/Users/alice/code/my-app-worktree-fix","gitBranch":"worktree-fix","message":{"content":"hi"}}` + "\n"
+		path := createTestFile(t, "hints.jsonl", content)
+
+		cwd, branch := ExtractClaudeProjectHints(path)
+		if cwd != "/Users/alice/code/my-app-worktree-fix" {
+			t.Fatalf("cwd = %q, want %q",
+				cwd, "/Users/alice/code/my-app-worktree-fix")
+		}
+		if branch != "worktree-fix" {
+			t.Fatalf("branch = %q, want %q", branch, "worktree-fix")
+		}
+	})
+
+	t.Run("missing branch still returns cwd", func(t *testing.T) {
+		content := `{"type":"user","timestamp":"2024-01-01T00:00:00Z","cwd":"/Users/alice/code/my-app","message":{"content":"hi"}}` + "\n"
+		path := createTestFile(t, "hints-nobranch.jsonl", content)
+
+		cwd, branch := ExtractClaudeProjectHints(path)
+		if cwd != "/Users/alice/code/my-app" {
+			t.Fatalf("cwd = %q, want %q",
+				cwd, "/Users/alice/code/my-app")
+		}
+		if branch != "" {
+			t.Fatalf("branch = %q, want empty", branch)
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		cwd, branch := ExtractClaudeProjectHints(
+			"/nonexistent/path.jsonl",
+		)
+		if cwd != "" || branch != "" {
+			t.Fatalf("got cwd=%q branch=%q, want both empty",
+				cwd, branch)
+		}
+	})
+}
+
 func TestParseGeminiSession(t *testing.T) {
 	hash := "abc123def456"
 

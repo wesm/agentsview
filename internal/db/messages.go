@@ -18,6 +18,10 @@ const (
 	DefaultMessageLimit = 100
 	// MaxMessageLimit is the maximum number of messages returned.
 	MaxMessageLimit = 1000
+
+	// Keep query parameter counts conservative so large sessions
+	// do not exceed SQLite variable limits when hydrating tool calls.
+	attachToolCallBatchSize = 500
 )
 
 // ToolCall represents a single tool invocation stored in
@@ -361,13 +365,39 @@ func (db *DB) attachToolCalls(
 		return nil
 	}
 
-	ids := make([]any, len(msgs))
-	placeholders := make([]string, len(msgs))
 	idToIdx := make(map[int64]int, len(msgs))
+	ids := make([]int64, len(msgs))
 	for i, m := range msgs {
 		ids[i] = m.ID
-		placeholders[i] = "?"
 		idToIdx[m.ID] = i
+	}
+
+	for i := 0; i < len(ids); i += attachToolCallBatchSize {
+		end := min(i+attachToolCallBatchSize, len(ids))
+		if err := db.attachToolCallsBatch(
+			ctx, msgs, idToIdx, ids[i:end],
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) attachToolCallsBatch(
+	ctx context.Context,
+	msgs []Message,
+	idToIdx map[int64]int,
+	batch []int64,
+) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	args := make([]any, len(batch))
+	placeholders := make([]string, len(batch))
+	for i, id := range batch {
+		args[i] = id
+		placeholders[i] = "?"
 	}
 
 	query := fmt.Sprintf(`
@@ -379,7 +409,7 @@ func (db *DB) attachToolCalls(
 		ORDER BY id`,
 		strings.Join(placeholders, ","))
 
-	rows, err := db.reader.QueryContext(ctx, query, ids...)
+	rows, err := db.reader.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("querying tool_calls: %w", err)
 	}

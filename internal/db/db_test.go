@@ -2014,6 +2014,53 @@ func TestGetMessagesReturnsToolCalls(t *testing.T) {
 	}
 }
 
+func TestGetAllMessagesReturnsToolCallsAcrossBatches(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	total := attachToolCallBatchSize + 25
+	msgs := make([]Message, 0, total)
+	for i := range total {
+		content := fmt.Sprintf("[Read: file-%d.txt]", i)
+		msgs = append(msgs, Message{
+			SessionID:     "s1",
+			Ordinal:       i,
+			Role:          "assistant",
+			Content:       content,
+			ContentLength: len(content),
+			Timestamp:     tsZero,
+			HasToolUse:    true,
+			ToolCalls: []ToolCall{{
+				SessionID: "s1",
+				ToolName:  "Read",
+				Category:  "Read",
+				ToolUseID: fmt.Sprintf("toolu_%d", i),
+			}},
+		})
+	}
+	insertMessages(t, d, msgs...)
+
+	got, err := d.GetAllMessages(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetAllMessages: %v", err)
+	}
+	if len(got) != total {
+		t.Fatalf("got %d messages, want %d", len(got), total)
+	}
+
+	for i := range total {
+		if len(got[i].ToolCalls) != 1 {
+			t.Fatalf("msg %d: got %d tool_calls, want 1",
+				i, len(got[i].ToolCalls))
+		}
+		if got[i].ToolCalls[0].ToolUseID != fmt.Sprintf("toolu_%d", i) {
+			t.Fatalf("msg %d: tool_use_id = %q, want %q",
+				i, got[i].ToolCalls[0].ToolUseID,
+				fmt.Sprintf("toolu_%d", i))
+		}
+	}
+}
+
 func TestFTSBackfill(t *testing.T) {
 	dCheck := testDB(t)
 	requireFTS(t, dCheck)

@@ -132,6 +132,102 @@ func TestSyncEngineIntegration(t *testing.T) {
 	}
 }
 
+func TestSyncEngineWorktreesShareProject(t *testing.T) {
+	env := setupTestEnv(t)
+
+	root := t.TempDir()
+	mainRepo := filepath.Join(root, "agentsview")
+	worktree := filepath.Join(root, "agentsview-worktree-tool-call-arguments")
+	worktreeGitDir := filepath.Join(mainRepo, ".git", "worktrees", "feature")
+
+	dbtest.WriteTestFile(t, filepath.Join(worktree, ".git"),
+		[]byte("gitdir: "+worktreeGitDir+"\n"))
+	dbtest.WriteTestFile(t, filepath.Join(worktreeGitDir, "commondir"),
+		[]byte("../..\n"))
+
+	// Create a standard main repository marker.
+	if err := os.MkdirAll(filepath.Join(mainRepo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir main .git: %v", err)
+	}
+
+	mainContent := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Main repo", mainRepo).
+		AddClaudeAssistant(tsEarlyS5, "ok").
+		String()
+	worktreeContent := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Worktree", worktree).
+		AddClaudeAssistant(tsEarlyS5, "ok").
+		String()
+
+	env.writeClaudeSession(
+		t, "-Users-me-code-agentsview",
+		"main-repo.jsonl", mainContent,
+	)
+	env.writeClaudeSession(
+		t, "-Users-me-code-agentsview-worktree-tool-call-arguments",
+		"worktree-repo.jsonl", worktreeContent,
+	)
+
+	runSyncAndAssert(t, env.engine, 2, 0)
+
+	assertSessionState(t, env.db, "main-repo", func(sess *db.Session) {
+		if sess.Project != "agentsview" {
+			t.Errorf("main session project = %q, want agentsview", sess.Project)
+		}
+	})
+	assertSessionState(t, env.db, "worktree-repo", func(sess *db.Session) {
+		if sess.Project != "agentsview" {
+			t.Errorf("worktree session project = %q, want agentsview", sess.Project)
+		}
+	})
+
+	projects, err := env.db.GetProjects(context.Background())
+	if err != nil {
+		t.Fatalf("GetProjects: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("len(projects) = %d, want 1", len(projects))
+	}
+	if projects[0].Name != "agentsview" {
+		t.Fatalf("project name = %q, want %q", projects[0].Name, "agentsview")
+	}
+	if projects[0].SessionCount != 2 {
+		t.Fatalf("session_count = %d, want 2", projects[0].SessionCount)
+	}
+}
+
+func TestSyncEngineWorktreeProjectWhenPathMissing(t *testing.T) {
+	env := setupTestEnv(t)
+
+	mainContent := `{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"/Users/wesm/code/agentsview","gitBranch":"main","message":{"content":"hello"}}` + "\n" +
+		`{"type":"assistant","timestamp":"2024-01-01T10:00:05Z","message":{"content":"ok"}}` + "\n"
+
+	worktreeContent := `{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"/Users/wesm/code/agentsview-worktree-tool-call-arguments","gitBranch":"worktree-tool-call-arguments","message":{"content":"hello"}}` + "\n" +
+		`{"type":"assistant","timestamp":"2024-01-01T10:00:05Z","message":{"content":"ok"}}` + "\n"
+
+	env.writeClaudeSession(
+		t, "-Users-me-code-agentsview",
+		"offline-main.jsonl", mainContent,
+	)
+	env.writeClaudeSession(
+		t, "-Users-me-code-agentsview-worktree-tool-call-arguments",
+		"offline-worktree.jsonl", worktreeContent,
+	)
+
+	runSyncAndAssert(t, env.engine, 2, 0)
+
+	assertSessionState(t, env.db, "offline-main", func(sess *db.Session) {
+		if sess.Project != "agentsview" {
+			t.Errorf("main session project = %q, want agentsview", sess.Project)
+		}
+	})
+	assertSessionState(t, env.db, "offline-worktree", func(sess *db.Session) {
+		if sess.Project != "agentsview" {
+			t.Errorf("worktree session project = %q, want agentsview", sess.Project)
+		}
+	})
+}
+
 func TestSyncEngineCodex(t *testing.T) {
 	env := setupTestEnv(t)
 

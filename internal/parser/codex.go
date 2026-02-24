@@ -77,7 +77,8 @@ func (b *codexSessionBuilder) handleSessionMeta(
 	b.sessionID = payload.Get("id").Str
 
 	if cwd := payload.Get("cwd").Str; cwd != "" {
-		if proj := ExtractProjectFromCwd(cwd); proj != "" {
+		branch := payload.Get("git.branch").Str
+		if proj := ExtractProjectFromCwdWithBranch(cwd, branch); proj != "" {
 			b.project = proj
 		} else {
 			b.project = "unknown"
