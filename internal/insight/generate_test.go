@@ -1,6 +1,10 @@
 package insight
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -255,5 +259,115 @@ func TestValidAgents(t *testing.T) {
 	}
 	if ValidAgents["gpt"] {
 		t.Error("gpt should not be valid")
+	}
+}
+
+// fakeClaudeBin writes a shell script that prints the given
+// stdout and exits with the given code, ignoring all flags.
+func fakeClaudeBin(
+	t *testing.T, stdout string, exitCode int,
+) string {
+	t.Helper()
+	dir := t.TempDir()
+	dataFile := filepath.Join(dir, "stdout.txt")
+	if err := os.WriteFile(
+		dataFile, []byte(stdout), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "claude")
+	script := fmt.Sprintf(
+		"#!/bin/sh\ncat %s\nexit %d\n",
+		shellQuote(dataFile), exitCode,
+	)
+	if err := os.WriteFile(
+		bin, []byte(script), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
+	tests := []struct {
+		name       string
+		stdout     string
+		exitCode   int
+		wantResult string
+		wantErr    bool
+	}{
+		{
+			name:       "non-zero exit with valid result",
+			stdout:     `{"result":"# Analysis\nDone.","model":"m1"}`,
+			exitCode:   1,
+			wantResult: "# Analysis\nDone.",
+		},
+		{
+			name:     "non-zero exit with empty result",
+			stdout:   `{"result":"","model":"m1"}`,
+			exitCode: 1,
+			wantErr:  true,
+		},
+		{
+			name:     "non-zero exit with invalid JSON",
+			stdout:   `not json`,
+			exitCode: 1,
+			wantErr:  true,
+		},
+		{
+			name:     "non-zero exit with no stdout",
+			stdout:   "",
+			exitCode: 1,
+			wantErr:  true,
+		},
+		{
+			name:       "zero exit with valid result",
+			stdout:     `{"result":"OK","model":"m2"}`,
+			exitCode:   0,
+			wantResult: "OK",
+		},
+		{
+			name:     "zero exit with empty result",
+			stdout:   `{"result":"","model":"m2"}`,
+			exitCode: 0,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bin := fakeClaudeBin(
+				t, tt.stdout, tt.exitCode,
+			)
+			result, err := generateClaude(
+				context.Background(), bin, "test",
+			)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Content != tt.wantResult {
+				t.Errorf(
+					"content = %q, want %q",
+					result.Content, tt.wantResult,
+				)
+			}
+			if result.Agent != "claude" {
+				t.Errorf(
+					"agent = %q, want claude",
+					result.Agent,
+				)
+			}
+		})
 	}
 }

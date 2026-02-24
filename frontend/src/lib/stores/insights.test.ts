@@ -59,9 +59,7 @@ describe("load", () => {
 
     await insights.load();
 
-    expect(api.listInsights).toHaveBeenCalledWith({
-      project: undefined,
-    });
+    expect(api.listInsights).toHaveBeenCalledWith();
     expect(insights.items).toHaveLength(2);
     expect(insights.loading).toBe(false);
   });
@@ -176,15 +174,11 @@ describe("date range mode switching", () => {
 });
 
 describe("setProject", () => {
-  it("updates project and reloads", async () => {
-    vi.mocked(api.listInsights).mockResolvedValueOnce({
-      insights: [],
-    });
-
+  it("updates project without reloading", () => {
     insights.setProject("my-app");
 
     expect(insights.project).toBe("my-app");
-    expect(api.listInsights).toHaveBeenCalled();
+    expect(api.listInsights).not.toHaveBeenCalled();
   });
 });
 

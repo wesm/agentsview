@@ -99,8 +99,6 @@ class InsightsStore {
 
   setProject(project: string) {
     this.project = project;
-    this.selectedId = null;
-    this.load();
   }
 
   setAgent(agent: AgentName) {
