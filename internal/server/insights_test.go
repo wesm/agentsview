@@ -185,8 +185,11 @@ func TestGenerateInsight_InvalidAgent(t *testing.T) {
 
 func TestGenerateInsight_DefaultAgent(t *testing.T) {
 	stubGen := func(
-		_ context.Context, _, _ string,
+		_ context.Context, agent, _ string,
 	) (insight.Result, error) {
+		if agent != "claude" {
+			t.Errorf("expected default agent claude, got %q", agent)
+		}
 		return insight.Result{}, fmt.Errorf("stub: no CLI")
 	}
 	te := setupWithServerOpts(t, []server.Option{

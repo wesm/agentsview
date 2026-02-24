@@ -165,26 +165,25 @@ func TestCleanEnv(t *testing.T) {
 
 	env := cleanEnv()
 
-	has := func(prefix string) bool {
-		for _, e := range env {
-			if strings.HasPrefix(e, prefix) {
-				return true
-			}
-		}
-		return false
+	envMap := make(map[string]string, len(env))
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		envMap[k] = v
 	}
 
-	if has("ANTHROPIC_API_KEY=") {
+	if _, ok := envMap["ANTHROPIC_API_KEY"]; ok {
 		t.Error("ANTHROPIC_API_KEY should be stripped")
 	}
-	if has("CLAUDECODE=") {
+	if _, ok := envMap["CLAUDECODE"]; ok {
 		t.Error("CLAUDECODE should be stripped")
 	}
-	if !has("HOME=") {
+	if _, ok := envMap["HOME"]; !ok {
 		t.Error("HOME should be preserved")
 	}
-	if !has("CLAUDE_NO_SOUND=1") {
-		t.Error("CLAUDE_NO_SOUND=1 should be appended")
+	if v, ok := envMap["CLAUDE_NO_SOUND"]; !ok || v != "1" {
+		t.Errorf(
+			"CLAUDE_NO_SOUND should be 1, got %q", v,
+		)
 	}
 }
 

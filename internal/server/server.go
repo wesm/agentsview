@@ -76,9 +76,13 @@ func WithVersion(v VersionInfo) Option {
 }
 
 // WithGenerateFunc overrides the insight generation function,
-// allowing tests to substitute a stub.
+// allowing tests to substitute a stub. Nil is ignored.
 func WithGenerateFunc(f insight.GenerateFunc) Option {
-	return func(s *Server) { s.generateFunc = f }
+	return func(s *Server) {
+		if f != nil {
+			s.generateFunc = f
+		}
+	}
 }
 
 func (s *Server) routes() {
