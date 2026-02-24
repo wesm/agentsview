@@ -352,6 +352,35 @@ func assertErrorResponse(
 	}
 }
 
+// assertTimeoutRace validates a timeout response where either
+// the middleware (503 "request timed out") or the handler
+// (504 "gateway timeout") may win the race. Checks status,
+// Content-Type, and error body.
+func assertTimeoutRace(
+	t *testing.T, w *httptest.ResponseRecorder,
+) {
+	t.Helper()
+	code := w.Code
+	switch code {
+	case http.StatusServiceUnavailable:
+		assertBodyContains(t, w, "request timed out")
+	case http.StatusGatewayTimeout:
+		ct := w.Header().Get("Content-Type")
+		if ct != "application/json" {
+			t.Errorf(
+				"Content-Type = %q, want application/json",
+				ct,
+			)
+		}
+		assertBodyContains(t, w, "gateway timeout")
+	default:
+		t.Fatalf(
+			"expected 503 or 504, got %d: %s",
+			code, w.Body.String(),
+		)
+	}
+}
+
 // expiredContext returns a context with a deadline in the past.
 func expiredContext(
 	t *testing.T,
@@ -861,16 +890,7 @@ func TestSearch_DeadlineExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 
-	// With an already-expired context, the middleware (503) and
-	// handler (504) race — both are valid timeout responses.
-	code := w.Code
-	if code != http.StatusServiceUnavailable &&
-		code != http.StatusGatewayTimeout {
-		t.Fatalf(
-			"expected 503 or 504, got %d: %s",
-			code, w.Body.String(),
-		)
-	}
+	assertTimeoutRace(t, w)
 }
 
 func TestSearch_NotAvailable(t *testing.T) {
