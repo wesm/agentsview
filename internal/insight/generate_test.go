@@ -389,6 +389,96 @@ func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
 	}
 }
 
+// fakeGeminiBin writes a script that records its argv to an
+// args file, then prints stream-json output. This lets tests
+// verify both the CLI flags and the parsed result.
+func fakeGeminiBin(
+	t *testing.T, stdout string, exitCode int,
+) (bin, argsFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	dataFile := filepath.Join(dir, "stdout.txt")
+	argsFile = filepath.Join(dir, "args.txt")
+	if err := os.WriteFile(
+		dataFile, []byte(stdout), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	bin = filepath.Join(dir, "gemini")
+	// Write all args to args file, then output the canned
+	// stream-json data.
+	script := fmt.Sprintf(
+		"#!/bin/sh\n"+
+			"printf '%%s\\n' \"$@\" > %s\n"+
+			"cat %s\nexit %d\n",
+		shellQuote(argsFile),
+		shellQuote(dataFile),
+		exitCode,
+	)
+	if err := os.WriteFile(
+		bin, []byte(script), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	return bin, argsFile
+}
+
+func TestGenerateGemini_ModelFlag(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test not supported on windows")
+	}
+
+	streamJSON := strings.Join([]string{
+		`{"type":"message","role":"assistant","content":"Hello"}`,
+		`{"type":"result","result":"# Analysis"}`,
+	}, "\n") + "\n"
+
+	bin, argsFile := fakeGeminiBin(t, streamJSON, 0)
+
+	result, err := generateGemini(
+		context.Background(), bin, "test prompt",
+	)
+	if err != nil {
+		t.Fatalf("generateGemini: %v", err)
+	}
+
+	if result.Content != "# Analysis" {
+		t.Errorf("Content = %q, want %q",
+			result.Content, "# Analysis")
+	}
+	if result.Agent != "gemini" {
+		t.Errorf("Agent = %q, want gemini", result.Agent)
+	}
+	if result.Model != geminiInsightModel {
+		t.Errorf("Model = %q, want %q",
+			result.Model, geminiInsightModel)
+	}
+
+	// Verify the CLI was invoked with --model flag.
+	argsData, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	args := strings.Split(
+		strings.TrimSpace(string(argsData)), "\n",
+	)
+
+	wantArgs := []string{
+		"--model", geminiInsightModel,
+		"--output-format", "stream-json",
+	}
+	if len(args) != len(wantArgs) {
+		t.Fatalf("args = %v, want %v", args, wantArgs)
+	}
+	for i, want := range wantArgs {
+		if args[i] != want {
+			t.Errorf("arg[%d] = %q, want %q",
+				i, args[i], want)
+		}
+	}
+}
+
 func TestGenerateClaude_CancelledContext(t *testing.T) {
 	// Pre-cancelled context: cmd.Run fails (runErr != nil)
 	// and ctx.Err() != nil → cancellation error.

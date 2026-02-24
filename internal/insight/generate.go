@@ -12,6 +12,10 @@ import (
 	"strings"
 )
 
+// geminiInsightModel is the model passed to the gemini CLI
+// for insight generation.
+const geminiInsightModel = "gemini-3-pro-preview"
+
 // Result holds the output from an AI agent invocation.
 type Result struct {
 	Content string
@@ -304,7 +308,7 @@ func generateGemini(
 ) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
-		"--model", "gemini-3-pro-preview",
+		"--model", geminiInsightModel,
 		"--output-format", "stream-json",
 	)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -351,7 +355,7 @@ func generateGemini(
 	return Result{
 		Content: content,
 		Agent:   "gemini",
-		Model:   "gemini-3-pro-preview",
+		Model:   geminiInsightModel,
 	}, nil
 }
 
