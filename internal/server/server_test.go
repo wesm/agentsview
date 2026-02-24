@@ -361,17 +361,16 @@ func assertTimeoutRace(
 ) {
 	t.Helper()
 	code := w.Code
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf(
+			"Content-Type = %q, want application/json", ct,
+		)
+	}
 	switch code {
 	case http.StatusServiceUnavailable:
 		assertBodyContains(t, w, "request timed out")
 	case http.StatusGatewayTimeout:
-		ct := w.Header().Get("Content-Type")
-		if ct != "application/json" {
-			t.Errorf(
-				"Content-Type = %q, want application/json",
-				ct,
-			)
-		}
 		assertBodyContains(t, w, "gateway timeout")
 	default:
 		t.Fatalf(

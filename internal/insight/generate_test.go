@@ -169,10 +169,12 @@ func TestCleanEnv(t *testing.T) {
 
 	env := cleanEnv()
 
+	// Normalize keys to uppercase for cross-platform assertions
+	// (Windows may return Path instead of PATH).
 	envMap := make(map[string]string, len(env))
 	for _, e := range env {
 		k, v, _ := strings.Cut(e, "=")
-		envMap[k] = v
+		envMap[strings.ToUpper(k)] = v
 	}
 
 	// Secrets and unknown vars must not pass through.
@@ -221,6 +223,11 @@ func TestEnvKeyAllowed(t *testing.T) {
 		{"AppData", true},
 		{"LOCALAPPDATA", true},
 		{"PROGRAMDATA", true},
+		{"PATHEXT", true},
+		{"PathExt", true},
+		{"WINDIR", true},
+		{"HOMEDRIVE", true},
+		{"HOMEPATH", true},
 		{"ANTHROPIC_API_KEY", false},
 		{"AWS_SECRET_ACCESS_KEY", false},
 		{"DATABASE_URL", false},
