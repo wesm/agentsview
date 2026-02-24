@@ -273,13 +273,17 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	)
 
 	// Sync OpenCode sessions (DB-backed, not file-based).
+	// Uses full replace because OpenCode messages can change
+	// in place (streaming updates, tool result pairing).
 	tOC := time.Now()
 	ocPending := e.syncOpenCode()
 	if len(ocPending) > 0 {
 		stats.TotalSessions += len(ocPending)
 		stats.RecordSynced(len(ocPending))
 		tWrite := time.Now()
-		e.writeBatch(ocPending)
+		for _, pw := range ocPending {
+			e.writeSessionFull(pw)
+		}
 		log.Printf(
 			"opencode write: %d sessions in %s",
 			len(ocPending),
