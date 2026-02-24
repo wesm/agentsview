@@ -388,3 +388,21 @@ func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateClaude_CancelledContext(t *testing.T) {
+	bin := fakeClaudeBin(
+		t, `{"result":"OK","model":"m1"}`, 0,
+	)
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	cancel() // cancel before invocation
+
+	_, err := generateClaude(ctx, bin, "test")
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "cancel") {
+		t.Errorf("error = %q, want cancel", err)
+	}
+}

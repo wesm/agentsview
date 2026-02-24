@@ -132,6 +132,13 @@ func generateClaude(
 
 	runErr := cmd.Run()
 
+	// Honor context cancellation even if stdout has data.
+	if ctx.Err() != nil {
+		return Result{}, fmt.Errorf(
+			"claude CLI cancelled: %w", ctx.Err(),
+		)
+	}
+
 	var resp struct {
 		Result string `json:"result"`
 		Model  string `json:"model"`
