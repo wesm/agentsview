@@ -208,17 +208,24 @@ func loadOneOpenCodeSession(
 }
 
 // openCodeMessageRow is a row from the opencode message table.
+// The role is extracted from the JSON data column.
 type openCodeMessageRow struct {
 	id          string
-	role        string
+	data        string
 	timeCreated int64
 }
 
+// openCodeMessageData holds the fields we extract from the
+// message data JSON blob.
+type openCodeMessageData struct {
+	Role string `json:"role"`
+}
+
 // openCodePartRow is a row from the opencode part table.
+// The part type is extracted from the JSON data column.
 type openCodePartRow struct {
 	id          string
 	messageID   string
-	partType    string
 	data        string
 	timeCreated int64
 }
@@ -227,7 +234,7 @@ func loadOpenCodeMessages(
 	db *sql.DB, sessionID string,
 ) ([]openCodeMessageRow, error) {
 	rows, err := db.Query(`
-		SELECT id, role, time_created
+		SELECT id, data, time_created
 		FROM message
 		WHERE session_id = ?
 		ORDER BY time_created
@@ -241,7 +248,7 @@ func loadOpenCodeMessages(
 	for rows.Next() {
 		var m openCodeMessageRow
 		if err := rows.Scan(
-			&m.id, &m.role, &m.timeCreated,
+			&m.id, &m.data, &m.timeCreated,
 		); err != nil {
 			return nil, err
 		}
@@ -254,12 +261,11 @@ func loadOpenCodeParts(
 	db *sql.DB, sessionID string,
 ) (map[string][]openCodePartRow, error) {
 	rows, err := db.Query(`
-		SELECT p.id, p.message_id, p.type,
+		SELECT p.id, p.message_id,
 		       COALESCE(p.data, '{}'),
 		       p.time_created
 		FROM part p
-		JOIN message m ON m.id = p.message_id
-		WHERE m.session_id = ?
+		WHERE p.session_id = ?
 		ORDER BY p.time_created
 	`, sessionID)
 	if err != nil {
@@ -271,7 +277,7 @@ func loadOpenCodeParts(
 	for rows.Next() {
 		var p openCodePartRow
 		if err := rows.Scan(
-			&p.id, &p.messageID, &p.partType,
+			&p.id, &p.messageID,
 			&p.data, &p.timeCreated,
 		); err != nil {
 			return nil, err
@@ -310,7 +316,11 @@ func buildOpenCodeSession(
 	)
 
 	for _, m := range msgs {
-		role := normalizeOpenCodeRole(m.role)
+		var md openCodeMessageData
+		if json.Unmarshal([]byte(m.data), &md) != nil {
+			continue
+		}
+		role := normalizeOpenCodeRole(md.Role)
 		if role == "" {
 			continue
 		}
@@ -402,7 +412,8 @@ func buildOpenCodeMessage(
 	)
 
 	for _, p := range parts {
-		switch p.partType {
+		partType := extractOpenCodePartType(p.data)
+		switch partType {
 		case "text":
 			text := extractOpenCodeText(p.data)
 			if text != "" {
@@ -421,7 +432,7 @@ func buildOpenCodeMessage(
 				texts = append(texts, "[Thinking]\n"+text)
 			}
 		}
-		// skip step-start, step-finish, etc.
+		// skip step-start, step-finish, patch, etc.
 	}
 
 	content := strings.Join(texts, "\n")
@@ -435,6 +446,20 @@ func buildOpenCodeMessage(
 		ContentLength: len(content),
 		ToolCalls:     toolCalls,
 	}
+}
+
+// openCodePartTypeData extracts just the type from a part's
+// JSON data blob.
+type openCodePartTypeData struct {
+	Type string `json:"type"`
+}
+
+func extractOpenCodePartType(data string) string {
+	var d openCodePartTypeData
+	if json.Unmarshal([]byte(data), &d) != nil {
+		return ""
+	}
+	return d.Type
 }
 
 // openCodeTextData is the JSON structure for a text part's data.
@@ -457,7 +482,7 @@ func extractOpenCodeText(data string) string {
 // openCodeToolData is the JSON structure for a tool part's data.
 type openCodeToolData struct {
 	ToolName string          `json:"tool"`
-	CallID   string          `json:"id"`
+	CallID   string          `json:"callID"`
 	State    json.RawMessage `json:"state"`
 }
 

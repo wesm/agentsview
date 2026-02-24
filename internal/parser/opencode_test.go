@@ -9,6 +9,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// openCodeSchema matches the real OpenCode database schema.
+// Role and part type live inside the JSON data columns.
 const openCodeSchema = `
 CREATE TABLE project (
 	id TEXT PRIMARY KEY,
@@ -30,17 +32,19 @@ CREATE TABLE session (
 CREATE TABLE message (
 	id TEXT PRIMARY KEY,
 	session_id TEXT NOT NULL,
-	role TEXT NOT NULL,
 	time_created INTEGER NOT NULL,
+	time_updated INTEGER NOT NULL,
+	data TEXT NOT NULL,
 	FOREIGN KEY (session_id) REFERENCES session(id)
 );
 
 CREATE TABLE part (
 	id TEXT PRIMARY KEY,
 	message_id TEXT NOT NULL,
-	type TEXT NOT NULL,
-	data TEXT,
+	session_id TEXT NOT NULL,
 	time_created INTEGER NOT NULL,
+	time_updated INTEGER NOT NULL,
+	data TEXT NOT NULL,
 	FOREIGN KEY (message_id) REFERENCES message(id)
 );
 `
@@ -75,20 +79,27 @@ func seedStandardSession(t *testing.T, dbPath string) {
 		 (id, project_id, title, time_created, time_updated)
 		 VALUES ('ses_abc', 'prj_1', 'Test Session',
 		         1700000000000, 1700000060000)`,
-		`INSERT INTO message (id, session_id, role, time_created)
-		 VALUES ('msg_1', 'ses_abc', 'user', 1700000000000)`,
+		`INSERT INTO message
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_1', 'ses_abc', 1700000000000,
+		         1700000000000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_1', 'msg_1', 'text',
-		         '{"content":"Hello, help me with Go"}',
-		         1700000000000)`,
-		`INSERT INTO message (id, session_id, role, time_created)
-		 VALUES ('msg_2', 'ses_abc', 'assistant', 1700000010000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_1', 'msg_1', 'ses_abc',
+		         1700000000000, 1700000000000,
+		         '{"type":"text","text":"Hello, help me with Go"}')`,
+		`INSERT INTO message
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_2', 'ses_abc', 1700000010000,
+		         1700000010000,
+		         '{"role":"assistant"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_2', 'msg_2', 'text',
-		         '{"content":"Sure, I can help with Go."}',
-		         1700000010000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_2', 'msg_2', 'ses_abc',
+		         1700000010000, 1700000010000,
+		         '{"type":"text","text":"Sure, I can help with Go."}')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -182,35 +193,41 @@ func TestParseOpenCodeDB_ToolParts(t *testing.T) {
 		 VALUES ('ses_tools', 'prj_1',
 		         1700000000000, 1700000030000)`,
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_u', 'ses_tools', 'user', 1700000000000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_u', 'ses_tools', 1700000000000,
+		         1700000000000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_u', 'msg_u', 'text',
-		         '{"content":"read my file"}',
-		         1700000000000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_u', 'msg_u', 'ses_tools',
+		         1700000000000, 1700000000000,
+		         '{"type":"text","text":"read my file"}')`,
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_a', 'ses_tools', 'assistant',
-		         1700000010000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_a', 'ses_tools', 1700000010000,
+		         1700000012000,
+		         '{"role":"assistant"}')`,
 		// reasoning part
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_r', 'msg_a', 'reasoning',
-		         '{"content":"Let me think about this..."}',
-		         1700000010000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_r', 'msg_a', 'ses_tools',
+		         1700000010000, 1700000010000,
+		         '{"type":"reasoning","text":"Let me think about this..."}')`,
 		// tool part
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_t', 'msg_a', 'tool',
-		         '{"tool":"read","id":"call_1","state":{"input":{"file_path":"main.go"}}}',
-		         1700000011000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_t', 'msg_a', 'ses_tools',
+		         1700000011000, 1700000011000,
+		         '{"type":"tool","tool":"read","callID":"call_1","state":{"input":{"file_path":"main.go"}}}')`,
 		// text part
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_txt', 'msg_a', 'text',
-		         '{"content":"Here is the file content."}',
-		         1700000012000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_txt', 'msg_a', 'ses_tools',
+		         1700000012000, 1700000012000,
+		         '{"type":"text","text":"Here is the file content."}')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -332,12 +349,15 @@ func TestParseOpenCodeDB_ProjectFromWorktree(t *testing.T) {
 		 VALUES ('ses_git', 'prj_git',
 		         1700000000000, 1700000010000)`,
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_1', 'ses_git', 'user', 1700000000000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_1', 'ses_git', 1700000000000,
+		         1700000000000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_1', 'msg_1', 'text',
-		         '{"content":"hello"}', 1700000000000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_1', 'msg_1', 'ses_git',
+		         1700000000000, 1700000000000,
+		         '{"type":"text","text":"hello"}')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -403,52 +423,60 @@ func TestParseOpenCodeDB_OrdinalContinuity(t *testing.T) {
 		         1700000000000, 1700000050000)`,
 		// msg 0: user (kept, ordinal 0)
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_1', 'ses_ord', 'user',
-		         1700000000000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_1', 'ses_ord', 1700000000000,
+		         1700000000000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_1', 'msg_1', 'text',
-		         '{"content":"first"}', 1700000000000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_1', 'msg_1', 'ses_ord',
+		         1700000000000, 1700000000000,
+		         '{"type":"text","text":"first"}')`,
 		// msg 1: system (skipped role)
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_2', 'ses_ord', 'system',
-		         1700000010000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_2', 'ses_ord', 1700000010000,
+		         1700000010000, '{"role":"system"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_2', 'msg_2', 'text',
-		         '{"content":"system msg"}',
-		         1700000010000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_2', 'msg_2', 'ses_ord',
+		         1700000010000, 1700000010000,
+		         '{"type":"text","text":"system msg"}')`,
 		// msg 2: user with empty content (skipped)
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_3', 'ses_ord', 'user',
-		         1700000020000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_3', 'ses_ord', 1700000020000,
+		         1700000020000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_3', 'msg_3', 'text',
-		         '{"content":""}', 1700000020000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_3', 'msg_3', 'ses_ord',
+		         1700000020000, 1700000020000,
+		         '{"type":"text","text":""}')`,
 		// msg 3: assistant (kept, ordinal 1)
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_4', 'ses_ord', 'assistant',
-		         1700000030000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_4', 'ses_ord', 1700000030000,
+		         1700000030000,
+		         '{"role":"assistant"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_4', 'msg_4', 'text',
-		         '{"content":"response"}',
-		         1700000030000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_4', 'msg_4', 'ses_ord',
+		         1700000030000, 1700000030000,
+		         '{"type":"text","text":"response"}')`,
 		// msg 4: user (kept, ordinal 2)
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_5', 'ses_ord', 'user',
-		         1700000040000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_5', 'ses_ord', 1700000040000,
+		         1700000040000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_5', 'msg_5', 'text',
-		         '{"content":"follow up"}',
-		         1700000040000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_5', 'msg_5', 'ses_ord',
+		         1700000040000, 1700000040000,
+		         '{"type":"text","text":"follow up"}')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -508,23 +536,25 @@ func TestParseOpenCodeDB_ParentSession(t *testing.T) {
 		         1700000020000, 1700000030000)`,
 		// Add messages to both so they aren't skipped
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_p', 'ses_parent', 'user',
-		         1700000000000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_p', 'ses_parent', 1700000000000,
+		         1700000000000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_p', 'msg_p', 'text',
-		         '{"content":"parent msg"}',
-		         1700000000000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_p', 'msg_p', 'ses_parent',
+		         1700000000000, 1700000000000,
+		         '{"type":"text","text":"parent msg"}')`,
 		`INSERT INTO message
-		 (id, session_id, role, time_created)
-		 VALUES ('msg_c', 'ses_child', 'user',
-		         1700000020000)`,
+		 (id, session_id, time_created, time_updated, data)
+		 VALUES ('msg_c', 'ses_child', 1700000020000,
+		         1700000020000, '{"role":"user"}')`,
 		`INSERT INTO part
-		 (id, message_id, type, data, time_created)
-		 VALUES ('prt_c', 'msg_c', 'text',
-		         '{"content":"child msg"}',
-		         1700000020000)`,
+		 (id, message_id, session_id,
+		  time_created, time_updated, data)
+		 VALUES ('prt_c', 'msg_c', 'ses_child',
+		         1700000020000, 1700000020000,
+		         '{"type":"text","text":"child msg"}')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
