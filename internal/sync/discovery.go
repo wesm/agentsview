@@ -443,6 +443,13 @@ func FindCursorSourceFile(
 		return ""
 	}
 
+	// Canonicalize the root so the containment check works
+	// even when CURSOR_PROJECTS_DIR is itself a symlink.
+	resolvedRoot, err := filepath.EvalSymlinks(projectsDir)
+	if err != nil {
+		return ""
+	}
+
 	target := sessionID + ".txt"
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -459,11 +466,8 @@ func FindCursorSourceFile(
 		if err != nil {
 			continue
 		}
-		absProjects, err := filepath.Abs(projectsDir)
-		if err != nil {
-			continue
-		}
-		if !strings.HasPrefix(resolved, absProjects+string(os.PathSeparator)) {
+		rel, err := filepath.Rel(resolvedRoot, resolved)
+		if err != nil || strings.HasPrefix(rel, "..") {
 			continue
 		}
 		return candidate

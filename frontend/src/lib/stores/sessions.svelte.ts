@@ -232,7 +232,7 @@ class SessionsStore {
   }
 
   setProjectFilter(project: string) {
-    this.filters = { ...defaultFilters(), project };
+    this.filters = { ...defaultFilters(), project, agent: this.filters.agent };
     this.activeSessionId = null;
     this.resetPagination();
     this.load();

@@ -25,18 +25,16 @@ func ParseCursorSession(
 		)
 	}
 
-	// Verify the resolved path stays under the expected
-	// agent-transcripts directory to prevent escape via
-	// symlinked parent directories.
-	resolved, err := filepath.EvalSymlinks(
-		filepath.Dir(path),
-	)
+	// Verify the resolved path contains an agent-transcripts
+	// directory component. This prevents ingestion of files
+	// outside the expected transcript directory structure.
+	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"resolve %s: %w", path, err,
 		)
 	}
-	if filepath.Base(resolved) != "agent-transcripts" {
+	if filepath.Base(filepath.Dir(resolved)) != "agent-transcripts" {
 		return nil, nil, fmt.Errorf(
 			"skip %s: not under agent-transcripts", path,
 		)
