@@ -583,3 +583,44 @@ func TestParseOpenCodeDB_ParentSession(t *testing.T) {
 			"opencode:ses_parent")
 	}
 }
+
+func TestListOpenCodeSessionMeta(t *testing.T) {
+	dbPath := createTestOpenCodeDB(t)
+	seedStandardSession(t, dbPath)
+
+	metas, err := ListOpenCodeSessionMeta(dbPath)
+	if err != nil {
+		t.Fatalf("ListOpenCodeSessionMeta: %v", err)
+	}
+	if len(metas) != 1 {
+		t.Fatalf("got %d metas, want 1", len(metas))
+	}
+
+	m := metas[0]
+	if m.SessionID != "ses_abc" {
+		t.Errorf("SessionID = %q, want %q",
+			m.SessionID, "ses_abc")
+	}
+	wantPath := dbPath + "#ses_abc"
+	if m.VirtualPath != wantPath {
+		t.Errorf("VirtualPath = %q, want %q",
+			m.VirtualPath, wantPath)
+	}
+	// time_updated = 1700000060000 ms → nanos
+	wantMtime := int64(1700000060000) * 1_000_000
+	if m.FileMtime != wantMtime {
+		t.Errorf("FileMtime = %d, want %d",
+			m.FileMtime, wantMtime)
+	}
+}
+
+func TestListOpenCodeSessionMeta_NonexistentDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "nope.db")
+	metas, err := ListOpenCodeSessionMeta(dbPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(metas) != 0 {
+		t.Fatalf("got %d metas, want 0", len(metas))
+	}
+}

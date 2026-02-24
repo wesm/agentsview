@@ -263,18 +263,40 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 		})
 	}
 
+	tWorkers := time.Now()
 	results := e.startWorkers(all)
 	stats := e.collectAndBatch(results, len(all), onProgress)
+	log.Printf(
+		"file sync: %d synced, %d skipped in %s",
+		stats.Synced, stats.Skipped,
+		time.Since(tWorkers).Round(time.Millisecond),
+	)
 
 	// Sync OpenCode sessions (DB-backed, not file-based).
+	tOC := time.Now()
 	ocPending := e.syncOpenCode()
 	if len(ocPending) > 0 {
 		stats.TotalSessions += len(ocPending)
 		stats.RecordSynced(len(ocPending))
+		tWrite := time.Now()
 		e.writeBatch(ocPending)
+		log.Printf(
+			"opencode write: %d sessions in %s",
+			len(ocPending),
+			time.Since(tWrite).Round(time.Millisecond),
+		)
 	}
+	log.Printf(
+		"opencode sync: %s", time.Since(tOC).Round(time.Millisecond),
+	)
 
+	tPersist := time.Now()
 	e.persistSkipCache()
+	log.Printf(
+		"persist skip cache (%d entries): %s",
+		len(e.skipCache),
+		time.Since(tPersist).Round(time.Millisecond),
+	)
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
@@ -284,53 +306,57 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 }
 
 // syncOpenCode syncs sessions from the OpenCode SQLite database.
-// Returns pending writes for changed/new sessions.
+// Uses per-session time_updated to detect changes, so only
+// modified sessions are fully parsed. Returns pending writes.
 func (e *Engine) syncOpenCode() []pendingWrite {
 	if e.opencodeDir == "" {
 		return nil
 	}
 	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
 
-	if _, err := os.Stat(dbPath); err != nil {
-		return nil
-	}
-
-	// SQLite WAL mode: recent writes may live in the -wal
-	// file while the main DB mtime is unchanged. Use a
-	// composite fingerprint from both files.
-	fp := sqliteFingerprint(dbPath)
-
-	e.skipMu.RLock()
-	cachedFP, cached := e.skipCache[dbPath]
-	e.skipMu.RUnlock()
-	if cached && cachedFP == fp {
-		return nil
-	}
-
-	sessions, err := parser.ParseOpenCodeDB(
-		dbPath, e.machine,
-	)
+	metas, err := parser.ListOpenCodeSessionMeta(dbPath)
 	if err != nil {
 		log.Printf("sync opencode: %v", err)
 		return nil
 	}
+	if len(metas) == 0 {
+		return nil
+	}
+
+	// Compare each session's time_updated against what is
+	// stored in the agentsview DB. Only re-parse changed ones.
+	var changed []string
+	for _, m := range metas {
+		_, storedMtime, ok :=
+			e.db.GetFileInfoByPath(m.VirtualPath)
+		if ok && storedMtime == m.FileMtime {
+			continue
+		}
+		changed = append(changed, m.SessionID)
+	}
+	if len(changed) == 0 {
+		return nil
+	}
 
 	var pending []pendingWrite
-	for _, ocs := range sessions {
-		virtualPath := ocs.Session.File.Path
-		storedSize, storedMtime, ok :=
-			e.db.GetFileInfoByPath(virtualPath)
-		if ok && storedSize == ocs.Session.File.Size &&
-			storedMtime == ocs.Session.File.Mtime {
+	for _, sid := range changed {
+		sess, msgs, err := parser.ParseOpenCodeSession(
+			dbPath, sid, e.machine,
+		)
+		if err != nil {
+			log.Printf(
+				"opencode session %s: %v", sid, err,
+			)
+			continue
+		}
+		if sess == nil {
 			continue
 		}
 		pending = append(pending, pendingWrite{
-			sess: ocs.Session,
-			msgs: ocs.Messages,
+			sess: *sess,
+			msgs: msgs,
 		})
 	}
-
-	e.cacheSkip(dbPath, fp)
 
 	if len(pending) > 0 {
 		log.Printf(
@@ -339,23 +365,6 @@ func (e *Engine) syncOpenCode() []pendingWrite {
 		)
 	}
 	return pending
-}
-
-// sqliteFingerprint returns a composite fingerprint for a
-// SQLite database file by combining the mtime and size of
-// both the main DB file and its WAL file (if present).
-// This ensures WAL-mode writes are detected even when the
-// main DB file mtime hasn't changed.
-func sqliteFingerprint(dbPath string) int64 {
-	var fp int64
-	if info, err := os.Stat(dbPath); err == nil {
-		fp = info.ModTime().UnixNano() ^ info.Size()
-	}
-	walPath := dbPath + "-wal"
-	if info, err := os.Stat(walPath); err == nil {
-		fp ^= info.ModTime().UnixNano() ^ info.Size()
-	}
-	return fp
 }
 
 // startWorkers fans out file processing across a worker pool

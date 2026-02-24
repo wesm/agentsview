@@ -17,6 +17,60 @@ type OpenCodeSession struct {
 	Messages []ParsedMessage
 }
 
+// OpenCodeSessionMeta is lightweight metadata for a session,
+// used to detect changes without parsing messages or parts.
+type OpenCodeSessionMeta struct {
+	SessionID   string
+	VirtualPath string
+	FileMtime   int64
+}
+
+// ListOpenCodeSessionMeta returns lightweight metadata for
+// all sessions without parsing messages or parts. Used by
+// the sync engine to detect which sessions have changed.
+func ListOpenCodeSessionMeta(
+	dbPath string,
+) ([]OpenCodeSessionMeta, error) {
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	db, err := openOpenCodeDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(
+		"SELECT id, time_updated FROM session",
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"listing opencode sessions: %w", err,
+		)
+	}
+	defer rows.Close()
+
+	var metas []OpenCodeSessionMeta
+	for rows.Next() {
+		var id string
+		var timeUpdated int64
+		if err := rows.Scan(
+			&id, &timeUpdated,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"scanning opencode session meta: %w", err,
+			)
+		}
+		metas = append(metas, OpenCodeSessionMeta{
+			SessionID:   id,
+			VirtualPath: dbPath + "#" + id,
+			FileMtime:   timeUpdated * 1_000_000,
+		})
+	}
+	return metas, rows.Err()
+}
+
 // ParseOpenCodeDB opens the OpenCode SQLite database read-only
 // and returns all sessions with messages.
 func ParseOpenCodeDB(
