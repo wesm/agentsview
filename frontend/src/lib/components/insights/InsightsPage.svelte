@@ -315,6 +315,7 @@
                 <span class="task-phase">{task.phase}</span>
               {/if}
             </div>
+            <span class="task-agent">{task.agent}</span>
             <button
               class="task-dismiss"
               onclick={() => task.status === "error"
@@ -800,6 +801,15 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .task-agent {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
+    white-space: nowrap;
   }
 
   .task-dismiss {
