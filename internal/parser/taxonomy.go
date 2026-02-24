@@ -38,6 +38,14 @@ func NormalizeToolCategory(rawName string) string {
 	case "search_files", "grep":
 		return "Grep"
 
+	// Cursor tools
+	case "Shell":
+		return "Bash"
+	case "StrReplace":
+		return "Edit"
+	case "LS":
+		return "Read"
+
 	default:
 		return "Other"
 	}

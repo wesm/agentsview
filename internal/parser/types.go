@@ -9,6 +9,7 @@ const (
 	AgentClaude AgentType = "claude"
 	AgentCodex  AgentType = "codex"
 	AgentGemini AgentType = "gemini"
+	AgentCursor AgentType = "cursor"
 )
 
 // RoleType identifies the role of a message sender.
