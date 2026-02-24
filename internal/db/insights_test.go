@@ -231,8 +231,9 @@ func TestInsights_ListCappedAt500(t *testing.T) {
 	ctx := context.Background()
 
 	const total = 502
+	ids := make([]int64, total)
 	for i := range total {
-		_, err := d.InsertInsight(Insight{
+		id, err := d.InsertInsight(Insight{
 			Type:     "daily_activity",
 			DateFrom: "2025-01-15",
 			DateTo:   "2025-01-15",
@@ -242,6 +243,7 @@ func TestInsights_ListCappedAt500(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InsertInsight %d: %v", i, err)
 		}
+		ids[i] = id
 	}
 
 	got, err := d.ListInsights(ctx, InsightFilter{})
@@ -254,10 +256,21 @@ func TestInsights_ListCappedAt500(t *testing.T) {
 			len(got),
 		)
 	}
-	// Newest first: highest ID should be first.
-	if got[0].ID < got[len(got)-1].ID {
-		t.Error(
-			"expected newest-first ordering",
+
+	// Newest (id 502) should be first.
+	newestID := ids[total-1]
+	if got[0].ID != newestID {
+		t.Errorf(
+			"first ID = %d, want %d (newest)",
+			got[0].ID, newestID,
+		)
+	}
+	// Oldest retained should be id 3 (skipping 1 and 2).
+	oldestRetainedID := ids[total-500]
+	if got[499].ID != oldestRetainedID {
+		t.Errorf(
+			"last ID = %d, want %d (oldest retained)",
+			got[499].ID, oldestRetainedID,
 		)
 	}
 }

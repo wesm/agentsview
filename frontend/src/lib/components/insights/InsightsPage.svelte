@@ -31,6 +31,13 @@
     const mode = select.value as UIMode;
     if (mode === "range_activity") {
       insights.setType("daily_activity");
+      if (insights.dateFrom === insights.dateTo) {
+        const d = new Date(
+          insights.dateFrom + "T00:00:00",
+        );
+        d.setDate(d.getDate() + 6);
+        insights.setDateTo(localDateStr(d));
+      }
     } else {
       insights.setType(
         mode === "agent_analysis"
