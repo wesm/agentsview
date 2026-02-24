@@ -291,10 +291,10 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	)
 
 	tPersist := time.Now()
-	e.persistSkipCache()
+	skipCount := e.persistSkipCache()
 	log.Printf(
 		"persist skip cache (%d entries): %s",
-		len(e.skipCache),
+		skipCount,
 		time.Since(tPersist).Round(time.Millisecond),
 	)
 
@@ -540,7 +540,8 @@ func (e *Engine) clearSkip(path string) {
 
 // persistSkipCache writes the in-memory skip cache to the
 // database so skipped files survive process restarts.
-func (e *Engine) persistSkipCache() {
+// Returns the number of entries persisted.
+func (e *Engine) persistSkipCache() int {
 	e.skipMu.RLock()
 	snapshot := make(map[string]int64, len(e.skipCache))
 	maps.Copy(snapshot, e.skipCache)
@@ -549,6 +550,7 @@ func (e *Engine) persistSkipCache() {
 	if err := e.db.ReplaceSkippedFiles(snapshot); err != nil {
 		log.Printf("persisting skip cache: %v", err)
 	}
+	return len(snapshot)
 }
 
 // shouldSkipFile returns true when the file's size and mtime
@@ -784,6 +786,67 @@ func (e *Engine) writeMessages(
 	}
 }
 
+// writeSessionFull upserts a session and does a full
+// delete+reinsert of its messages. Used by explicit
+// single-session re-syncs where existing content may have
+// changed (not just appended).
+func (e *Engine) writeSessionFull(pw pendingWrite) {
+	s := db.Session{
+		ID:              pw.sess.ID,
+		Project:         pw.sess.Project,
+		Machine:         pw.sess.Machine,
+		Agent:           string(pw.sess.Agent),
+		MessageCount:    pw.sess.MessageCount,
+		ParentSessionID: strPtr(pw.sess.ParentSessionID),
+		FilePath:        strPtr(pw.sess.File.Path),
+		FileSize:        int64Ptr(pw.sess.File.Size),
+		FileMtime:       int64Ptr(pw.sess.File.Mtime),
+		FileHash:        strPtr(pw.sess.File.Hash),
+	}
+	if pw.sess.FirstMessage != "" {
+		s.FirstMessage = &pw.sess.FirstMessage
+	}
+	if !pw.sess.StartedAt.IsZero() {
+		s.StartedAt = timeutil.Ptr(pw.sess.StartedAt)
+	}
+	if !pw.sess.EndedAt.IsZero() {
+		s.EndedAt = timeutil.Ptr(pw.sess.EndedAt)
+	}
+
+	if err := e.db.UpsertSession(s); err != nil {
+		log.Printf("upsert session %s: %v", s.ID, err)
+		return
+	}
+
+	msgs := make([]db.Message, len(pw.msgs))
+	for i, m := range pw.msgs {
+		msgs[i] = db.Message{
+			SessionID:     pw.sess.ID,
+			Ordinal:       m.Ordinal,
+			Role:          string(m.Role),
+			Content:       m.Content,
+			Timestamp:     timeutil.Format(m.Timestamp),
+			HasThinking:   m.HasThinking,
+			HasToolUse:    m.HasToolUse,
+			ContentLength: m.ContentLength,
+			ToolCalls: convertToolCalls(
+				pw.sess.ID, m.ToolCalls,
+			),
+			ToolResults: convertToolResults(m.ToolResults),
+		}
+	}
+	msgs = pairAndFilter(msgs)
+
+	if err := e.db.ReplaceSessionMessages(
+		pw.sess.ID, msgs,
+	); err != nil {
+		log.Printf(
+			"replace messages for %s: %v",
+			pw.sess.ID, err,
+		)
+	}
+}
+
 func countMessages(batch []pendingWrite) int {
 	n := 0
 	for _, pw := range batch {
@@ -890,9 +953,9 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		return nil
 	}
 
-	e.writeBatch([]pendingWrite{
-		{sess: *res.sess, msgs: res.msgs},
-	})
+	e.writeSessionFull(
+		pendingWrite{sess: *res.sess, msgs: res.msgs},
+	)
 	return nil
 }
 
@@ -938,9 +1001,9 @@ func (e *Engine) syncSingleOpenCode(
 		return nil
 	}
 
-	e.writeBatch([]pendingWrite{
-		{sess: *sess, msgs: msgs},
-	})
+	e.writeSessionFull(
+		pendingWrite{sess: *sess, msgs: msgs},
+	)
 	return nil
 }
 
