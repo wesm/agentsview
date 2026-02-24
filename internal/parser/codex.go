@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -504,17 +503,13 @@ func ParseCodexSession(
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(
-		make([]byte, 0, initialScanBufSize), maxScanTokenSize,
-	)
-
+	lr := newLineReader(f, maxLineSize)
 	b := newCodexSessionBuilder(includeExec)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "" {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
 		if !gjson.Valid(line) {
 			continue
@@ -522,11 +517,6 @@ func ParseCodexSession(
 		if b.processLine(line) {
 			return nil, nil, nil
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, nil,
-			fmt.Errorf("scanning codex %s: %w", path, err)
 	}
 
 	sessionID := b.sessionID

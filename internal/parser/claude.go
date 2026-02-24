@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 
 const (
 	initialScanBufSize = 64 * 1024        // 64KB
-	maxScanTokenSize   = 20 * 1024 * 1024 // 20MB
+	maxLineSize        = 64 * 1024 * 1024 // 64MB
 )
 
 // ParseClaudeSession parses a Claude Code JSONL session file.
@@ -43,15 +42,12 @@ func ParseClaudeSession(
 		ordinal         int
 	)
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(
-		make([]byte, 0, initialScanBufSize), maxScanTokenSize,
-	)
+	lr := newLineReader(f, maxLineSize)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "" {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
 
 		if !gjson.Valid(line) {
@@ -137,11 +133,6 @@ func ParseClaudeSession(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return ParsedSession{}, nil,
-			fmt.Errorf("scanning %s: %w", path, err)
-	}
-
 	sess := ParsedSession{
 		ID:              sessionID,
 		Project:         project,
@@ -173,15 +164,12 @@ func ExtractClaudeProjectHints(
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(
-		make([]byte, 0, initialScanBufSize), maxScanTokenSize,
-	)
+	lr := newLineReader(f, maxLineSize)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "" {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
 		if !gjson.Valid(line) {
 			continue

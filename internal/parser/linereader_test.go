@@ -1,0 +1,91 @@
+package parser
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestLineReader(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		maxLen  int
+		want    []string
+	}{
+		{
+			"normal lines",
+			"aaa\nbbb\nccc\n",
+			100,
+			[]string{"aaa", "bbb", "ccc"},
+		},
+		{
+			"skips oversized line",
+			"short\n" + strings.Repeat("x", 50) + "\nafter\n",
+			30,
+			[]string{"short", "after"},
+		},
+		{
+			"all lines oversized",
+			strings.Repeat("a", 50) + "\n" +
+				strings.Repeat("b", 50) + "\n",
+			30,
+			nil,
+		},
+		{
+			"empty input",
+			"",
+			100,
+			nil,
+		},
+		{
+			"blank lines skipped",
+			"aaa\n\n\nbbb\n",
+			100,
+			[]string{"aaa", "bbb"},
+		},
+		{
+			"line without trailing newline",
+			"aaa\nbbb",
+			100,
+			[]string{"aaa", "bbb"},
+		},
+		{
+			"exact limit kept",
+			strings.Repeat("x", 30) + "\n",
+			30,
+			[]string{strings.Repeat("x", 30)},
+		},
+		{
+			"one over limit skipped",
+			strings.Repeat("x", 31) + "\n",
+			30,
+			nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lr := newLineReader(
+				strings.NewReader(tt.input), tt.maxLen,
+			)
+			var got []string
+			for {
+				line, ok := lr.next()
+				if !ok {
+					break
+				}
+				got = append(got, line)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d lines, want %d: %v",
+					len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("line[%d] = %q, want %q",
+						i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

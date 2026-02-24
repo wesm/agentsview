@@ -1429,59 +1429,40 @@ func TestCodexSessionTimestampSemantics(t *testing.T) {
 	})
 }
 
-func TestParseCodexSessionScannerLimit(t *testing.T) {
-	meta := testjsonl.CodexSessionMetaJSON("huge", "/tmp", "user", tsEarly) + "\n"
-	prefix := `{"type":"response_item","timestamp":"` + tsEarlyS1 + `","payload":{"role":"user","content":[{"type":"input_text","text":"`
+func TestParseCodexSessionOversizedLineSkipped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("allocates large buffer")
+	}
+
+	meta := testjsonl.CodexSessionMetaJSON(
+		"huge", "/tmp", "user", tsEarly,
+	) + "\n"
+	prefix := `{"type":"response_item","timestamp":"` +
+		tsEarlyS1 +
+		`","payload":{"role":"user","content":` +
+		`[{"type":"input_text","text":"`
 	suffix := `"}]}}` + "\n"
-	envelope := len(prefix) + len(suffix)
 
-	t.Run("exact limit succeeds", func(t *testing.T) {
-		// envelope includes the trailing newline. bufio.Scanner buffer limit applies
-		// to the token plus the delimiter (if scanned). So the total size including
-		// newline must be <= maxScanTokenSize.
-		textLen := maxScanTokenSize - envelope
-		nearLimitText := strings.Repeat("y", textLen)
-		content := meta + prefix + nearLimitText + suffix
-		path := createTestFile(t, "near-limit.jsonl", content)
-		sess, msgs, err := ParseCodexSession(
-			path, "local", false,
-		)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if sess == nil {
-			t.Fatal("session is nil")
-		}
-		if len(msgs) != 1 {
-			t.Fatalf("got %d messages, want 1", len(msgs))
-		}
-		if msgs[0].ContentLength != textLen {
-			t.Errorf(
-				"content_length = %d, want %d",
-				msgs[0].ContentLength, textLen,
-			)
-		}
-	})
+	normalLine := prefix + "hello" + suffix
+	oversizedLine := prefix +
+		strings.Repeat("x", maxLineSize+1) + suffix
 
-	t.Run("exceeds limit returns error", func(t *testing.T) {
-		textLen := maxScanTokenSize - envelope + 1
-		hugeText := strings.Repeat("x", textLen)
-		content := meta + prefix + hugeText + suffix
-		path := createTestFile(t, "huge.jsonl", content)
-		_, _, err := ParseCodexSession(path, "local", false)
-		if err == nil {
-			t.Fatal(
-				"expected scanner error for line " +
-					"exceeding maxScanTokenSize",
-			)
-		}
-		if !strings.Contains(err.Error(), "scanning") {
-			t.Errorf(
-				"error = %q, want it to mention scanning",
-				err,
-			)
-		}
-	})
+	// Place the oversized line between two normal lines.
+	content := meta + normalLine + oversizedLine + normalLine
+	path := createTestFile(t, "oversized.jsonl", content)
+	sess, msgs, err := ParseCodexSession(
+		path, "local", false,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2 (oversized skipped)",
+			len(msgs))
+	}
 }
 
 func TestExtractCwdFromSession(t *testing.T) {
