@@ -163,7 +163,7 @@ func (b *copilotSessionBuilder) handleToolComplete(
 
 	r := data.Get("result")
 	content := r.Str
-	if content == "" && r.Raw != "" {
+	if r.Type != gjson.String && r.Raw != "" {
 		content = r.Raw
 	}
 	contentLen := len(content)

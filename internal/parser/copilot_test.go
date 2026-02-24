@@ -137,13 +137,16 @@ func TestParseCopilotSession_ToolCalls(t *testing.T) {
 		t.Errorf("tool result ID = %q, want %q",
 			trMsg.ToolResults[0].ToolUseID, "tc-1")
 	}
-	if trMsg.ToolResults[0].ContentLength == 0 {
-		t.Error("expected non-zero tool result content length")
+	if got := trMsg.ToolResults[0].ContentLength; got != 15 {
+		t.Errorf("tool result ContentLength = %d, want 15",
+			got)
 	}
 
 	// Tool result message should carry the event timestamp.
-	if trMsg.Timestamp.IsZero() {
-		t.Error("expected non-zero timestamp on tool result")
+	wantTS := parseTimestamp("2025-01-15T10:00:03Z")
+	if trMsg.Timestamp != wantTS {
+		t.Errorf("tool result timestamp = %v, want %v",
+			trMsg.Timestamp, wantTS)
 	}
 }
 
@@ -171,15 +174,17 @@ func TestParseCopilotSession_ObjectToolResult(t *testing.T) {
 		t.Fatalf("got %d tool results, want 1",
 			len(trMsg.ToolResults))
 	}
-	if trMsg.ContentLength == 0 {
-		t.Error(
-			"expected non-zero ContentLength for object result",
+	// {"files":["a.go","b.go"]} = 25 bytes
+	if got := trMsg.ContentLength; got != 25 {
+		t.Errorf(
+			"ContentLength = %d, want 25 for object result",
+			got,
 		)
 	}
-	if trMsg.ToolResults[0].ContentLength == 0 {
-		t.Error(
-			"expected non-zero tool result ContentLength " +
-				"for object result",
+	if got := trMsg.ToolResults[0].ContentLength; got != 25 {
+		t.Errorf(
+			"tool result ContentLength = %d, want 25 "+
+				"for object result", got,
 		)
 	}
 }
@@ -202,15 +207,53 @@ func TestParseCopilotSession_ArrayToolResult(t *testing.T) {
 	}
 
 	trMsg := msgs[2]
-	if trMsg.ContentLength == 0 {
-		t.Error(
-			"expected non-zero ContentLength for array result",
+	// ["one","two","three"] = 21 bytes
+	if got := trMsg.ContentLength; got != 21 {
+		t.Errorf(
+			"ContentLength = %d, want 21 for array result",
+			got,
 		)
 	}
-	if trMsg.ToolResults[0].ContentLength == 0 {
-		t.Error(
-			"expected non-zero tool result ContentLength " +
-				"for array result",
+	if got := trMsg.ToolResults[0].ContentLength; got != 21 {
+		t.Errorf(
+			"tool result ContentLength = %d, want 21 "+
+				"for array result", got,
+		)
+	}
+}
+
+func TestParseCopilotSession_EmptyStringToolResult(
+	t *testing.T,
+) {
+	// result is an explicit empty string — ContentLength
+	// should be 0, not 2 (the length of `""`).
+	path := writeCopilotJSONL(t,
+		`{"type":"session.start","data":{"sessionId":"empty-str"},"timestamp":"2025-01-15T10:00:00Z"}`,
+		`{"type":"user.message","data":{"content":"run cmd"},"timestamp":"2025-01-15T10:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-4","name":"exec","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
+		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-4","success":true,"result":""},"timestamp":"2025-01-15T10:00:03Z"}`,
+		`{"type":"assistant.message","data":{"content":"Done."},"timestamp":"2025-01-15T10:00:04Z"}`,
+	)
+
+	_, msgs, err := ParseCopilotSession(path, "m")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("got %d messages, want 4", len(msgs))
+	}
+
+	trMsg := msgs[2]
+	if got := trMsg.ContentLength; got != 0 {
+		t.Errorf(
+			"ContentLength = %d, want 0 for empty-string result",
+			got,
+		)
+	}
+	if got := trMsg.ToolResults[0].ContentLength; got != 0 {
+		t.Errorf(
+			"tool result ContentLength = %d, want 0 "+
+				"for empty-string result", got,
 		)
 	}
 }
