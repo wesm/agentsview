@@ -1209,6 +1209,7 @@ func TestSyncEngineOpenCodeToolCallReplace(t *testing.T) {
 
 	agentviewID := "opencode:" + sessionID
 	assertSessionState(t, env.db, agentviewID, nil)
+	assertToolCallCount(t, env.db, agentviewID, 1)
 
 	// Replace: remove tool call, add text instead.
 	oc.deleteMessages(t, sessionID)
@@ -1236,4 +1237,5 @@ func TestSyncEngineOpenCodeToolCallReplace(t *testing.T) {
 		t, env.db, agentviewID,
 		"run ls", "here are the files",
 	)
+	assertToolCallCount(t, env.db, agentviewID, 0)
 }

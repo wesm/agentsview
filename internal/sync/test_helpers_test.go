@@ -140,6 +140,29 @@ func assertMessageContent(
 	}
 }
 
+// assertToolCallCount verifies that the total number of
+// tool_calls rows for a session matches the expected count.
+func assertToolCallCount(
+	t *testing.T, database *db.DB,
+	sessionID string, want int,
+) {
+	t.Helper()
+	var got int
+	err := database.Reader().QueryRow(
+		"SELECT COUNT(*) FROM tool_calls"+
+			" WHERE session_id = ?",
+		sessionID,
+	).Scan(&got)
+	if err != nil {
+		t.Fatalf("count tool_calls for %q: %v",
+			sessionID, err)
+	}
+	if got != want {
+		t.Errorf("tool_calls count for %q = %d, want %d",
+			sessionID, got, want)
+	}
+}
+
 // updateSessionProject fetches the session, updates its
 // Project field, and upserts it back. Reduces boilerplate
 // for tests that need to override a single field.
