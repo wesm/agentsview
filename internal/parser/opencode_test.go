@@ -12,7 +12,7 @@ import (
 const openCodeSchema = `
 CREATE TABLE project (
 	id TEXT PRIMARY KEY,
-	path TEXT NOT NULL,
+	worktree TEXT NOT NULL,
 	time_created INTEGER NOT NULL DEFAULT 0,
 	time_updated INTEGER NOT NULL DEFAULT 0
 );
@@ -69,7 +69,7 @@ func seedStandardSession(t *testing.T, dbPath string) {
 	defer db.Close()
 
 	stmts := []string{
-		`INSERT INTO project (id, path)
+		`INSERT INTO project (id, worktree)
 		 VALUES ('prj_1', '/home/user/code/myapp')`,
 		`INSERT INTO session
 		 (id, project_id, title, time_created, time_updated)
@@ -175,7 +175,7 @@ func TestParseOpenCodeDB_ToolParts(t *testing.T) {
 	}
 
 	stmts := []string{
-		`INSERT INTO project (id, path)
+		`INSERT INTO project (id, worktree)
 		 VALUES ('prj_1', '/tmp/proj')`,
 		`INSERT INTO session
 		 (id, project_id, time_created, time_updated)
@@ -270,7 +270,7 @@ func TestParseOpenCodeDB_EmptySession(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	stmts := []string{
-		`INSERT INTO project (id, path)
+		`INSERT INTO project (id, worktree)
 		 VALUES ('prj_1', '/tmp/proj')`,
 		`INSERT INTO session
 		 (id, project_id, time_created, time_updated)
@@ -325,7 +325,7 @@ func TestParseOpenCodeDB_ProjectFromWorktree(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	stmts := []string{
-		`INSERT INTO project (id, path)
+		`INSERT INTO project (id, worktree)
 		 VALUES ('prj_git', '` + repoDir + `')`,
 		`INSERT INTO session
 		 (id, project_id, time_created, time_updated)
@@ -395,7 +395,7 @@ func TestParseOpenCodeDB_OrdinalContinuity(t *testing.T) {
 	// message (also skipped). Ordinals of the remaining
 	// messages must be contiguous 0,1,2.
 	stmts := []string{
-		`INSERT INTO project (id, path)
+		`INSERT INTO project (id, worktree)
 		 VALUES ('prj_1', '/tmp/proj')`,
 		`INSERT INTO session
 		 (id, project_id, time_created, time_updated)
@@ -495,7 +495,7 @@ func TestParseOpenCodeDB_ParentSession(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	stmts := []string{
-		`INSERT INTO project (id, path)
+		`INSERT INTO project (id, worktree)
 		 VALUES ('prj_1', '/tmp/proj')`,
 		`INSERT INTO session
 		 (id, project_id, time_created, time_updated)

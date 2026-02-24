@@ -129,7 +129,7 @@ func loadOpenCodeProjects(
 	db *sql.DB,
 ) (map[string]string, error) {
 	rows, err := db.Query(
-		"SELECT id, path FROM project",
+		"SELECT id, worktree FROM project",
 	)
 	if err != nil {
 		return nil, err

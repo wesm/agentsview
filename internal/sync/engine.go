@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,12 +42,21 @@ type Engine struct {
 	skipCache map[string]int64
 }
 
-// NewEngine creates a sync engine.
+// NewEngine creates a sync engine. It pre-populates the
+// in-memory skip cache from the database so that files
+// skipped in a prior run are not re-parsed on startup.
 func NewEngine(
 	database *db.DB,
 	claudeDir, codexDir, geminiDir,
 	opencodeDir, machine string,
 ) *Engine {
+	skipCache := make(map[string]int64)
+	if loaded, err := database.LoadSkippedFiles(); err == nil {
+		skipCache = loaded
+	} else {
+		log.Printf("loading skip cache: %v", err)
+	}
+
 	return &Engine{
 		db:          database,
 		claudeDir:   claudeDir,
@@ -54,7 +64,7 @@ func NewEngine(
 		geminiDir:   geminiDir,
 		opencodeDir: opencodeDir,
 		machine:     machine,
-		skipCache:   make(map[string]int64),
+		skipCache:   skipCache,
 	}
 }
 
@@ -89,6 +99,7 @@ func (e *Engine) SyncPaths(paths []string) {
 
 	results := e.startWorkers(files)
 	stats := e.collectAndBatch(results, len(files), nil)
+	e.persistSkipCache()
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
@@ -262,6 +273,8 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 		stats.RecordSynced(len(ocPending))
 		e.writeBatch(ocPending)
 	}
+
+	e.persistSkipCache()
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
@@ -513,6 +526,20 @@ func (e *Engine) clearSkip(path string) {
 	e.skipMu.Lock()
 	delete(e.skipCache, path)
 	e.skipMu.Unlock()
+	_ = e.db.DeleteSkippedFile(path)
+}
+
+// persistSkipCache writes the in-memory skip cache to the
+// database so skipped files survive process restarts.
+func (e *Engine) persistSkipCache() {
+	e.skipMu.RLock()
+	snapshot := make(map[string]int64, len(e.skipCache))
+	maps.Copy(snapshot, e.skipCache)
+	e.skipMu.RUnlock()
+
+	if err := e.db.ReplaceSkippedFiles(snapshot); err != nil {
+		log.Printf("persisting skip cache: %v", err)
+	}
 }
 
 // shouldSkipFile returns true when the file's size and mtime

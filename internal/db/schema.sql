@@ -127,3 +127,11 @@ CREATE INDEX IF NOT EXISTS idx_insights_lookup
 
 CREATE INDEX IF NOT EXISTS idx_insights_created
     ON insights(created_at DESC);
+
+-- Skipped files cache: persists skip decisions for files that
+-- produced no session (non-interactive, parse errors) so they
+-- survive process restarts without re-parsing.
+CREATE TABLE IF NOT EXISTS skipped_files (
+    file_path  TEXT PRIMARY KEY,
+    file_mtime INTEGER NOT NULL
+);
