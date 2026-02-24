@@ -429,6 +429,15 @@ func DiscoverCopilotSessions(
 		return nil
 	}
 
+	// Collect directory entries first so we can skip bare
+	// files that also have a directory counterpart.
+	dirs := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs[entry.Name()] = struct{}{}
+		}
+	}
+
 	var files []DiscoveredFile
 	for _, entry := range entries {
 		name := entry.Name()
@@ -445,8 +454,12 @@ func DiscoverCopilotSessions(
 			}
 			continue
 		}
-		// Bare format: <uuid>.jsonl
-		if strings.HasSuffix(name, ".jsonl") {
+		// Bare format: <uuid>.jsonl — skip if a directory
+		// with the same stem exists (prefer directory format).
+		if stem, ok := strings.CutSuffix(name, ".jsonl"); ok {
+			if _, dup := dirs[stem]; dup {
+				continue
+			}
 			files = append(files, DiscoveredFile{
 				Path:  filepath.Join(stateDir, name),
 				Agent: parser.AgentCopilot,

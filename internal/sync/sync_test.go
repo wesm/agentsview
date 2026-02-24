@@ -494,6 +494,45 @@ func TestDiscoverCopilotSessions_Mixed(t *testing.T) {
 	}
 }
 
+func TestDiscoverCopilotSessions_DedupBareAndDir(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "session-state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Both bare and directory format for the same UUID.
+	uuid := "dup-uuid-1234"
+	if err := os.WriteFile(
+		filepath.Join(stateDir, uuid+".jsonl"),
+		[]byte("{}"), 0o644,
+	); err != nil {
+		t.Fatalf("write bare: %v", err)
+	}
+	sessDir := filepath.Join(stateDir, uuid)
+	if err := os.MkdirAll(sessDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(sessDir, "events.jsonl"),
+		[]byte("{}"), 0o644,
+	); err != nil {
+		t.Fatalf("write dir: %v", err)
+	}
+
+	files := DiscoverCopilotSessions(dir)
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1 (dedup)", len(files))
+	}
+	// Directory format should win.
+	want := filepath.Join(sessDir, "events.jsonl")
+	if files[0].Path != want {
+		t.Errorf("path = %q, want %q", files[0].Path, want)
+	}
+}
+
 func TestDiscoverCopilotSessions_DirWithoutEvents(
 	t *testing.T,
 ) {

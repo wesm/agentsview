@@ -118,11 +118,16 @@ func (b *copilotSessionBuilder) handleAssistantMessage(
 			if name == "" {
 				return true
 			}
+			args := req.Get("arguments")
+			inputJSON := args.Str
+			if args.Type != gjson.String && args.Raw != "" {
+				inputJSON = args.Raw
+			}
 			toolCalls = append(toolCalls, ParsedToolCall{
 				ToolUseID: req.Get("toolCallId").Str,
 				ToolName:  name,
 				Category:  NormalizeToolCategory(name),
-				InputJSON: req.Get("arguments").Raw,
+				InputJSON: inputJSON,
 			})
 			return true
 		},

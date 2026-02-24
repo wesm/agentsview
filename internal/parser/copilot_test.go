@@ -126,6 +126,14 @@ func TestParseCopilotSession_ToolCalls(t *testing.T) {
 		t.Errorf("tool use ID = %q, want %q",
 			tc.ToolUseID, "tc-1")
 	}
+	// arguments was a stringified JSON string in the JSONL;
+	// InputJSON should be the unwrapped JSON, not
+	// double-encoded with enclosing quotes.
+	wantInput := `{"path":"config.json"}`
+	if tc.InputJSON != wantInput {
+		t.Errorf("InputJSON = %q, want %q",
+			tc.InputJSON, wantInput)
+	}
 
 	// Check tool result message.
 	trMsg := msgs[2]
@@ -403,6 +411,28 @@ func TestParseCopilotSession_NonexistentFile(t *testing.T) {
 	}
 	if msgs != nil {
 		t.Error("expected nil messages for nonexistent file")
+	}
+}
+
+func TestParseCopilotSession_ObjectArguments(t *testing.T) {
+	// arguments is a native JSON object, not a string.
+	path := writeCopilotJSONL(t,
+		`{"type":"session.start","data":{"sessionId":"obj-args"},"timestamp":"2025-01-15T10:00:00Z"}`,
+		`{"type":"user.message","data":{"content":"list"},"timestamp":"2025-01-15T10:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-5","name":"glob","arguments":{"pattern":"*.go"}}]},"timestamp":"2025-01-15T10:00:02Z"}`,
+		`{"type":"assistant.message","data":{"content":"done"},"timestamp":"2025-01-15T10:00:03Z"}`,
+	)
+
+	_, msgs, err := ParseCopilotSession(path, "m")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tc := msgs[1].ToolCalls[0]
+	wantInput := `{"pattern":"*.go"}`
+	if tc.InputJSON != wantInput {
+		t.Errorf("InputJSON = %q, want %q",
+			tc.InputJSON, wantInput)
 	}
 }
 
