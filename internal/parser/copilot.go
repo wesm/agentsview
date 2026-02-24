@@ -57,7 +57,7 @@ func (b *copilotSessionBuilder) processLine(line string) {
 	case copilotEventAssistantMsg:
 		b.handleAssistantMessage(data, ts)
 	case copilotEventToolComplete:
-		b.handleToolComplete(data)
+		b.handleToolComplete(data, ts)
 	case copilotEventAssistantReason:
 		b.handleAssistantReasoning()
 	}
@@ -154,20 +154,25 @@ func (b *copilotSessionBuilder) handleAssistantMessage(
 }
 
 func (b *copilotSessionBuilder) handleToolComplete(
-	data gjson.Result,
+	data gjson.Result, ts time.Time,
 ) {
 	toolCallID := data.Get("toolCallId").Str
 	if toolCallID == "" {
 		return
 	}
 
-	result := data.Get("result").Str
-	contentLen := len(result)
+	r := data.Get("result")
+	content := r.Str
+	if content == "" && r.Raw != "" {
+		content = r.Raw
+	}
+	contentLen := len(content)
 
 	// Emit a tool-result-only user message for pairing.
 	b.messages = append(b.messages, ParsedMessage{
 		Ordinal:       b.ordinal,
 		Role:          RoleUser,
+		Timestamp:     ts,
 		ContentLength: contentLen,
 		ToolResults: []ParsedToolResult{{
 			ToolUseID:     toolCallID,

@@ -140,6 +140,79 @@ func TestParseCopilotSession_ToolCalls(t *testing.T) {
 	if trMsg.ToolResults[0].ContentLength == 0 {
 		t.Error("expected non-zero tool result content length")
 	}
+
+	// Tool result message should carry the event timestamp.
+	if trMsg.Timestamp.IsZero() {
+		t.Error("expected non-zero timestamp on tool result")
+	}
+}
+
+func TestParseCopilotSession_ObjectToolResult(t *testing.T) {
+	// result is a JSON object, not a string — Str would be
+	// empty, but Raw gives us the length.
+	path := writeCopilotJSONL(t,
+		`{"type":"session.start","data":{"sessionId":"obj-result"},"timestamp":"2025-01-15T10:00:00Z"}`,
+		`{"type":"user.message","data":{"content":"list files"},"timestamp":"2025-01-15T10:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-2","name":"ls","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
+		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-2","success":true,"result":{"files":["a.go","b.go"]}},"timestamp":"2025-01-15T10:00:03Z"}`,
+		`{"type":"assistant.message","data":{"content":"Found 2 files."},"timestamp":"2025-01-15T10:00:04Z"}`,
+	)
+
+	_, msgs, err := ParseCopilotSession(path, "m")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("got %d messages, want 4", len(msgs))
+	}
+
+	trMsg := msgs[2]
+	if len(trMsg.ToolResults) != 1 {
+		t.Fatalf("got %d tool results, want 1",
+			len(trMsg.ToolResults))
+	}
+	if trMsg.ContentLength == 0 {
+		t.Error(
+			"expected non-zero ContentLength for object result",
+		)
+	}
+	if trMsg.ToolResults[0].ContentLength == 0 {
+		t.Error(
+			"expected non-zero tool result ContentLength " +
+				"for object result",
+		)
+	}
+}
+
+func TestParseCopilotSession_ArrayToolResult(t *testing.T) {
+	path := writeCopilotJSONL(t,
+		`{"type":"session.start","data":{"sessionId":"arr-result"},"timestamp":"2025-01-15T10:00:00Z"}`,
+		`{"type":"user.message","data":{"content":"get items"},"timestamp":"2025-01-15T10:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-3","name":"list","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
+		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-3","success":true,"result":["one","two","three"]},"timestamp":"2025-01-15T10:00:03Z"}`,
+		`{"type":"assistant.message","data":{"content":"Got 3 items."},"timestamp":"2025-01-15T10:00:04Z"}`,
+	)
+
+	_, msgs, err := ParseCopilotSession(path, "m")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("got %d messages, want 4", len(msgs))
+	}
+
+	trMsg := msgs[2]
+	if trMsg.ContentLength == 0 {
+		t.Error(
+			"expected non-zero ContentLength for array result",
+		)
+	}
+	if trMsg.ToolResults[0].ContentLength == 0 {
+		t.Error(
+			"expected non-zero tool result ContentLength " +
+				"for array result",
+		)
+	}
 }
 
 func TestParseCopilotSession_Reasoning(t *testing.T) {
