@@ -693,52 +693,12 @@ type pendingWrite struct {
 
 func (e *Engine) writeBatch(batch []pendingWrite) {
 	for _, pw := range batch {
-		s := db.Session{
-			ID:              pw.sess.ID,
-			Project:         pw.sess.Project,
-			Machine:         pw.sess.Machine,
-			Agent:           string(pw.sess.Agent),
-			MessageCount:    pw.sess.MessageCount,
-			ParentSessionID: strPtr(pw.sess.ParentSessionID),
-			FilePath:        strPtr(pw.sess.File.Path),
-			FileSize:        int64Ptr(pw.sess.File.Size),
-			FileMtime:       int64Ptr(pw.sess.File.Mtime),
-			FileHash:        strPtr(pw.sess.File.Hash),
-		}
-		if pw.sess.FirstMessage != "" {
-			s.FirstMessage = &pw.sess.FirstMessage
-		}
-		if !pw.sess.StartedAt.IsZero() {
-			s.StartedAt = timeutil.Ptr(pw.sess.StartedAt)
-		}
-		if !pw.sess.EndedAt.IsZero() {
-			s.EndedAt = timeutil.Ptr(pw.sess.EndedAt)
-		}
-
+		s := toDBSession(pw)
 		if err := e.db.UpsertSession(s); err != nil {
 			log.Printf("upsert session %s: %v", s.ID, err)
 			continue
 		}
-
-		msgs := make([]db.Message, len(pw.msgs))
-		for i, m := range pw.msgs {
-			msgs[i] = db.Message{
-				SessionID:     pw.sess.ID,
-				Ordinal:       m.Ordinal,
-				Role:          string(m.Role),
-				Content:       m.Content,
-				Timestamp:     timeutil.Format(m.Timestamp),
-				HasThinking:   m.HasThinking,
-				HasToolUse:    m.HasToolUse,
-				ContentLength: m.ContentLength,
-				ToolCalls: convertToolCalls(
-					pw.sess.ID, m.ToolCalls,
-				),
-				ToolResults: convertToolResults(m.ToolResults),
-			}
-		}
-		msgs = pairAndFilter(msgs)
-
+		msgs := toDBMessages(pw)
 		e.writeMessages(pw.sess.ID, msgs)
 	}
 }
@@ -791,6 +751,24 @@ func (e *Engine) writeMessages(
 // single-session re-syncs where existing content may have
 // changed (not just appended).
 func (e *Engine) writeSessionFull(pw pendingWrite) {
+	s := toDBSession(pw)
+	if err := e.db.UpsertSession(s); err != nil {
+		log.Printf("upsert session %s: %v", s.ID, err)
+		return
+	}
+	msgs := toDBMessages(pw)
+	if err := e.db.ReplaceSessionMessages(
+		pw.sess.ID, msgs,
+	); err != nil {
+		log.Printf(
+			"replace messages for %s: %v",
+			pw.sess.ID, err,
+		)
+	}
+}
+
+// toDBSession converts a pendingWrite to a db.Session.
+func toDBSession(pw pendingWrite) db.Session {
 	s := db.Session{
 		ID:              pw.sess.ID,
 		Project:         pw.sess.Project,
@@ -812,12 +790,12 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 	if !pw.sess.EndedAt.IsZero() {
 		s.EndedAt = timeutil.Ptr(pw.sess.EndedAt)
 	}
+	return s
+}
 
-	if err := e.db.UpsertSession(s); err != nil {
-		log.Printf("upsert session %s: %v", s.ID, err)
-		return
-	}
-
+// toDBMessages converts parsed messages to db.Message rows
+// with tool-result pairing and filtering applied.
+func toDBMessages(pw pendingWrite) []db.Message {
 	msgs := make([]db.Message, len(pw.msgs))
 	for i, m := range pw.msgs {
 		msgs[i] = db.Message{
@@ -835,16 +813,7 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 			ToolResults: convertToolResults(m.ToolResults),
 		}
 	}
-	msgs = pairAndFilter(msgs)
-
-	if err := e.db.ReplaceSessionMessages(
-		pw.sess.ID, msgs,
-	); err != nil {
-		log.Printf(
-			"replace messages for %s: %v",
-			pw.sess.ID, err,
-		)
-	}
+	return pairAndFilter(msgs)
 }
 
 func countMessages(batch []pendingWrite) int {

@@ -384,6 +384,50 @@ func TestSyncEngineFileAppend(t *testing.T) {
 	})
 }
 
+// TestSyncSingleSessionReplacesContent verifies that an
+// explicit SyncSingleSession replaces existing message
+// content (same ordinals, different text).
+func TestSyncSingleSessionReplacesContent(
+	t *testing.T,
+) {
+	env := setupTestEnv(t)
+
+	original := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "original question").
+		AddClaudeAssistant(tsZeroS5, "original answer").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "test-proj", "replace-test.jsonl", original,
+	)
+
+	env.engine.SyncAll(nil)
+	assertMessageContent(
+		t, env.db, "replace-test",
+		"original question", "original answer",
+	)
+
+	// Rewrite the file with different content but same
+	// number of messages (same ordinals 0 and 1).
+	updated := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "updated question").
+		AddClaudeAssistant(tsZeroS5, "updated answer").
+		String()
+	os.WriteFile(path, []byte(updated), 0o644)
+
+	// SyncSingleSession should fully replace messages.
+	if err := env.engine.SyncSingleSession(
+		"replace-test",
+	); err != nil {
+		t.Fatalf("SyncSingleSession: %v", err)
+	}
+
+	assertMessageContent(
+		t, env.db, "replace-test",
+		"updated question", "updated answer",
+	)
+}
+
 func TestSyncSingleSessionHash(t *testing.T) {
 	env := setupTestEnv(t)
 

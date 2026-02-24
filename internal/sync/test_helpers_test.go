@@ -109,6 +109,32 @@ func assertMessageRoles(
 	}
 }
 
+// assertMessageContent verifies that a session's messages
+// have the expected content strings in ordinal order.
+func assertMessageContent(
+	t *testing.T, database *db.DB,
+	sessionID string, wantContent ...string,
+) {
+	t.Helper()
+	msgs, err := database.GetAllMessages(
+		context.Background(), sessionID,
+	)
+	if err != nil {
+		t.Fatalf("GetAllMessages(%q): %v",
+			sessionID, err)
+	}
+	if len(msgs) != len(wantContent) {
+		t.Fatalf("got %d messages, want %d",
+			len(msgs), len(wantContent))
+	}
+	for i, want := range wantContent {
+		if msgs[i].Content != want {
+			t.Errorf("msgs[%d].Content = %q, want %q",
+				i, msgs[i].Content, want)
+		}
+	}
+}
+
 // updateSessionProject fetches the session, updates its
 // Project field, and upserts it back. Reduces boilerplate
 // for tests that need to override a single field.
