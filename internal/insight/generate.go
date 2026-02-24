@@ -130,31 +130,32 @@ func generateClaude(
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return Result{}, fmt.Errorf(
-			"claude CLI failed: %w\nstderr: %s",
-			err, stderr.String(),
-		)
-	}
+	runErr := cmd.Run()
 
 	var resp struct {
 		Result string `json:"result"`
 		Model  string `json:"model"`
 	}
-	if err := json.Unmarshal(
-		stdout.Bytes(), &resp,
-	); err != nil {
+	if json.Unmarshal(stdout.Bytes(), &resp) == nil &&
+		strings.TrimSpace(resp.Result) != "" {
+		return Result{
+			Content: resp.Result,
+			Agent:   "claude",
+			Model:   resp.Model,
+		}, nil
+	}
+
+	if runErr != nil {
 		return Result{}, fmt.Errorf(
-			"parsing claude output: %w\nraw: %s",
-			err, stdout.String(),
+			"claude CLI failed: %w\nstderr: %s",
+			runErr, stderr.String(),
 		)
 	}
 
-	return Result{
-		Content: resp.Result,
-		Agent:   "claude",
-		Model:   resp.Model,
-	}, nil
+	return Result{}, fmt.Errorf(
+		"claude returned empty result\nraw: %s",
+		stdout.String(),
+	)
 }
 
 // generateCodex invokes `codex exec` in read-only sandbox
