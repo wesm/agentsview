@@ -1,6 +1,4 @@
-[review_guidelines]
-
-threat_model = """
+review_guidelines = """
 agentsview is a LOCAL-ONLY developer tool. It binds to 127.0.0.1
 by default and is not designed for multi-user or public deployment.
 
