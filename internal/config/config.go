@@ -19,6 +19,7 @@ type Config struct {
 	NoBrowser        bool          `json:"no_browser"`
 	ClaudeProjectDir string        `json:"claude_project_dir"`
 	CodexSessionsDir string        `json:"codex_sessions_dir"`
+	CopilotDir       string        `json:"copilot_dir"`
 	GeminiDir        string        `json:"gemini_dir"`
 	OpenCodeDir      string        `json:"opencode_dir"`
 	DataDir          string        `json:"data_dir"`
@@ -42,6 +43,7 @@ func Default() (Config, error) {
 		Port:             8080,
 		ClaudeProjectDir: filepath.Join(home, ".claude", "projects"),
 		CodexSessionsDir: filepath.Join(home, ".codex", "sessions"),
+		CopilotDir:       filepath.Join(home, ".copilot"),
 		GeminiDir:        filepath.Join(home, ".gemini"),
 		OpenCodeDir:      filepath.Join(home, ".local", "share", "opencode"),
 		DataDir:          dataDir,
@@ -156,6 +158,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("CODEX_SESSIONS_DIR"); v != "" {
 		c.CodexSessionsDir = v
+	}
+	if v := os.Getenv("COPILOT_DIR"); v != "" {
+		c.CopilotDir = v
 	}
 	if v := os.Getenv("GEMINI_DIR"); v != "" {
 		c.GeminiDir = v

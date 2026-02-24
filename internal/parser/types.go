@@ -8,6 +8,7 @@ type AgentType string
 const (
 	AgentClaude   AgentType = "claude"
 	AgentCodex    AgentType = "codex"
+	AgentCopilot  AgentType = "copilot"
 	AgentGemini   AgentType = "gemini"
 	AgentOpenCode AgentType = "opencode"
 )

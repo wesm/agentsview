@@ -43,6 +43,10 @@ func TestNormalizeToolCategory(t *testing.T) {
 		{"glob", "Glob"},
 		{"task", "Task"},
 
+		// Copilot tools
+		{"view", "Read"},
+		{"report_intent", "Tool"},
+
 		// Unknown
 		{"view_image", "Other"},
 		{"update_plan", "Other"},

@@ -2,7 +2,7 @@
 
 A local web application for browsing, searching, and analyzing
 AI agent coding sessions. Supports Claude Code, Codex,
-Gemini CLI, and OpenCode. A next-generation rewrite of
+Copilot CLI, Gemini CLI, and OpenCode. A next-generation rewrite of
 [agent-session-viewer](https://github.com/wesm/agent-session-viewer)
 in Go.
 
@@ -47,7 +47,7 @@ patterns over time.
 - **Full-text search** across all message content, instantly
 - **Analytics dashboard** with activity heatmaps, tool usage,
   velocity metrics, and project breakdowns
-- **Multi-agent support** for Claude Code, Codex, Gemini CLI, and OpenCode
+- **Multi-agent support** for Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode
 - **Live updates** via SSE as active sessions receive new messages
 - **Keyboard-first** navigation (vim-style `j`/`k`/`[`/`]`)
 - **Export and publish** sessions as HTML or to GitHub Gist
@@ -63,7 +63,7 @@ agentsview -no-browser  # headless mode
 ```
 
 On startup, agentsview discovers sessions from Claude Code, Codex,
-Gemini CLI, and OpenCode, syncs them into a local SQLite database
+Copilot CLI, Gemini CLI, and OpenCode, syncs them into a local SQLite database
 with FTS5 full-text search, and opens a web UI at
 `http://127.0.0.1:8080`.
 
@@ -123,7 +123,7 @@ make e2e            # Playwright E2E tests
 cmd/agentsview/     CLI entrypoint
 internal/config/    Configuration loading
 internal/db/        SQLite operations (sessions, search, analytics)
-internal/parser/    Session parsers (Claude, Codex, Gemini, OpenCode)
+internal/parser/    Session parsers (Claude, Codex, Copilot, Gemini, OpenCode)
 internal/server/    HTTP handlers, SSE, middleware
 internal/sync/      Sync engine, file watcher, discovery
 frontend/           Svelte 5 SPA (Vite, TypeScript)
@@ -135,11 +135,12 @@ frontend/           Svelte 5 SPA (Vite, TypeScript)
 |-------|-------------------|
 | Claude Code | `~/.claude/projects/` |
 | Codex | `~/.codex/sessions/` |
+| Copilot CLI | `~/.copilot/session-state/` |
 | Gemini CLI | `~/.gemini/` |
 | OpenCode | `~/.local/share/opencode/` |
 
 Override with `CLAUDE_PROJECTS_DIR`, `CODEX_SESSIONS_DIR`,
-`GEMINI_DIR`, or `OPENCODE_DIR` environment variables.
+`COPILOT_DIR`, `GEMINI_DIR`, or `OPENCODE_DIR` environment variables.
 
 ## Acknowledgements
 

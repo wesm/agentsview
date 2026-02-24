@@ -177,6 +177,7 @@
                 class="agent-badge"
                 class:agent-claude={session.agent === "claude"}
                 class:agent-codex={session.agent === "codex"}
+                class:agent-copilot={session.agent === "copilot"}
               >{session.agent}</span>
               {#if session.started_at}
                 <span class="session-time">
@@ -281,6 +282,10 @@
 
   .agent-codex {
     background: var(--accent-green);
+  }
+
+  .agent-copilot {
+    background: var(--accent-amber);
   }
 
   .session-time {

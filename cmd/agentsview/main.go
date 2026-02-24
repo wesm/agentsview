@@ -60,9 +60,9 @@ func main() {
 func printUsage() {
 	fmt.Printf(`agentsview %s - local web viewer for AI agent sessions
 
-Syncs Claude Code, Codex, Gemini CLI, and OpenCode session data into
-SQLite, serves an analytics dashboard and session browser via a local
-web UI.
+Syncs Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode session
+data into SQLite, serves an analytics dashboard and session browser via
+a local web UI.
 
 Usage:
   agentsview [flags]          Start the server (default command)
@@ -93,6 +93,7 @@ Update flags:
 Environment variables:
   CLAUDE_PROJECTS_DIR     Claude Code projects directory
   CODEX_SESSIONS_DIR      Codex sessions directory
+  COPILOT_DIR             Copilot CLI directory
   GEMINI_DIR              Gemini CLI directory
   OPENCODE_DIR            OpenCode data directory
   AGENT_VIEWER_DATA_DIR   Data directory (database, config)
@@ -109,8 +110,8 @@ func runServe(args []string) {
 
 	engine := sync.NewEngine(
 		database, cfg.ClaudeProjectDir,
-		cfg.CodexSessionsDir, cfg.GeminiDir,
-		cfg.OpenCodeDir, "local",
+		cfg.CodexSessionsDir, cfg.CopilotDir,
+		cfg.GeminiDir, cfg.OpenCodeDir, "local",
 	)
 
 	runInitialSync(engine)
@@ -233,6 +234,15 @@ func startFileWatcher(
 	if _, err := os.Stat(cfg.CodexSessionsDir); err == nil {
 		n, _ := watcher.WatchRecursive(cfg.CodexSessionsDir)
 		dirs += n
+	}
+	if cfg.CopilotDir != "" {
+		copilotState := filepath.Join(
+			cfg.CopilotDir, "session-state",
+		)
+		if _, err := os.Stat(copilotState); err == nil {
+			n, _ := watcher.WatchRecursive(copilotState)
+			dirs += n
+		}
 	}
 	if cfg.GeminiDir != "" {
 		geminiTmp := filepath.Join(cfg.GeminiDir, "tmp")

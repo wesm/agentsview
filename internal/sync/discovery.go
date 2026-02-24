@@ -412,3 +412,77 @@ func geminiPathHash(path string) string {
 	h := sha256.Sum256([]byte(path))
 	return fmt.Sprintf("%x", h)
 }
+
+// DiscoverCopilotSessions finds all JSONL files under
+// <copilotDir>/session-state/. Supports both bare format
+// (<uuid>.jsonl) and directory format (<uuid>/events.jsonl).
+func DiscoverCopilotSessions(
+	copilotDir string,
+) []DiscoveredFile {
+	if copilotDir == "" {
+		return nil
+	}
+
+	stateDir := filepath.Join(copilotDir, "session-state")
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			// Directory format: <uuid>/events.jsonl
+			candidate := filepath.Join(
+				stateDir, name, "events.jsonl",
+			)
+			if _, err := os.Stat(candidate); err == nil {
+				files = append(files, DiscoveredFile{
+					Path:  candidate,
+					Agent: parser.AgentCopilot,
+				})
+			}
+			continue
+		}
+		// Bare format: <uuid>.jsonl
+		if strings.HasSuffix(name, ".jsonl") {
+			files = append(files, DiscoveredFile{
+				Path:  filepath.Join(stateDir, name),
+				Agent: parser.AgentCopilot,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindCopilotSourceFile locates a Copilot session file by
+// UUID. Checks both bare (<uuid>.jsonl) and directory
+// (<uuid>/events.jsonl) layouts.
+func FindCopilotSourceFile(
+	copilotDir, rawID string,
+) string {
+	if copilotDir == "" || !isValidSessionID(rawID) {
+		return ""
+	}
+
+	stateDir := filepath.Join(copilotDir, "session-state")
+
+	// Check bare format first.
+	bare := filepath.Join(stateDir, rawID+".jsonl")
+	if _, err := os.Stat(bare); err == nil {
+		return bare
+	}
+
+	// Check directory format.
+	dirFmt := filepath.Join(stateDir, rawID, "events.jsonl")
+	if _, err := os.Stat(dirFmt); err == nil {
+		return dirFmt
+	}
+
+	return ""
+}

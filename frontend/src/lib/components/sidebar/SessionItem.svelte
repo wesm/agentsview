@@ -26,9 +26,11 @@
   let agentColor = $derived(
     session.agent === "codex"
       ? "var(--accent-green)"
-      : session.agent === "opencode"
-        ? "var(--accent-purple)"
-        : "var(--accent-blue)",
+      : session.agent === "copilot"
+        ? "var(--accent-amber)"
+        : session.agent === "opencode"
+          ? "var(--accent-purple)"
+          : "var(--accent-blue)",
   );
 
   let displayName = $derived(

@@ -1,0 +1,287 @@
+package parser
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/tidwall/gjson"
+)
+
+// Copilot JSONL event types.
+const (
+	copilotEventSessionStart    = "session.start"
+	copilotEventUserMessage     = "user.message"
+	copilotEventAssistantMsg    = "assistant.message"
+	copilotEventToolComplete    = "tool.execution_complete"
+	copilotEventAssistantReason = "assistant.reasoning"
+)
+
+// copilotSessionBuilder accumulates state while scanning a
+// Copilot JSONL session file line by line.
+type copilotSessionBuilder struct {
+	messages     []ParsedMessage
+	firstMessage string
+	startedAt    time.Time
+	endedAt      time.Time
+	sessionID    string
+	project      string
+	ordinal      int
+}
+
+func newCopilotSessionBuilder() *copilotSessionBuilder {
+	return &copilotSessionBuilder{
+		project: "unknown",
+	}
+}
+
+// processLine handles a single non-empty, valid JSON line.
+func (b *copilotSessionBuilder) processLine(line string) {
+	ts := parseTimestamp(gjson.Get(line, "timestamp").Str)
+	if !ts.IsZero() {
+		if b.startedAt.IsZero() {
+			b.startedAt = ts
+		}
+		b.endedAt = ts
+	}
+
+	data := gjson.Get(line, "data")
+
+	switch gjson.Get(line, "type").Str {
+	case copilotEventSessionStart:
+		b.handleSessionStart(data)
+	case copilotEventUserMessage:
+		b.handleUserMessage(data, ts)
+	case copilotEventAssistantMsg:
+		b.handleAssistantMessage(data, ts)
+	case copilotEventToolComplete:
+		b.handleToolComplete(data)
+	case copilotEventAssistantReason:
+		b.handleAssistantReasoning()
+	}
+}
+
+func (b *copilotSessionBuilder) handleSessionStart(
+	data gjson.Result,
+) {
+	if id := data.Get("sessionId").Str; id != "" {
+		b.sessionID = id
+	}
+
+	cwd := data.Get("context.cwd").Str
+	branch := data.Get("context.branch").Str
+	if cwd != "" {
+		if p := ExtractProjectFromCwdWithBranch(
+			cwd, branch,
+		); p != "" {
+			b.project = p
+		}
+	}
+}
+
+func (b *copilotSessionBuilder) handleUserMessage(
+	data gjson.Result, ts time.Time,
+) {
+	content := strings.TrimSpace(data.Get("content").Str)
+	if content == "" {
+		return
+	}
+
+	if b.firstMessage == "" {
+		b.firstMessage = truncate(
+			strings.ReplaceAll(content, "\n", " "), 300,
+		)
+	}
+
+	b.messages = append(b.messages, ParsedMessage{
+		Ordinal:       b.ordinal,
+		Role:          RoleUser,
+		Content:       content,
+		Timestamp:     ts,
+		ContentLength: len(content),
+	})
+	b.ordinal++
+}
+
+func (b *copilotSessionBuilder) handleAssistantMessage(
+	data gjson.Result, ts time.Time,
+) {
+	content := strings.TrimSpace(data.Get("content").Str)
+	hasThinking := data.Get("reasoningText").Str != ""
+
+	var toolCalls []ParsedToolCall
+	data.Get("toolRequests").ForEach(
+		func(_, req gjson.Result) bool {
+			name := req.Get("name").Str
+			if name == "" {
+				return true
+			}
+			toolCalls = append(toolCalls, ParsedToolCall{
+				ToolUseID: req.Get("toolCallId").Str,
+				ToolName:  name,
+				Category:  NormalizeToolCategory(name),
+				InputJSON: req.Get("arguments").Raw,
+			})
+			return true
+		},
+	)
+
+	hasToolUse := len(toolCalls) > 0
+
+	// Build display content for tool calls.
+	displayContent := content
+	if hasToolUse && content == "" {
+		displayContent = formatCopilotToolCalls(toolCalls)
+	}
+
+	if displayContent == "" && !hasToolUse {
+		return
+	}
+
+	b.messages = append(b.messages, ParsedMessage{
+		Ordinal:       b.ordinal,
+		Role:          RoleAssistant,
+		Content:       displayContent,
+		Timestamp:     ts,
+		HasThinking:   hasThinking,
+		HasToolUse:    hasToolUse,
+		ContentLength: len(displayContent),
+		ToolCalls:     toolCalls,
+	})
+	b.ordinal++
+}
+
+func (b *copilotSessionBuilder) handleToolComplete(
+	data gjson.Result,
+) {
+	toolCallID := data.Get("toolCallId").Str
+	if toolCallID == "" {
+		return
+	}
+
+	result := data.Get("result").Str
+	contentLen := len(result)
+
+	// Emit a tool-result-only user message for pairing.
+	b.messages = append(b.messages, ParsedMessage{
+		Ordinal:       b.ordinal,
+		Role:          RoleUser,
+		ContentLength: contentLen,
+		ToolResults: []ParsedToolResult{{
+			ToolUseID:     toolCallID,
+			ContentLength: contentLen,
+		}},
+	})
+	b.ordinal++
+}
+
+func (b *copilotSessionBuilder) handleAssistantReasoning() {
+	// Mark the most recent assistant message as having
+	// thinking, if one exists.
+	for i := len(b.messages) - 1; i >= 0; i-- {
+		if b.messages[i].Role == RoleAssistant {
+			b.messages[i].HasThinking = true
+			return
+		}
+	}
+}
+
+func formatCopilotToolCalls(
+	calls []ParsedToolCall,
+) string {
+	var parts []string
+	for _, tc := range calls {
+		parts = append(parts,
+			formatToolHeader(tc.Category, tc.ToolName))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// ParseCopilotSession parses a Copilot JSONL session file.
+// Returns (nil, nil, nil) if the file doesn't exist or
+// contains no user/assistant messages.
+func ParseCopilotSession(
+	path, machine string,
+) (*ParsedSession, []ParsedMessage, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	lr := newLineReader(f, maxLineSize)
+	b := newCopilotSessionBuilder()
+
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
+		}
+		if !gjson.Valid(line) {
+			continue
+		}
+		b.processLine(line)
+	}
+
+	if err := lr.Err(); err != nil {
+		return nil, nil,
+			fmt.Errorf("reading copilot %s: %w", path, err)
+	}
+
+	// Filter: require at least one user or assistant message.
+	hasContent := false
+	for _, m := range b.messages {
+		if m.Content != "" {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		return nil, nil, nil
+	}
+
+	sessionID := b.sessionID
+	if sessionID == "" {
+		sessionID = sessionIDFromPath(path)
+	}
+	sessionID = "copilot:" + sessionID
+
+	sess := &ParsedSession{
+		ID:           sessionID,
+		Project:      b.project,
+		Machine:      machine,
+		Agent:        AgentCopilot,
+		FirstMessage: b.firstMessage,
+		StartedAt:    b.startedAt,
+		EndedAt:      b.endedAt,
+		MessageCount: len(b.messages),
+		File: FileInfo{
+			Path:  path,
+			Size:  info.Size(),
+			Mtime: info.ModTime().UnixNano(),
+		},
+	}
+
+	return sess, b.messages, nil
+}
+
+// sessionIDFromPath extracts a session ID from a Copilot
+// file path. Handles both bare (<uuid>.jsonl) and directory
+// (<uuid>/events.jsonl) layouts.
+func sessionIDFromPath(path string) string {
+	base := filepath.Base(path)
+	if base == "events.jsonl" {
+		return filepath.Base(filepath.Dir(path))
+	}
+	return strings.TrimSuffix(base, ".jsonl")
+}

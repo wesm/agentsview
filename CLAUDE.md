@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-agentsview is a local web viewer for AI agent sessions (Claude Code, Codex). It syncs session data from disk into SQLite (with FTS5 full-text search), serves a Svelte 5 SPA via an embedded Go HTTP server, and provides real-time updates via SSE.
+agentsview is a local web viewer for AI agent sessions (Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode). It syncs session data from disk into SQLite (with FTS5 full-text search), serves a Svelte 5 SPA via an embedded Go HTTP server, and provides real-time updates via SSE.
 
 ## Architecture
 
 ```
 CLI (agentsview) → Config → DB (SQLite/FTS5)
                   ↓
-              File Watcher → Sync Engine → Parser (Claude, Codex)
+              File Watcher → Sync Engine → Parser (Claude, Codex, Copilot, Gemini, OpenCode)
                   ↓
               HTTP Server → REST API + SSE + Embedded SPA
 ```
@@ -18,7 +18,7 @@ CLI (agentsview) → Config → DB (SQLite/FTS5)
 - **Storage**: SQLite with WAL mode, FTS5 for full-text search
 - **Sync**: File watcher + periodic sync (15min) for session directories
 - **Frontend**: Svelte 5 SPA embedded in the Go binary at build time
-- **Config**: Env vars (`AGENT_VIEWER_DATA_DIR`, `CLAUDE_PROJECTS_DIR`, `CODEX_SESSIONS_DIR`) and CLI flags
+- **Config**: Env vars (`AGENT_VIEWER_DATA_DIR`, `CLAUDE_PROJECTS_DIR`, `CODEX_SESSIONS_DIR`, `COPILOT_DIR`, `GEMINI_DIR`, `OPENCODE_DIR`) and CLI flags
 
 ## Project Structure
 
@@ -49,6 +49,7 @@ CLI (agentsview) → Config → DB (SQLite/FTS5)
 | `internal/sync/engine.go` | Sync orchestration |
 | `internal/parser/claude.go` | Claude Code session parser |
 | `internal/parser/codex.go` | Codex session parser |
+| `internal/parser/copilot.go` | Copilot CLI session parser |
 | `internal/config/config.go` | Config loading, flag registration |
 
 ## Development

@@ -55,6 +55,14 @@ func NormalizeToolCategory(rawName string) string {
 	case "task":
 		return "Task"
 
+	// Copilot tools
+	// Note: "edit_file" (Write), "shell" (Bash), "grep" (Grep),
+	// and "glob" (Glob) are handled in earlier sections.
+	case "view":
+		return "Read"
+	case "report_intent":
+		return "Tool"
+
 	default:
 		return "Other"
 	}
