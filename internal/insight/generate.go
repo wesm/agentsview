@@ -132,8 +132,11 @@ func generateClaude(
 
 	runErr := cmd.Run()
 
-	// Honor context cancellation even if stdout has data.
-	if ctx.Err() != nil {
+	// Honor context cancellation over salvaging stdout, but
+	// only when the command actually failed. A successful
+	// cmd.Run with a race-y post-completion cancel should
+	// still return the valid result.
+	if runErr != nil && ctx.Err() != nil {
 		return Result{}, fmt.Errorf(
 			"claude CLI cancelled: %w", ctx.Err(),
 		)
