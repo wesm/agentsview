@@ -33,6 +33,16 @@ import type {
 
 const BASE = "/api/v1";
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function fetchJSON<T>(
   path: string,
   init?: RequestInit,
@@ -40,7 +50,7 @@ async function fetchJSON<T>(
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+    throw new ApiError(res.status, body);
   }
   return res.json() as Promise<T>;
 }
@@ -442,7 +452,7 @@ export async function deleteInsight(id: number): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+    throw new ApiError(res.status, body);
   }
 }
 

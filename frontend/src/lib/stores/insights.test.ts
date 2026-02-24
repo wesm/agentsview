@@ -7,14 +7,20 @@ import {
 } from "vitest";
 import { insights } from "./insights.svelte.js";
 import * as api from "../api/client.js";
+import { ApiError } from "../api/client.js";
 import type { Insight } from "../api/types.js";
 
-vi.mock("../api/client.js", () => ({
-  listInsights: vi.fn(),
-  getInsight: vi.fn(),
-  deleteInsight: vi.fn(),
-  generateInsight: vi.fn(),
-}));
+vi.mock("../api/client.js", async (importOriginal) => {
+  const orig =
+    await importOriginal<typeof import("../api/client.js")>();
+  return {
+    ...orig,
+    listInsights: vi.fn(),
+    getInsight: vi.fn(),
+    deleteInsight: vi.fn(),
+    generateInsight: vi.fn(),
+  };
+});
 
 function makeInsight(
   overrides: Partial<Insight> = {},
@@ -357,7 +363,7 @@ describe("deleteItem", () => {
     insights.items = [s];
     insights.selectedId = 5;
     vi.mocked(api.deleteInsight).mockRejectedValueOnce(
-      new Error("API 500: internal error"),
+      new ApiError(500, "internal error"),
     );
 
     await insights.deleteItem(5);
@@ -371,7 +377,7 @@ describe("deleteItem", () => {
     insights.items = [s];
     insights.selectedId = 5;
     vi.mocked(api.deleteInsight).mockRejectedValueOnce(
-      new Error("API 404: not found"),
+      new ApiError(404, "not found"),
     );
 
     await insights.deleteItem(5);

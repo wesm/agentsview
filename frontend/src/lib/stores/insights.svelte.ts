@@ -7,6 +7,7 @@ import {
   listInsights,
   deleteInsight,
   generateInsight,
+  ApiError,
   type GenerateInsightHandle,
 } from "../api/client.js";
 
@@ -204,9 +205,9 @@ class InsightsStore {
     try {
       await deleteInsight(id);
     } catch (e) {
-      const is404 =
-        e instanceof Error && e.message.includes("404");
-      if (!is404) return;
+      if (!(e instanceof ApiError && e.status === 404)) {
+        return;
+      }
     }
     this.items = this.items.filter((s) => s.id !== id);
     if (this.selectedId === id) {

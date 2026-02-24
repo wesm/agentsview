@@ -7,6 +7,7 @@ import {
   getAnalyticsActivity,
   getAnalyticsHeatmap,
   getAnalyticsTopSessions,
+  ApiError,
 } from "./client.js";
 import type { SyncHandle } from "./client.js";
 import type { SyncProgress } from "./types.js";
@@ -177,7 +178,7 @@ describe("deleteInsight", () => {
     );
   });
 
-  it("throws on non-ok response", async () => {
+  it("throws ApiError with status on non-ok response", async () => {
     fetchSpy.mockResolvedValue({
       ok: false,
       status: 404,
@@ -185,12 +186,16 @@ describe("deleteInsight", () => {
     });
     const { deleteInsight } = await import("./client.js");
 
-    await expect(deleteInsight(99)).rejects.toThrow(
-      "API 404: not found",
-    );
+    try {
+      await deleteInsight(99);
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as InstanceType<typeof ApiError>).status).toBe(404);
+    }
   });
 
-  it("throws on server error", async () => {
+  it("throws ApiError with 500 status on server error", async () => {
     fetchSpy.mockResolvedValue({
       ok: false,
       status: 500,
@@ -198,9 +203,13 @@ describe("deleteInsight", () => {
     });
     const { deleteInsight } = await import("./client.js");
 
-    await expect(deleteInsight(1)).rejects.toThrow(
-      "API 500",
-    );
+    try {
+      await deleteInsight(1);
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as InstanceType<typeof ApiError>).status).toBe(500);
+    }
   });
 });
 
