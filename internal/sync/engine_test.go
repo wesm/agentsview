@@ -83,6 +83,32 @@ func TestFilterEmptyMessages(t *testing.T) {
 			map[string]int{"t1": 300},
 		},
 		{
+			"preserves empty assistant message",
+			[]db.Message{
+				{
+					Role:    "assistant",
+					Content: "",
+				},
+			},
+			1,
+			nil,
+		},
+		{
+			"only removes user messages with tool results",
+			[]db.Message{
+				{
+					Role:    "assistant",
+					Content: "",
+				},
+				{
+					Role:    "user",
+					Content: "",
+				},
+			},
+			2, // both preserved: no ToolResults
+			nil,
+		},
+		{
 			"no messages returns empty",
 			nil,
 			0,

@@ -169,7 +169,9 @@ function buildSegments(
 /** Parse message content into typed segments */
 export function parseContent(text: string, hasToolUse = true): ContentSegment[] {
   if (!text) return [];
-  const cacheKey = hasToolUse ? text : `notools|${text}`;
+  const cacheKey = hasToolUse
+    ? `tools\0${text}`
+    : `notools\0${text}`;
   const cached = segmentCache.get(cacheKey);
   if (cached) return cached;
 
