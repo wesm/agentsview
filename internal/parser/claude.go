@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,6 +191,9 @@ func ExtractClaudeProjectHints(
 				return cwd, gitBranch
 			}
 		}
+	}
+	if err := lr.Err(); err != nil {
+		log.Printf("reading hints from %s: %v", path, err)
 	}
 	return cwd, gitBranch
 }
