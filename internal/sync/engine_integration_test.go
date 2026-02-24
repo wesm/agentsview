@@ -422,6 +422,55 @@ func TestSyncSingleSessionHashCodex(t *testing.T) {
 	env.assertResyncRoundTrip(t, sessionID)
 }
 
+func TestSyncSingleSessionCodexExecBypassesCache(
+	t *testing.T,
+) {
+	env := setupTestEnv(t)
+
+	uuid := "e5f6a7b8-5678-9012-cdef-123456789012"
+	// Exec-originated session: SyncAll skips these, but
+	// SyncSingleSession should still find them.
+	content := testjsonl.NewSessionBuilder().
+		AddCodexMeta(
+			tsEarly, uuid,
+			"/home/user/code/api", "codex_exec",
+		).
+		AddCodexMessage(tsEarlyS1, "user", "run ls").
+		AddCodexMessage(tsEarlyS5, "assistant", "done").
+		String()
+
+	env.writeCodexSession(
+		t, filepath.Join("2024", "01", "15"),
+		"rollout-20240115-"+uuid+".jsonl", content,
+	)
+
+	// SyncAll skips exec-originated sessions (nil result).
+	env.engine.SyncAll(nil)
+	sess, _ := env.db.GetSession(
+		context.Background(), "codex:"+uuid,
+	)
+	if sess != nil {
+		t.Fatal("exec session should not appear after SyncAll")
+	}
+
+	// SyncSingleSession should bypass the skip cache and
+	// parse with includeExec=true.
+	err := env.engine.SyncSingleSession("codex:" + uuid)
+	if err != nil {
+		t.Fatalf("SyncSingleSession: %v", err)
+	}
+
+	assertSessionState(
+		t, env.db, "codex:"+uuid,
+		func(sess *db.Session) {
+			if sess.Agent != "codex" {
+				t.Errorf("agent = %q, want codex",
+					sess.Agent)
+			}
+		},
+	)
+}
+
 func TestSyncEngineTombstoneClearOnMtimeChange(t *testing.T) {
 	env := setupTestEnv(t)
 

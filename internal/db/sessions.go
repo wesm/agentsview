@@ -408,7 +408,8 @@ func (db *DB) GetFileInfoByPath(
 	var s, m sql.NullInt64
 	err := db.reader.QueryRow(
 		"SELECT file_size, file_mtime FROM sessions"+
-			" WHERE file_path = ?",
+			" WHERE file_path = ?"+
+			" ORDER BY file_mtime DESC LIMIT 1",
 		path,
 	).Scan(&s, &m)
 	if err != nil || !s.Valid {

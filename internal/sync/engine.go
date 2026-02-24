@@ -307,7 +307,9 @@ func (e *Engine) collectAndBatch(
 		r := <-results
 
 		if r.err != nil {
-			e.cacheSkipFromPath(r.path)
+			if r.mtime != 0 {
+				e.cacheSkip(r.path, r.mtime)
+			}
 			log.Printf("sync error: %v", r.err)
 			continue
 		}
@@ -320,7 +322,7 @@ func (e *Engine) collectAndBatch(
 			continue
 		}
 		if r.sess == nil {
-			e.cacheSkipFromPath(r.path)
+			e.cacheSkip(r.path, r.mtime)
 			progress.SessionsDone++
 			if onProgress != nil {
 				onProgress(progress)
@@ -361,10 +363,11 @@ func (e *Engine) collectAndBatch(
 }
 
 type processResult struct {
-	sess *parser.ParsedSession
-	msgs []parser.ParsedMessage
-	skip bool
-	err  error
+	sess  *parser.ParsedSession
+	msgs  []parser.ParsedMessage
+	skip  bool
+	mtime int64
+	err   error
 }
 
 func (e *Engine) processFile(
@@ -373,31 +376,41 @@ func (e *Engine) processFile(
 
 	info, err := os.Stat(file.Path)
 	if err != nil {
-		return processResult{err: fmt.Errorf("stat %s: %w", file.Path, err)}
+		return processResult{
+			err: fmt.Errorf("stat %s: %w", file.Path, err),
+		}
 	}
+
+	// Capture mtime once from the initial stat so all
+	// downstream cache operations use a consistent value.
+	mtime := info.ModTime().UnixNano()
 
 	// Skip files cached from a previous sync (parse errors
 	// or non-interactive sessions) whose mtime is unchanged.
-	mtime := info.ModTime().UnixNano()
 	e.skipMu.RLock()
 	cachedMtime, cached := e.skipCache[file.Path]
 	e.skipMu.RUnlock()
 	if cached && cachedMtime == mtime {
-		return processResult{skip: true}
+		return processResult{skip: true, mtime: mtime}
 	}
 
+	var res processResult
 	switch file.Agent {
 	case parser.AgentClaude:
-		return e.processClaude(file, info)
+		res = e.processClaude(file, info)
 	case parser.AgentCodex:
-		return e.processCodex(file, info)
+		res = e.processCodex(file, info)
 	case parser.AgentGemini:
-		return e.processGemini(file, info)
+		res = e.processGemini(file, info)
 	default:
-		return processResult{
-			err: fmt.Errorf("unknown agent type: %s", file.Agent),
+		res = processResult{
+			err: fmt.Errorf(
+				"unknown agent type: %s", file.Agent,
+			),
 		}
 	}
+	res.mtime = mtime
+	return res
 }
 
 // cacheSkip records a file so it won't be retried until
@@ -418,6 +431,10 @@ func (e *Engine) clearSkip(path string) {
 
 // shouldSkipFile returns true when the file's size and mtime
 // match what is already stored in the database (by session ID).
+// This relies on mtime changing on any write, which holds for
+// append-only session files under normal filesystem behavior.
+// The file hash is still computed and stored on successful sync
+// for integrity; mtime is purely a skip-check optimization.
 func (e *Engine) shouldSkipFile(
 	sessionID string, info os.FileInfo,
 ) bool {
@@ -652,10 +669,14 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		agent = parser.AgentClaude
 	}
 
-	// Reuse processFile for skip-cache check, stat, and hash
-	// skip logic. For Claude this is the full pipeline; for
-	// Codex we need includeExec=true so we call the parser
-	// directly.
+	// Clear skip cache so explicit re-sync always processes
+	// the file, even if it was cached as non-interactive
+	// during a bulk SyncAll.
+	e.clearSkip(path)
+
+	// Reuse processFile for stat and DB-skip logic. For
+	// Claude this is the full pipeline; for Codex we need
+	// includeExec=true so we call the parser directly.
 	file := DiscoveredFile{
 		Path:  path,
 		Agent: agent,
@@ -673,7 +694,9 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 
 	res := e.processFile(file)
 	if res.err != nil {
-		e.cacheSkipFromPath(path)
+		if res.mtime != 0 {
+			e.cacheSkip(path, res.mtime)
+		}
 		return res.err
 	}
 	if res.skip {
@@ -684,21 +707,24 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 	// return nil sess for exec-originated sessions. Re-parse
 	// with includeExec=true when that happens.
 	if res.sess == nil && agent == parser.AgentCodex {
-		res = e.processCodexIncludeExec(file)
-		if res.err != nil {
-			e.cacheSkipFromPath(path)
-			return res.err
+		execRes := e.processCodexIncludeExec(file)
+		if execRes.err != nil {
+			if res.mtime != 0 {
+				e.cacheSkip(path, res.mtime)
+			}
+			return execRes.err
 		}
-		if res.sess == nil {
+		if execRes.sess == nil {
 			return nil
 		}
+		res.sess = execRes.sess
+		res.msgs = execRes.msgs
 	}
 
 	if res.sess == nil {
 		return nil
 	}
 
-	e.clearSkip(path)
 	e.writeBatch([]pendingWrite{
 		{sess: *res.sess, msgs: res.msgs},
 	})
@@ -723,12 +749,6 @@ func (e *Engine) processCodexIncludeExec(
 		sess.File.Hash = h
 	}
 	return processResult{sess: sess, msgs: msgs}
-}
-
-func (e *Engine) cacheSkipFromPath(path string) {
-	if info, err := os.Stat(path); err == nil {
-		e.cacheSkip(path, info.ModTime().UnixNano())
-	}
 }
 
 func strPtr(s string) *string {
