@@ -78,6 +78,7 @@ var allowedKeyPrefixes = []string{
 	"SSL_CERT_", "CURL_CA_BUNDLE",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
 	"SYSTEMROOT", "COMSPEC",
+	"APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
 }
 
 // envKeyAllowed reports whether key (case-insensitive) is
