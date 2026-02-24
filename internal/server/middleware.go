@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // jsonError is the standard JSON error response.
@@ -11,23 +12,39 @@ type jsonError struct {
 }
 
 // withTimeout applies a write timeout to standard handlers.
-// It uses http.TimeoutHandler but ensures the response is JSON with correct headers.
-func (s *Server) withTimeout(h http.HandlerFunc) http.Handler {
-	// Pre-marshal the timeout message
-	msgBytes, _ := json.Marshal(jsonError{Error: "request timed out"})
+// It uses http.TimeoutHandler but ensures the response is
+// JSON with correct headers.
+func (s *Server) withTimeout(
+	h http.HandlerFunc,
+) http.Handler {
+	msgBytes, _ := json.Marshal(
+		jsonError{Error: "request timed out"},
+	)
 	msg := string(msgBytes)
 
-	// Wrap the handler with http.TimeoutHandler
-	handler := http.TimeoutHandler(h, s.cfg.WriteTimeout, msg)
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tw := &contentTypeWrapper{
-			ResponseWriter: w,
-			contentType:    "application/json",
-			triggerStatus:  http.StatusServiceUnavailable,
+	inner := h
+	if s.handlerDelay > 0 {
+		delay := s.handlerDelay
+		inner = func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(delay)
+			h(w, r)
 		}
-		handler.ServeHTTP(tw, r)
-	})
+	}
+
+	handler := http.TimeoutHandler(
+		inner, s.cfg.WriteTimeout, msg,
+	)
+
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			tw := &contentTypeWrapper{
+				ResponseWriter: w,
+				contentType:    "application/json",
+				triggerStatus:  http.StatusServiceUnavailable,
+			}
+			handler.ServeHTTP(tw, r)
+		},
+	)
 }
 
 // contentTypeWrapper intercepts WriteHeader to set Content-Type on specific status codes.

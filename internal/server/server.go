@@ -39,6 +39,11 @@ type Server struct {
 	generateFunc insight.GenerateFunc
 	spaFS        fs.FS
 	spaHandler   http.Handler
+
+	// handlerDelay is injected before each timeout-wrapped
+	// handler, used only by tests to guarantee handlers
+	// exceed a short timeout. Zero in production.
+	handlerDelay time.Duration
 }
 
 // New creates a new Server.
