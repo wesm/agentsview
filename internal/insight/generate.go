@@ -61,23 +61,41 @@ func Generate(
 	}
 }
 
-// allowedEnvPrefixes lists environment variable prefixes
-// that are safe to pass to agent CLI subprocesses. Using an
-// allowlist prevents leaking secrets (cloud credentials,
-// database passwords, other API keys) to child processes.
-var allowedEnvPrefixes = []string{
-	"PATH=",
-	"HOME=", "USERPROFILE=",
-	"USER=", "USERNAME=", "LOGNAME=",
-	"LANG=", "LC_",
-	"TERM=", "COLORTERM=",
-	"TMPDIR=", "TEMP=", "TMP=",
+// allowedKeyPrefixes lists uppercase key prefixes that are
+// safe to pass to agent CLI subprocesses. Matched
+// case-insensitively so Windows-style casing (Path, ComSpec)
+// is handled correctly. Using an allowlist prevents leaking
+// secrets to child processes.
+var allowedKeyPrefixes = []string{
+	"PATH",
+	"HOME", "USERPROFILE",
+	"USER", "USERNAME", "LOGNAME",
+	"LANG", "LC_",
+	"TERM", "COLORTERM",
+	"TMPDIR", "TEMP", "TMP",
 	"XDG_",
-	"SHELL=",
-	"SSL_CERT_", "CURL_CA_BUNDLE=",
-	"HTTP_PROXY=", "HTTPS_PROXY=", "NO_PROXY=",
-	"http_proxy=", "https_proxy=", "no_proxy=",
-	"SYSTEMROOT=", "COMSPEC=",
+	"SHELL",
+	"SSL_CERT_", "CURL_CA_BUNDLE",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+	"SYSTEMROOT", "COMSPEC",
+}
+
+// envKeyAllowed reports whether key (case-insensitive) is
+// on the allowlist. Prefix entries ending with _ (LC_,
+// XDG_, SSL_CERT_) match any key starting with that prefix;
+// all others require an exact match.
+func envKeyAllowed(key string) bool {
+	upper := strings.ToUpper(key)
+	for _, p := range allowedKeyPrefixes {
+		if strings.HasSuffix(p, "_") {
+			if strings.HasPrefix(upper, p) {
+				return true
+			}
+		} else if upper == p {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanEnv returns an allowlisted subset of the current
@@ -87,11 +105,9 @@ func cleanEnv() []string {
 	env := os.Environ()
 	filtered := make([]string, 0, len(env))
 	for _, e := range env {
-		for _, prefix := range allowedEnvPrefixes {
-			if strings.HasPrefix(e, prefix) {
-				filtered = append(filtered, e)
-				break
-			}
+		k, _, _ := strings.Cut(e, "=")
+		if envKeyAllowed(k) {
+			filtered = append(filtered, e)
 		}
 	}
 	return append(filtered, "CLAUDE_NO_SOUND=1")

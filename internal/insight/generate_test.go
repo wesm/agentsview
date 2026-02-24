@@ -165,6 +165,7 @@ func TestCleanEnv(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "s3cret")
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("UNKNOWN_VAR", "should-be-dropped")
 
 	env := cleanEnv()
 
@@ -174,13 +175,13 @@ func TestCleanEnv(t *testing.T) {
 		envMap[k] = v
 	}
 
-	// Secrets must not pass through the allowlist.
-	for _, secret := range []string{
+	// Secrets and unknown vars must not pass through.
+	for _, blocked := range []string{
 		"ANTHROPIC_API_KEY", "CLAUDECODE",
-		"AWS_SECRET_ACCESS_KEY",
+		"AWS_SECRET_ACCESS_KEY", "UNKNOWN_VAR",
 	} {
-		if _, ok := envMap[secret]; ok {
-			t.Errorf("%s should not be in env", secret)
+		if _, ok := envMap[blocked]; ok {
+			t.Errorf("%s should not be in env", blocked)
 		}
 	}
 
@@ -197,6 +198,39 @@ func TestCleanEnv(t *testing.T) {
 		t.Errorf(
 			"CLAUDE_NO_SOUND should be 1, got %q", v,
 		)
+	}
+}
+
+func TestEnvKeyAllowed(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"PATH", true},
+		{"Path", true}, // Windows-style
+		{"path", true}, // lowercase
+		{"HOME", true},
+		{"Home", true},
+		{"COMSPEC", true},
+		{"ComSpec", true}, // Windows-style
+		{"LC_ALL", true},  // prefix match
+		{"XDG_CONFIG_HOME", true},
+		{"SSL_CERT_FILE", true},
+		{"HTTP_PROXY", true},
+		{"ANTHROPIC_API_KEY", false},
+		{"AWS_SECRET_ACCESS_KEY", false},
+		{"DATABASE_URL", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			if got := envKeyAllowed(tt.key); got != tt.want {
+				t.Errorf(
+					"envKeyAllowed(%q) = %v, want %v",
+					tt.key, got, tt.want,
+				)
+			}
+		})
 	}
 }
 
