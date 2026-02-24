@@ -301,6 +301,9 @@
             <div class="task-body">
               <span class="task-label">
                 {typeShort(task.type, task.dateFrom, task.dateTo)}
+                <span class="task-date">
+                  {formatDateRange(task.dateFrom, task.dateTo)}
+                </span>
               </span>
               <span class="task-scope">
                 {task.project || "global"}
@@ -765,6 +768,12 @@
     font-size: 11px;
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  .task-date {
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 4px;
   }
 
   .task-scope {
