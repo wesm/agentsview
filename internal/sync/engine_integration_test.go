@@ -14,11 +14,12 @@ import (
 )
 
 type testEnv struct {
-	claudeDir string
-	codexDir  string
-	geminiDir string
-	db        *db.DB
-	engine    *sync.Engine
+	claudeDir   string
+	codexDir    string
+	geminiDir   string
+	opencodeDir string
+	db          *db.DB
+	engine      *sync.Engine
 }
 
 func setupTestEnv(t *testing.T) *testEnv {
@@ -28,15 +29,16 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	env := &testEnv{
-		claudeDir: t.TempDir(),
-		codexDir:  t.TempDir(),
-		geminiDir: t.TempDir(),
-		db:        dbtest.OpenTestDB(t),
+		claudeDir:   t.TempDir(),
+		codexDir:    t.TempDir(),
+		geminiDir:   t.TempDir(),
+		opencodeDir: t.TempDir(),
+		db:          dbtest.OpenTestDB(t),
 	}
 
 	env.engine = sync.NewEngine(
 		env.db, env.claudeDir, env.codexDir, "",
-		env.geminiDir, "", "local",
+		env.geminiDir, env.opencodeDir, "local",
 	)
 	return env
 }
@@ -1083,4 +1085,155 @@ func TestSyncPathsClaudeRejectsNested(t *testing.T) {
 				"(only <project>/<session>.jsonl allowed)",
 		)
 	}
+}
+
+// TestSyncEngineOpenCodeBulkSync verifies that SyncAll
+// discovers OpenCode sessions and fully replaces messages
+// when content changes in place (same ordinals, different
+// text/tool data).
+func TestSyncEngineOpenCodeBulkSync(t *testing.T) {
+	env := setupTestEnv(t)
+
+	oc := createOpenCodeDB(t, env.opencodeDir)
+	oc.addProject(t, "proj-1", "/home/user/code/myapp")
+
+	sessionID := "oc-sess-001"
+	var timeCreated int64 = 1704067200000 // 2024-01-01T00:00:00Z
+	var timeUpdated int64 = 1704067205000 // +5s
+
+	oc.addSession(
+		t, sessionID, "proj-1",
+		timeCreated, timeUpdated,
+	)
+	oc.addMessage(
+		t, "msg-u1", sessionID, "user", timeCreated,
+	)
+	oc.addMessage(
+		t, "msg-a1", sessionID, "assistant",
+		timeCreated+1,
+	)
+	oc.addTextPart(
+		t, "part-u1", sessionID, "msg-u1",
+		"original question", timeCreated,
+	)
+	oc.addTextPart(
+		t, "part-a1", sessionID, "msg-a1",
+		"original answer", timeCreated+1,
+	)
+
+	// First SyncAll should discover and store the session.
+	env.engine.SyncAll(nil)
+
+	agentviewID := "opencode:" + sessionID
+	assertSessionState(t, env.db, agentviewID,
+		func(sess *db.Session) {
+			if sess.Agent != "opencode" {
+				t.Errorf("agent = %q, want opencode",
+					sess.Agent)
+			}
+			if sess.MessageCount != 2 {
+				t.Errorf("message_count = %d, want 2",
+					sess.MessageCount)
+			}
+		},
+	)
+	assertMessageContent(
+		t, env.db, agentviewID,
+		"original question", "original answer",
+	)
+
+	// Mutate the session in place: replace content but
+	// keep the same number of messages (same ordinals).
+	// Bump time_updated so the sync engine detects it.
+	oc.replaceTextContent(
+		t, sessionID,
+		"updated question", "updated answer",
+		timeCreated,
+	)
+	oc.updateSessionTime(t, sessionID, timeUpdated+1000)
+
+	// Second SyncAll should fully replace messages.
+	env.engine.SyncAll(nil)
+
+	assertMessageContent(
+		t, env.db, agentviewID,
+		"updated question", "updated answer",
+	)
+
+	// Third SyncAll with no changes should be a no-op
+	// (time_updated unchanged, so session is skipped).
+	env.engine.SyncAll(nil)
+
+	assertMessageContent(
+		t, env.db, agentviewID,
+		"updated question", "updated answer",
+	)
+}
+
+// TestSyncEngineOpenCodeToolCallReplace verifies that tool
+// call data is fully replaced during OpenCode bulk sync, not
+// left stale from a previous sync.
+func TestSyncEngineOpenCodeToolCallReplace(t *testing.T) {
+	env := setupTestEnv(t)
+
+	oc := createOpenCodeDB(t, env.opencodeDir)
+	oc.addProject(t, "proj-1", "/home/user/code/myapp")
+
+	sessionID := "oc-tool-sess"
+	var timeCreated int64 = 1704067200000
+	var timeUpdated int64 = 1704067205000
+
+	oc.addSession(
+		t, sessionID, "proj-1",
+		timeCreated, timeUpdated,
+	)
+
+	// Assistant message with a tool call.
+	oc.addMessage(
+		t, "msg-u1", sessionID, "user", timeCreated,
+	)
+	oc.addMessage(
+		t, "msg-a1", sessionID, "assistant",
+		timeCreated+1,
+	)
+	oc.addTextPart(
+		t, "part-u1", sessionID, "msg-u1",
+		"run ls", timeCreated,
+	)
+	oc.addToolPart(
+		t, "part-tool1", sessionID, "msg-a1",
+		"bash", "call-1", timeCreated+1,
+	)
+
+	env.engine.SyncAll(nil)
+
+	agentviewID := "opencode:" + sessionID
+	assertSessionState(t, env.db, agentviewID, nil)
+
+	// Replace: remove tool call, add text instead.
+	oc.deleteMessages(t, sessionID)
+	oc.deleteParts(t, sessionID)
+	oc.addMessage(
+		t, "msg-u1-v2", sessionID, "user", timeCreated,
+	)
+	oc.addMessage(
+		t, "msg-a1-v2", sessionID, "assistant",
+		timeCreated+1,
+	)
+	oc.addTextPart(
+		t, "part-u1-v2", sessionID, "msg-u1-v2",
+		"run ls", timeCreated,
+	)
+	oc.addTextPart(
+		t, "part-a1-v2", sessionID, "msg-a1-v2",
+		"here are the files", timeCreated+1,
+	)
+	oc.updateSessionTime(t, sessionID, timeUpdated+1000)
+
+	env.engine.SyncAll(nil)
+
+	assertMessageContent(
+		t, env.db, agentviewID,
+		"run ls", "here are the files",
+	)
 }
