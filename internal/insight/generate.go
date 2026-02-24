@@ -61,18 +61,38 @@ func Generate(
 	}
 }
 
-// cleanEnv returns the current environment with agent auth
-// vars removed so CLIs use subscription auth, not env keys.
+// allowedEnvPrefixes lists environment variable prefixes
+// that are safe to pass to agent CLI subprocesses. Using an
+// allowlist prevents leaking secrets (cloud credentials,
+// database passwords, other API keys) to child processes.
+var allowedEnvPrefixes = []string{
+	"PATH=",
+	"HOME=", "USERPROFILE=",
+	"USER=", "USERNAME=", "LOGNAME=",
+	"LANG=", "LC_",
+	"TERM=", "COLORTERM=",
+	"TMPDIR=", "TEMP=", "TMP=",
+	"XDG_",
+	"SHELL=",
+	"SSL_CERT_", "CURL_CA_BUNDLE=",
+	"HTTP_PROXY=", "HTTPS_PROXY=", "NO_PROXY=",
+	"http_proxy=", "https_proxy=", "no_proxy=",
+	"SYSTEMROOT=", "COMSPEC=",
+}
+
+// cleanEnv returns an allowlisted subset of the current
+// environment for agent CLI subprocesses, plus
+// CLAUDE_NO_SOUND=1.
 func cleanEnv() []string {
 	env := os.Environ()
 	filtered := make([]string, 0, len(env))
 	for _, e := range env {
-		k, _, _ := strings.Cut(e, "=")
-		switch k {
-		case "ANTHROPIC_API_KEY", "CLAUDECODE":
-			continue
+		for _, prefix := range allowedEnvPrefixes {
+			if strings.HasPrefix(e, prefix) {
+				filtered = append(filtered, e)
+				break
+			}
 		}
-		filtered = append(filtered, e)
 	}
 	return append(filtered, "CLAUDE_NO_SOUND=1")
 }

@@ -162,6 +162,9 @@ func TestCleanEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("HOME", "/home/test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "s3cret")
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("LANG", "en_US.UTF-8")
 
 	env := cleanEnv()
 
@@ -171,15 +174,25 @@ func TestCleanEnv(t *testing.T) {
 		envMap[k] = v
 	}
 
-	if _, ok := envMap["ANTHROPIC_API_KEY"]; ok {
-		t.Error("ANTHROPIC_API_KEY should be stripped")
+	// Secrets must not pass through the allowlist.
+	for _, secret := range []string{
+		"ANTHROPIC_API_KEY", "CLAUDECODE",
+		"AWS_SECRET_ACCESS_KEY",
+	} {
+		if _, ok := envMap[secret]; ok {
+			t.Errorf("%s should not be in env", secret)
+		}
 	}
-	if _, ok := envMap["CLAUDECODE"]; ok {
-		t.Error("CLAUDECODE should be stripped")
+
+	// Allowed system vars must pass through.
+	for _, allowed := range []string{
+		"HOME", "PATH", "LANG",
+	} {
+		if _, ok := envMap[allowed]; !ok {
+			t.Errorf("%s should be preserved", allowed)
+		}
 	}
-	if _, ok := envMap["HOME"]; !ok {
-		t.Error("HOME should be preserved")
-	}
+
 	if v, ok := envMap["CLAUDE_NO_SOUND"]; !ok || v != "1" {
 		t.Errorf(
 			"CLAUDE_NO_SOUND should be 1, got %q", v,
