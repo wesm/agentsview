@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -222,6 +223,42 @@ func TestInsights_OrderByCreatedAtDesc(t *testing.T) {
 	}
 	if got[2].ID != ids[0] {
 		t.Errorf("last id = %d, want %d", got[2].ID, ids[0])
+	}
+}
+
+func TestInsights_ListCappedAt500(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	const total = 502
+	for i := range total {
+		_, err := d.InsertInsight(Insight{
+			Type:     "daily_activity",
+			DateFrom: "2025-01-15",
+			DateTo:   "2025-01-15",
+			Agent:    "claude",
+			Content:  fmt.Sprintf("insight %d", i),
+		})
+		if err != nil {
+			t.Fatalf("InsertInsight %d: %v", i, err)
+		}
+	}
+
+	got, err := d.ListInsights(ctx, InsightFilter{})
+	if err != nil {
+		t.Fatalf("ListInsights: %v", err)
+	}
+	if len(got) != 500 {
+		t.Fatalf(
+			"got %d insights, want 500 (capped)",
+			len(got),
+		)
+	}
+	// Newest first: highest ID should be first.
+	if got[0].ID < got[len(got)-1].ID {
+		t.Error(
+			"expected newest-first ordering",
+		)
 	}
 }
 

@@ -10,10 +10,9 @@
     | "range_activity"
     | "agent_analysis";
 
-  let modeOverride: UIMode | null = $state(null);
   let promptExpanded = $state(false);
 
-  function deriveMode(): UIMode {
+  const uiMode: UIMode = $derived.by(() => {
     if (insights.type === "agent_analysis") {
       return "agent_analysis";
     }
@@ -21,11 +20,7 @@
       return "range_activity";
     }
     return "daily_activity";
-  }
-
-  const uiMode: UIMode = $derived(
-    modeOverride ?? deriveMode(),
-  );
+  });
 
   function isRangeMode(mode: UIMode): boolean {
     return mode === "range_activity";
@@ -34,7 +29,6 @@
   function handleModeChange(e: Event) {
     const select = e.target as HTMLSelectElement;
     const mode = select.value as UIMode;
-    modeOverride = mode;
     if (mode === "range_activity") {
       insights.setType("daily_activity");
     } else {
