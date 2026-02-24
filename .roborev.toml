@@ -27,6 +27,19 @@ Key assumptions reviewers MUST account for:
    a localhost-only service. Do not flag missing MaxBytesReader or
    similar unless the endpoint is exposed to untrusted networks.
 
+6. SESSION DATA DISPLAY: The tool reads session files from the
+   user's own disk and displays their contents (including tool call
+   arguments, bash commands, prompts, file paths). This is the
+   tool's core purpose. Storing and rendering input_json, commands,
+   or other session content is NOT a credential exposure risk —
+   the user already has full access to these files. Do not flag
+   tool argument storage or display as sensitive data exposure.
+
+7. SCHEMA VERIFICATION: The tool_calls table has an explicit
+   `id INTEGER PRIMARY KEY` column (schema.sql). Do not flag
+   ORDER BY id or references to tool_calls.id as missing-column
+   errors without verifying the actual schema.
+
 Do NOT flag issues that only apply to public-facing, multi-tenant,
 or network-exposed services. Focus on bugs, logic errors, data
 corruption risks, and code quality issues.
