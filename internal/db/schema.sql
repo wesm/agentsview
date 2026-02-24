@@ -113,3 +113,6 @@ CREATE TABLE IF NOT EXISTS insights (
 
 CREATE INDEX IF NOT EXISTS idx_insights_lookup
     ON insights(type, date_from, project);
+
+CREATE INDEX IF NOT EXISTS idx_insights_created
+    ON insights(created_at DESC);

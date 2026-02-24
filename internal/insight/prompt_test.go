@@ -168,6 +168,68 @@ func TestBuildPrompt_Truncation(t *testing.T) {
 	}
 }
 
+func TestBuildPrompt_DateRange(t *testing.T) {
+	d := dbtest.OpenTestDB(t)
+	ctx := context.Background()
+
+	dbtest.SeedSession(
+		t, d, "s1", "my-app", func(s *db.Session) {
+			s.MessageCount = 3
+			s.StartedAt = dbtest.Ptr(
+				"2025-01-13T10:00:00Z",
+			)
+		},
+	)
+	dbtest.SeedSession(
+		t, d, "s2", "my-app", func(s *db.Session) {
+			s.MessageCount = 2
+			s.StartedAt = dbtest.Ptr(
+				"2025-01-17T14:00:00Z",
+			)
+		},
+	)
+
+	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
+		Type:     "daily_activity",
+		DateFrom: "2025-01-13",
+		DateTo:   "2025-01-17",
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompt: %v", err)
+	}
+
+	if !strings.Contains(
+		prompt, "Date Range: 2025-01-13 to 2025-01-17",
+	) {
+		t.Error("prompt missing date range header")
+	}
+	if strings.Contains(prompt, "Date: 2025") {
+		t.Error(
+			"prompt should use Date Range, not Date",
+		)
+	}
+}
+
+func TestBuildPrompt_DateRangeNoSessions(t *testing.T) {
+	d := dbtest.OpenTestDB(t)
+	ctx := context.Background()
+
+	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
+		Type:     "daily_activity",
+		DateFrom: "2025-01-13",
+		DateTo:   "2025-01-17",
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompt: %v", err)
+	}
+
+	if !strings.Contains(prompt, "date range") {
+		t.Error(
+			"prompt should say 'date range' not 'date'",
+		)
+	}
+}
+
 func TestBuildPrompt_NoSessions(t *testing.T) {
 	d := dbtest.OpenTestDB(t)
 	ctx := context.Background()

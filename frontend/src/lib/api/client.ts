@@ -43,6 +43,13 @@ export class ApiError extends Error {
   }
 }
 
+function apiErrorMessage(
+  status: number,
+  body: string,
+): string {
+  return body.trim() || `API ${status}`;
+}
+
 async function fetchJSON<T>(
   path: string,
   init?: RequestInit,
@@ -50,7 +57,10 @@ async function fetchJSON<T>(
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
     const body = await res.text();
-    throw new ApiError(res.status, body);
+    throw new ApiError(
+      res.status,
+      apiErrorMessage(res.status, body),
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -451,7 +461,10 @@ export async function deleteInsight(id: number): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new ApiError(res.status, body);
+    throw new ApiError(
+      res.status,
+      apiErrorMessage(res.status, body),
+    );
   }
 }
 

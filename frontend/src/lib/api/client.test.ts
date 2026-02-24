@@ -213,6 +213,58 @@ describe("deleteInsight", () => {
   });
 });
 
+describe("fetchJSON error handling", () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("throws ApiError with status on non-ok response", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: () => Promise.resolve("bad gateway"),
+    });
+    const { listInsights } = await import("./client.js");
+
+    try {
+      await listInsights();
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as InstanceType<typeof ApiError>).status).toBe(502);
+      expect((e as InstanceType<typeof ApiError>).message).toBe(
+        "bad gateway",
+      );
+    }
+  });
+
+  it("falls back to 'API <status>' when body is empty", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve(""),
+    });
+    const { listInsights } = await import("./client.js");
+
+    try {
+      await listInsights();
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as InstanceType<typeof ApiError>).message).toBe(
+        "API 500",
+      );
+    }
+  });
+});
+
 describe("insights query serialization", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 

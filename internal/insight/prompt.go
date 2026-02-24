@@ -67,7 +67,15 @@ func BuildPrompt(
 
 	b.WriteString("## Sessions\n\n")
 	if len(sessions) == 0 {
-		b.WriteString("No sessions found for this date.\n")
+		if req.DateFrom == req.DateTo {
+			b.WriteString(
+				"No sessions found for this date.\n",
+			)
+		} else {
+			b.WriteString(
+				"No sessions found for this date range.\n",
+			)
+		}
 	} else {
 		for i, s := range sessions {
 			fmt.Fprintf(&b, "### Session %d\n", i+1)

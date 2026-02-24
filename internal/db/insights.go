@@ -83,15 +83,18 @@ func (db *DB) InsertInsight(s Insight) (int64, error) {
 	return res.LastInsertId()
 }
 
+const maxInsights = 500
+
 // ListInsights returns insights matching the filter,
-// ordered by created_at DESC.
+// ordered by created_at DESC, capped at 500 rows.
 func (db *DB) ListInsights(
 	ctx context.Context, f InsightFilter,
 ) ([]Insight, error) {
 	where, args := buildInsightFilter(f)
 	query := "SELECT " + insightBaseCols +
 		" FROM insights WHERE " + where +
-		" ORDER BY created_at DESC, id DESC"
+		" ORDER BY created_at DESC, id DESC" +
+		" LIMIT " + fmt.Sprintf("%d", maxInsights)
 
 	rows, err := db.reader.QueryContext(ctx, query, args...)
 	if err != nil {

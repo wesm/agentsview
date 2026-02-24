@@ -63,6 +63,39 @@ func TestInsights_InsertAndGet(t *testing.T) {
 	}
 }
 
+func TestInsights_InsertDateRange(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	id, err := d.InsertInsight(Insight{
+		Type:     "daily_activity",
+		DateFrom: "2025-01-13",
+		DateTo:   "2025-01-17",
+		Agent:    "claude",
+		Content:  "Weekly summary",
+	})
+	if err != nil {
+		t.Fatalf("InsertInsight: %v", err)
+	}
+
+	got, err := d.GetInsight(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInsight: %v", err)
+	}
+	if got.DateFrom != "2025-01-13" {
+		t.Errorf(
+			"date_from = %q, want 2025-01-13",
+			got.DateFrom,
+		)
+	}
+	if got.DateTo != "2025-01-17" {
+		t.Errorf(
+			"date_to = %q, want 2025-01-17",
+			got.DateTo,
+		)
+	}
+}
+
 func TestInsights_GetNonexistent(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
