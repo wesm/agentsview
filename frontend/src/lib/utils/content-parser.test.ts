@@ -226,6 +226,22 @@ describe("parseContent - hasToolUse flag", () => {
     const segments = parseContent("[Bash]\n$ echo hi");
     expect(segments[0]!.type).toBe("tool");
   });
+
+  it("does not cross-contaminate cache between modes", () => {
+    const text = "[Read: file.txt]\nsome output";
+    // Parse with tools first — should produce a tool segment
+    const withTools = parseContent(text, true);
+    expect(withTools[0]!.type).toBe("tool");
+    // Parse same text without tools — should be plain text
+    const noTools = parseContent(text, false);
+    expect(noTools.every((s) => s.type !== "tool")).toBe(true);
+    // Reverse order: parse without tools first
+    const text2 = "[Edit: other.go]\nreplacement";
+    const noTools2 = parseContent(text2, false);
+    expect(noTools2.every((s) => s.type !== "tool")).toBe(true);
+    const withTools2 = parseContent(text2, true);
+    expect(withTools2[0]!.type).toBe("tool");
+  });
 });
 
 describe("parseContent - Skill tool", () => {
