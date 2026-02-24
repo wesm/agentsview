@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -54,6 +55,22 @@ func Generate(
 	}
 }
 
+// cleanEnv returns the current environment with agent auth
+// vars removed so CLIs use subscription auth, not env keys.
+func cleanEnv() []string {
+	env := os.Environ()
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		switch k {
+		case "ANTHROPIC_API_KEY", "CLAUDECODE":
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	return append(filtered, "CLAUDE_NO_SOUND=1")
+}
+
 // generateClaude invokes `claude -p --output-format json`.
 func generateClaude(
 	ctx context.Context, path, prompt string,
@@ -62,6 +79,7 @@ func generateClaude(
 		ctx, path,
 		"-p", "--output-format", "json",
 	)
+	cmd.Env = cleanEnv()
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
 
 	var stdout, stderr bytes.Buffer
@@ -105,6 +123,7 @@ func generateCodex(
 		"exec", "--json",
 		"--sandbox", "read-only", "-",
 	)
+	cmd.Env = cleanEnv()
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stderr bytes.Buffer
@@ -233,6 +252,7 @@ func generateGemini(
 		ctx, path,
 		"--output-format", "stream-json",
 	)
+	cmd.Env = cleanEnv()
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stderr bytes.Buffer

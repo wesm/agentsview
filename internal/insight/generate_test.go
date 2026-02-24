@@ -158,6 +158,36 @@ func TestParseStreamJSON_Empty(t *testing.T) {
 	}
 }
 
+func TestCleanEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("HOME", "/home/test")
+
+	env := cleanEnv()
+
+	has := func(prefix string) bool {
+		for _, e := range env {
+			if strings.HasPrefix(e, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if has("ANTHROPIC_API_KEY=") {
+		t.Error("ANTHROPIC_API_KEY should be stripped")
+	}
+	if has("CLAUDECODE=") {
+		t.Error("CLAUDECODE should be stripped")
+	}
+	if !has("HOME=") {
+		t.Error("HOME should be preserved")
+	}
+	if !has("CLAUDE_NO_SOUND=1") {
+		t.Error("CLAUDE_NO_SOUND=1 should be appended")
+	}
+}
+
 func TestValidAgents(t *testing.T) {
 	for _, agent := range []string{
 		"claude", "codex", "gemini",
