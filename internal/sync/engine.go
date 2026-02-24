@@ -212,8 +212,18 @@ func (e *Engine) classifyOnePath(
 			parts := strings.Split(rel, sep)
 			switch len(parts) {
 			case 1:
-				// Bare: <uuid>.jsonl
-				if !strings.HasSuffix(parts[0], ".jsonl") {
+				// Bare: <uuid>.jsonl — skip if a directory
+				// format exists (matching discovery precedence).
+				stem, ok := strings.CutSuffix(
+					parts[0], ".jsonl",
+				)
+				if !ok {
+					return DiscoveredFile{}, false
+				}
+				dirEvents := filepath.Join(
+					stateDir, stem, "events.jsonl",
+				)
+				if _, err := os.Stat(dirEvents); err == nil {
 					return DiscoveredFile{}, false
 				}
 				return DiscoveredFile{
