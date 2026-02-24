@@ -100,6 +100,7 @@ Data is stored in ~/.agentsview/ by default.
 }
 
 func runServe(args []string) {
+	start := time.Now()
 	cfg := mustLoadConfig(args)
 	database := mustOpenDB(cfg)
 	defer database.Close()
@@ -131,7 +132,11 @@ func runServe(args []string) {
 	)
 
 	url := fmt.Sprintf("http://%s:%d", cfg.Host, cfg.Port)
-	fmt.Printf("agentsview %s listening at %s\n", version, url)
+	fmt.Printf(
+		"agentsview %s listening at %s (started in %s)\n",
+		version, url,
+		time.Since(start).Round(time.Millisecond),
+	)
 
 	if !cfg.NoBrowser {
 		go openBrowser(url)
@@ -185,10 +190,12 @@ func mustOpenDB(cfg config.Config) *db.DB {
 
 func runInitialSync(engine *sync.Engine) {
 	fmt.Println("Running initial sync...")
+	t := time.Now()
 	stats := engine.SyncAll(printSyncProgress)
 	fmt.Printf(
-		"\nSync complete: %d sessions (%d synced, %d skipped)\n",
+		"\nSync complete: %d sessions (%d synced, %d skipped) in %s\n",
 		stats.TotalSessions, stats.Synced, stats.Skipped,
+		time.Since(t).Round(time.Millisecond),
 	)
 }
 
@@ -205,6 +212,7 @@ func printSyncProgress(p sync.Progress) {
 func startFileWatcher(
 	cfg config.Config, engine *sync.Engine,
 ) func() {
+	t := time.Now()
 	onChange := func(paths []string) {
 		engine.SyncPaths(paths)
 	}
@@ -214,18 +222,26 @@ func startFileWatcher(
 		return func() {}
 	}
 
+	var dirs int
 	if _, err := os.Stat(cfg.ClaudeProjectDir); err == nil {
-		_ = watcher.WatchRecursive(cfg.ClaudeProjectDir)
+		n, _ := watcher.WatchRecursive(cfg.ClaudeProjectDir)
+		dirs += n
 	}
 	if _, err := os.Stat(cfg.CodexSessionsDir); err == nil {
-		_ = watcher.WatchRecursive(cfg.CodexSessionsDir)
+		n, _ := watcher.WatchRecursive(cfg.CodexSessionsDir)
+		dirs += n
 	}
 	if cfg.GeminiDir != "" {
 		geminiTmp := filepath.Join(cfg.GeminiDir, "tmp")
 		if _, err := os.Stat(geminiTmp); err == nil {
-			_ = watcher.WatchRecursive(geminiTmp)
+			n, _ := watcher.WatchRecursive(geminiTmp)
+			dirs += n
 		}
 	}
+	fmt.Printf(
+		"Watching %d directories for changes (%s)\n",
+		dirs, time.Since(t).Round(time.Millisecond),
+	)
 	watcher.Start()
 	return watcher.Stop
 }

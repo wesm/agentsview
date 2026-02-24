@@ -221,6 +221,7 @@ func (e *Engine) classifyOnePath(
 
 // SyncAll discovers and syncs all session files from all agents.
 func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
+	t0 := time.Now()
 	claude := DiscoverClaudeProjects(e.claudeDir)
 	codex := DiscoverCodexSessions(e.codexDir)
 	gemini := DiscoverGeminiSessions(e.geminiDir)
@@ -232,6 +233,12 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	all = append(all, claude...)
 	all = append(all, codex...)
 	all = append(all, gemini...)
+
+	log.Printf(
+		"discovered %d files (%d claude, %d codex, %d gemini) in %s",
+		len(all), len(claude), len(codex), len(gemini),
+		time.Since(t0).Round(time.Millisecond),
+	)
 
 	if onProgress != nil {
 		onProgress(Progress{
