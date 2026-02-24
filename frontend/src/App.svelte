@@ -16,7 +16,10 @@
   import { ui } from "./lib/stores/ui.svelte.js";
   import { router } from "./lib/stores/router.svelte.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
+  import { copyToClipboard } from "./lib/utils/clipboard.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
+
+  let copiedSessionId = $state(false);
 
   let messageListRef:
     | {
@@ -191,6 +194,19 @@
                   })}
                 </span>
               {/if}
+              <button
+                class="session-id"
+                title={session.id}
+                onclick={async () => {
+                  const ok = await copyToClipboard(session.id);
+                  if (ok) {
+                    copiedSessionId = true;
+                    setTimeout(() => (copiedSessionId = false), 1500);
+                  }
+                }}
+              >
+                {copiedSessionId ? "Copied!" : session.id.slice(0, 8)}
+              </button>
             </span>
           {/if}
         </div>
@@ -294,5 +310,23 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .session-id {
+    font-size: 10px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .session-id:hover {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
   }
 </style>
