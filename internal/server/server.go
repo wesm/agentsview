@@ -228,7 +228,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			)
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
-				"GET, POST, OPTIONS",
+				"GET, POST, DELETE, OPTIONS",
 			)
 			w.Header().Set(
 				"Access-Control-Allow-Headers",

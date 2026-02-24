@@ -1,0 +1,33 @@
+[review_guidelines]
+
+threat_model = """
+agentsview is a LOCAL-ONLY developer tool. It binds to 127.0.0.1
+by default and is not designed for multi-user or public deployment.
+
+Key assumptions reviewers MUST account for:
+
+1. NO AUTHENTICATION NEEDED: All API endpoints are unauthenticated
+   by design. The server listens on localhost only. Flagging missing
+   auth on any endpoint is a false positive.
+
+2. XSS / SANITIZATION: Markdown rendering uses DOMPurify. The
+   {@html renderMarkdown(...)} pattern in Svelte is intentional and
+   safe because renderMarkdown() sanitizes via DOMPurify before
+   returning HTML. Do not flag this as XSS.
+
+3. RATE LIMITING / DoS: As a local single-user tool, rate limiting
+   and concurrency caps are unnecessary. The 10-minute timeout on
+   AI CLI generation is intentional. Do not flag missing rate limits.
+
+4. CORS: The CORS policy uses Allow-Origin: * because the embedded
+   SPA is served from the same origin. Cross-origin access from
+   other local tools is acceptable for a localhost-only service.
+
+5. INPUT VALIDATION: Request body size limits are not required for
+   a localhost-only service. Do not flag missing MaxBytesReader or
+   similar unless the endpoint is exposed to untrusted networks.
+
+Do NOT flag issues that only apply to public-facing, multi-tenant,
+or network-exposed services. Focus on bugs, logic errors, data
+corruption risks, and code quality issues.
+"""

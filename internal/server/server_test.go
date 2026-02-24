@@ -972,6 +972,25 @@ func TestCORSPreflight(t *testing.T) {
 	assertStatus(t, w, http.StatusNoContent)
 }
 
+func TestCORSAllowMethods(t *testing.T) {
+	te := setup(t)
+
+	w := te.get(t, "/api/v1/stats")
+	methods := w.Header().Get(
+		"Access-Control-Allow-Methods",
+	)
+	for _, want := range []string{
+		"GET", "POST", "DELETE", "OPTIONS",
+	} {
+		if !strings.Contains(methods, want) {
+			t.Errorf(
+				"Allow-Methods %q missing %s",
+				methods, want,
+			)
+		}
+	}
+}
+
 func TestGetGithubConfig(t *testing.T) {
 	te := setup(t)
 
