@@ -255,8 +255,12 @@ func startFileWatcher(
 	}
 	watcher, err := sync.NewWatcher(watcherDebounce, onChange)
 	if err != nil {
-		log.Printf("warning: file watcher unavailable: %v", err)
-		return func() {}, nil
+		log.Printf(
+			"warning: file watcher unavailable: %v"+
+				"; will poll every %s",
+			err, unwatchedPollInterval,
+		)
+		return func() {}, []string{"all"}
 	}
 
 	type watchRoot struct {
