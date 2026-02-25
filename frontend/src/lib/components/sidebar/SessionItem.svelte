@@ -27,9 +27,7 @@
   let recentlyActive = $derived(isRecentlyActive(session));
 
   let agentColor = $derived(
-    recentlyActive
-      ? "var(--accent-green)"
-      : getAgentColor(session.agent),
+    getAgentColor(session.agent),
   );
 
   let displayName = $derived(

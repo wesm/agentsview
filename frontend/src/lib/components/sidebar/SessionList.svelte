@@ -306,10 +306,10 @@
 
   .filter-indicator {
     position: absolute;
-    top: 3px;
-    right: 3px;
-    width: 5px;
-    height: 5px;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--accent-green);
   }

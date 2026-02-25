@@ -171,6 +171,8 @@
       </svg>
     </button>
 
+    <span class="header-divider"></span>
+
     <button
       class="header-btn"
       onclick={() => (ui.activeModal = "resync")}
@@ -368,6 +370,14 @@
 
   .header-btn.syncing {
     animation: spin 1s linear infinite;
+  }
+
+  .header-divider {
+    width: 1px;
+    height: 14px;
+    background: var(--border-muted);
+    margin: 0 2px;
+    flex-shrink: 0;
   }
 
   @keyframes spin {

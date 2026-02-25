@@ -35,7 +35,7 @@
     if (
       view !== "progress" &&
       (e.target as HTMLElement).classList.contains(
-        "resync-overlay",
+        "modal-overlay",
       )
     ) {
       close();
@@ -61,15 +61,15 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="resync-overlay"
+  class="modal-overlay"
   onclick={handleOverlayClick}
   onkeydown={handleKeydown}
 >
-  <div class="resync-modal">
+  <div class="modal-panel resync-panel">
     <div class="modal-header">
       <h3 class="modal-title">Full Resync</h3>
       {#if view !== "progress"}
-        <button class="close-btn" onclick={close}>
+        <button class="modal-close" onclick={close}>
           &times;
         </button>
       {/if}
@@ -84,11 +84,11 @@
           appear incorrect.
         </p>
         <div class="confirm-actions">
-          <button class="btn" onclick={close}>
+          <button class="modal-btn" onclick={close}>
             Cancel
           </button>
           <button
-            class="btn btn-primary"
+            class="modal-btn modal-btn-primary"
             onclick={startResync}
           >
             Start Full Resync
@@ -97,7 +97,7 @@
 
       {:else if view === "progress"}
         <div class="progress-view">
-          <div class="spinner"></div>
+          <div class="modal-spinner"></div>
           <p class="progress-label">
             {#if sync.progress}
               Syncing {sync.progress.sessions_done}
@@ -133,7 +133,10 @@
             </div>
           {/if}
           <div class="done-actions">
-            <button class="btn btn-primary" onclick={close}>
+            <button
+              class="modal-btn modal-btn-primary"
+              onclick={close}
+            >
               Close
             </button>
           </div>
@@ -141,12 +144,15 @@
 
       {:else if view === "error"}
         <div class="error-view">
-          <p class="error-message">{errorMessage}</p>
+          <p class="modal-error">{errorMessage}</p>
           <div class="error-actions">
-            <button class="btn btn-primary" onclick={startResync}>
+            <button
+              class="modal-btn modal-btn-primary"
+              onclick={startResync}
+            >
               Retry
             </button>
-            <button class="btn" onclick={close}>
+            <button class="modal-btn" onclick={close}>
               Close
             </button>
           </div>
@@ -157,57 +163,8 @@
 </div>
 
 <style>
-  .resync-overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--overlay-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-
-  .resync-modal {
+  .resync-panel {
     width: 400px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
-    overflow: hidden;
-  }
-
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-default);
-  }
-
-  .modal-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .close-btn {
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    color: var(--text-muted);
-    border-radius: var(--radius-sm);
-  }
-
-  .close-btn:hover {
-    background: var(--bg-surface-hover);
-    color: var(--text-primary);
-  }
-
-  .modal-body {
-    padding: 16px;
   }
 
   .confirm-text {
@@ -229,21 +186,6 @@
     align-items: center;
     gap: 12px;
     padding: 16px 0;
-  }
-
-  .spinner {
-    width: 24px;
-    height: 24px;
-    border: 2px solid var(--border-default);
-    border-top-color: var(--accent-blue);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 
   .progress-label {
@@ -301,46 +243,9 @@
     gap: 12px;
   }
 
-  .error-message {
-    font-size: 12px;
-    color: var(--accent-red, #f85149);
-    background: var(--bg-inset);
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--accent-red, #f85149);
-    word-break: break-word;
-  }
-
   .error-actions {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-  }
-
-  .btn {
-    height: 28px;
-    padding: 0 12px;
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    background: var(--bg-surface-hover);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-default);
-  }
-
-  .btn:hover {
-    background: var(--bg-inset);
-    color: var(--text-primary);
-  }
-
-  .btn-primary {
-    background: var(--accent-blue);
-    color: white;
-    border-color: var(--accent-blue);
-  }
-
-  .btn-primary:hover {
-    opacity: 0.9;
   }
 </style>

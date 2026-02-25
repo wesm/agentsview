@@ -69,7 +69,7 @@
   function handleOverlayClick(e: MouseEvent) {
     if (
       (e.target as HTMLElement).classList.contains(
-        "publish-overlay",
+        "modal-overlay",
       )
     ) {
       ui.activeModal = null;
@@ -81,17 +81,17 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="publish-overlay"
+  class="modal-overlay"
   onclick={handleOverlayClick}
   onkeydown={(e) => {
     if (e.key === "Escape") ui.activeModal = null;
   }}
 >
-  <div class="publish-modal">
+  <div class="modal-panel publish-panel">
     <div class="modal-header">
       <h3 class="modal-title">Publish to GitHub Gist</h3>
       <button
-        class="close-btn"
+        class="modal-close"
         onclick={() => ui.activeModal = null}
       >
         &times;
@@ -123,7 +123,7 @@
             Create token on GitHub
           </a>
           <button
-            class="btn btn-primary"
+            class="modal-btn modal-btn-primary"
             onclick={handleSaveToken}
             disabled={!tokenInput.trim()}
           >
@@ -133,7 +133,7 @@
 
       {:else if view === "progress"}
         <div class="progress-view">
-          <div class="spinner"></div>
+          <div class="modal-spinner"></div>
           <p>Creating GitHub Gist...</p>
         </div>
 
@@ -152,7 +152,7 @@
                 value={result.view_url}
               />
               <button
-                class="btn btn-copy"
+                class="modal-btn btn-copy"
                 onclick={() => copyToClipboard(result!.view_url)}
               >
                 Copy
@@ -172,7 +172,7 @@
                 value={result.gist_url}
               />
               <button
-                class="btn btn-copy"
+                class="modal-btn btn-copy"
                 onclick={() => copyToClipboard(result!.gist_url)}
               >
                 Copy
@@ -181,13 +181,13 @@
           </div>
           <div class="success-actions">
             <button
-              class="btn btn-primary"
+              class="modal-btn modal-btn-primary"
               onclick={() => window.open(result!.view_url, "_blank")}
             >
               Open in Browser
             </button>
             <button
-              class="btn"
+              class="modal-btn"
               onclick={() => ui.activeModal = null}
             >
               Close
@@ -197,13 +197,16 @@
 
       {:else if view === "error"}
         <div class="error-view">
-          <p class="error-message">{errorMessage}</p>
+          <p class="modal-error">{errorMessage}</p>
           <div class="error-actions">
-            <button class="btn btn-primary" onclick={doPublish}>
+            <button
+              class="modal-btn modal-btn-primary"
+              onclick={doPublish}
+            >
               Retry
             </button>
             <button
-              class="btn"
+              class="modal-btn"
               onclick={() => ui.activeModal = null}
             >
               Close
@@ -216,57 +219,8 @@
 </div>
 
 <style>
-  .publish-overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--overlay-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-
-  .publish-modal {
+  .publish-panel {
     width: 440px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
-    overflow: hidden;
-  }
-
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-default);
-  }
-
-  .modal-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .close-btn {
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    color: var(--text-muted);
-    border-radius: var(--radius-sm);
-  }
-
-  .close-btn:hover {
-    background: var(--bg-surface-hover);
-    color: var(--text-primary);
-  }
-
-  .modal-body {
-    padding: 16px;
   }
 
   .setup-text {
@@ -326,19 +280,6 @@
     font-size: 12px;
   }
 
-  .spinner {
-    width: 24px;
-    height: 24px;
-    border: 2px solid var(--border-default);
-    border-top-color: var(--accent-blue);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
   .success-view {
     display: flex;
     flex-direction: column;
@@ -377,38 +318,6 @@
     min-width: 0;
   }
 
-  .btn {
-    height: 28px;
-    padding: 0 12px;
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    background: var(--bg-surface-hover);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-default);
-  }
-
-  .btn:hover {
-    background: var(--bg-inset);
-    color: var(--text-primary);
-  }
-
-  .btn-primary {
-    background: var(--accent-blue);
-    color: white;
-    border-color: var(--accent-blue);
-  }
-
-  .btn-primary:hover {
-    opacity: 0.9;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
   .btn-copy {
     flex-shrink: 0;
   }
@@ -424,16 +333,6 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-  }
-
-  .error-message {
-    font-size: 12px;
-    color: var(--accent-red, #f85149);
-    background: var(--bg-inset);
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--accent-red, #f85149);
-    word-break: break-word;
   }
 
   .error-actions {
