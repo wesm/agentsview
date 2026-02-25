@@ -320,6 +320,14 @@
     background: var(--accent-amber);
   }
 
+  .agent-gemini {
+    background: var(--accent-cyan);
+  }
+
+  .agent-opencode {
+    background: var(--accent-purple);
+  }
+
   .session-time {
     font-size: 10px;
     color: var(--text-muted);

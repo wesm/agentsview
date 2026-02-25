@@ -25,17 +25,20 @@ describe("KNOWN_AGENTS", () => {
 
 describe("agentColor", () => {
   it("returns correct color for known agents", () => {
+    expect(agentColor("claude")).toBe(
+      "var(--accent-blue)",
+    );
     expect(agentColor("codex")).toBe(
       "var(--accent-green)",
     );
     expect(agentColor("copilot")).toBe(
       "var(--accent-amber)",
     );
+    expect(agentColor("gemini")).toBe(
+      "var(--accent-cyan)",
+    );
     expect(agentColor("opencode")).toBe(
       "var(--accent-purple)",
-    );
-    expect(agentColor("claude")).toBe(
-      "var(--accent-blue)",
     );
   });
 
