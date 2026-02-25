@@ -40,16 +40,16 @@
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
   onMount(() => {
+    analytics.fetchAll();
     refreshTimer = setInterval(
       () => analytics.fetchAll(),
       REFRESH_INTERVAL_MS,
     );
   });
 
-  // Sync sidebar filters to analytics dashboard and handle
-  // the initial fetch. Runs on mount and whenever the sidebar
-  // filters change. Uses untrack on analytics state so that
-  // local drill-downs don't re-trigger.
+  // Sync sidebar filters to analytics dashboard. Runs whenever
+  // the sidebar filters change. Uses untrack on analytics state
+  // so that local drill-downs don't re-trigger.
   $effect(() => {
     const headerProject = sessions.filters.project;
     const headerAgent = sessions.filters.agent;
@@ -89,7 +89,9 @@
       changed = true;
     }
 
-    untrack(() => analytics.fetchAll());
+    if (changed) {
+      untrack(() => analytics.fetchAll());
+    }
   });
 
   onDestroy(() => {

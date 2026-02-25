@@ -24,6 +24,7 @@ import {
   getAnalyticsTopSessions,
   type AnalyticsParams,
 } from "../api/client.js";
+import { sessions } from "./sessions.svelte.js";
 
 export type { Granularity, HeatmapMetric, TopSessionsMetric };
 
@@ -139,21 +140,28 @@ class AnalyticsStore {
     this.recentlyActive = false;
     this.selectedDow = null;
     this.selectedHour = null;
+    sessions.filters.project = "";
+    sessions.filters.agent = "";
+    sessions.filters.minUserMessages = 0;
+    sessions.filters.recentlyActive = false;
     this.fetchAll();
   }
 
   clearAgent() {
     this.agent = "";
+    sessions.filters.agent = "";
     this.fetchAll();
   }
 
   clearMinUserMessages() {
     this.minUserMessages = 0;
+    sessions.filters.minUserMessages = 0;
     this.fetchAll();
   }
 
   clearRecentlyActive() {
     this.recentlyActive = false;
+    sessions.filters.recentlyActive = false;
     this.fetchAll();
   }
 
@@ -169,6 +177,7 @@ class AnalyticsStore {
 
   clearProject() {
     this.project = "";
+    sessions.filters.project = "";
     this.fetchAll();
   }
 
