@@ -709,3 +709,95 @@ func TestFindCopilotSourceFile_DirPreferred(t *testing.T) {
 		t.Errorf("got %q, want dir path %q", got, dirPath)
 	}
 }
+
+// --- Symlink tests ---
+
+func TestIsDirOrSymlink(t *testing.T) {
+	dir := t.TempDir()
+
+	// Real directory
+	realDir := filepath.Join(dir, "real-dir")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Regular file
+	realFile := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(
+		realFile, []byte("hi"), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Symlink to directory
+	if err := os.Symlink(
+		realDir, filepath.Join(dir, "link-to-dir"),
+	); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Symlink to file
+	if err := os.Symlink(
+		realFile, filepath.Join(dir, "link-to-file"),
+	); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	// Broken symlink
+	if err := os.Symlink(
+		filepath.Join(dir, "gone"),
+		filepath.Join(dir, "broken"),
+	); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+
+	want := map[string]bool{
+		"real-dir":     true,
+		"file.txt":     false,
+		"link-to-dir":  true,
+		"link-to-file": false,
+		"broken":       false,
+	}
+
+	for _, e := range entries {
+		expected, ok := want[e.Name()]
+		if !ok {
+			continue
+		}
+		got := isDirOrSymlink(e, dir)
+		if got != expected {
+			t.Errorf("isDirOrSymlink(%q) = %v, want %v",
+				e.Name(), got, expected)
+		}
+	}
+}
+
+func TestFindClaudeSourceFile_Symlink(t *testing.T) {
+	dir := t.TempDir()
+
+	realDir := filepath.Join(dir, "real-project")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(realDir, "sess-abc.jsonl"),
+		[]byte("{}"), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	linkDir := filepath.Join(dir, "linked-project")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	got := FindClaudeSourceFile(dir, "sess-abc")
+	if got == "" {
+		t.Error("expected to find session via symlink")
+	}
+}
