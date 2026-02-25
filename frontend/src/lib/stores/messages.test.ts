@@ -38,6 +38,7 @@ function makeSession(
     started_at: null,
     ended_at: null,
     message_count: messageCount,
+    user_message_count: messageCount,
     created_at: new Date(0).toISOString(),
   };
 }

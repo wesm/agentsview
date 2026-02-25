@@ -23,6 +23,7 @@ interface Filters {
   recentlyActive: boolean;
   minMessages: number;
   maxMessages: number;
+  minUserMessages: number;
 }
 
 function defaultFilters(): Filters {
@@ -35,6 +36,7 @@ function defaultFilters(): Filters {
     recentlyActive: false,
     minMessages: 0,
     maxMessages: 0,
+    minUserMessages: 1,
   };
 }
 
@@ -78,6 +80,8 @@ class SessionsStore {
         f.minMessages > 0 ? f.minMessages : undefined,
       max_messages:
         f.maxMessages > 0 ? f.maxMessages : undefined,
+      min_user_messages:
+        f.minUserMessages > 0 ? f.minUserMessages : undefined,
     };
   }
 
@@ -96,6 +100,10 @@ class SessionsStore {
       params["max_messages"] ?? "",
       10,
     );
+    const minUserMsgs = parseInt(
+      params["min_user_messages"] ?? "",
+      10,
+    );
 
     this.filters = {
       project: params["project"] ?? "",
@@ -106,6 +114,9 @@ class SessionsStore {
       recentlyActive: params["active_since"] === "true",
       minMessages: Number.isFinite(minMsgs) ? minMsgs : 0,
       maxMessages: Number.isFinite(maxMsgs) ? maxMsgs : 0,
+      minUserMessages: Number.isFinite(minUserMsgs)
+        ? minUserMsgs
+        : 1,
     };
     this.activeSessionId = null;
     this.resetPagination();
@@ -261,6 +272,13 @@ class SessionsStore {
     this.load();
   }
 
+  setMinUserMessagesFilter(n: number) {
+    this.filters.minUserMessages = n;
+    this.activeSessionId = null;
+    this.resetPagination();
+    this.load();
+  }
+
   get hasActiveFilters(): boolean {
     const f = this.filters;
     return !!(
@@ -268,7 +286,8 @@ class SessionsStore {
       f.recentlyActive ||
       f.dateFrom ||
       f.dateTo ||
-      f.date
+      f.date ||
+      f.minUserMessages > 1
     );
   }
 

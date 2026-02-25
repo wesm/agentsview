@@ -139,16 +139,24 @@ func ParseClaudeSession(
 			fmt.Errorf("reading %s: %w", path, err)
 	}
 
+	userCount := 0
+	for _, m := range messages {
+		if m.Role == RoleUser {
+			userCount++
+		}
+	}
+
 	sess := ParsedSession{
-		ID:              sessionID,
-		Project:         project,
-		Machine:         machine,
-		Agent:           AgentClaude,
-		ParentSessionID: parentSessionID,
-		FirstMessage:    firstMsg,
-		StartedAt:       startedAt,
-		EndedAt:         endedAt,
-		MessageCount:    len(messages),
+		ID:               sessionID,
+		Project:          project,
+		Machine:          machine,
+		Agent:            AgentClaude,
+		ParentSessionID:  parentSessionID,
+		FirstMessage:     firstMsg,
+		StartedAt:        startedAt,
+		EndedAt:          endedAt,
+		MessageCount:     len(messages),
+		UserMessageCount: userCount,
 		File: FileInfo{
 			Path:  path,
 			Size:  info.Size(),

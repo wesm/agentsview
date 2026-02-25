@@ -26,6 +26,10 @@ func (s *Server) handleListSessions(
 	if !ok {
 		return
 	}
+	minUserMsgs, ok := parseIntParam(w, r, "min_user_messages")
+	if !ok {
+		return
+	}
 
 	date := q.Get("date")
 	dateFrom := q.Get("date_from")
@@ -45,17 +49,18 @@ func (s *Server) handleListSessions(
 	}
 
 	filter := db.SessionFilter{
-		Project:     q.Get("project"),
-		Machine:     q.Get("machine"),
-		Agent:       q.Get("agent"),
-		Date:        date,
-		DateFrom:    dateFrom,
-		DateTo:      dateTo,
-		ActiveSince: q.Get("active_since"),
-		MinMessages: minMsgs,
-		MaxMessages: maxMsgs,
-		Cursor:      q.Get("cursor"),
-		Limit:       limit,
+		Project:         q.Get("project"),
+		Machine:         q.Get("machine"),
+		Agent:           q.Get("agent"),
+		Date:            date,
+		DateFrom:        dateFrom,
+		DateTo:          dateTo,
+		ActiveSince:     q.Get("active_since"),
+		MinMessages:     minMsgs,
+		MaxMessages:     maxMsgs,
+		MinUserMessages: minUserMsgs,
+		Cursor:          q.Get("cursor"),
+		Limit:           limit,
 	}
 
 	page, err := s.db.ListSessions(r.Context(), filter)

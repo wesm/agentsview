@@ -221,6 +221,7 @@ describe("SessionsStore", () => {
               started_at: null,
               ended_at: null,
               message_count: 1,
+              user_message_count: 1,
               created_at: "2024-01-01T00:00:00Z",
             },
           ],
@@ -238,6 +239,7 @@ describe("SessionsStore", () => {
               started_at: null,
               ended_at: null,
               message_count: 1,
+              user_message_count: 1,
               created_at: "2024-01-01T00:00:01Z",
             },
           ],
@@ -435,6 +437,7 @@ function makeSession(
     started_at: null,
     ended_at: null,
     message_count: 1,
+    user_message_count: 1,
     created_at: "2024-01-01T00:00:00Z",
     ...overrides,
   };

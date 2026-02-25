@@ -46,17 +46,52 @@
     );
   });
 
-  // Sync header project filter to analytics dashboard and
-  // handle the initial fetch. Runs on mount (setting the
-  // initial project) and whenever the header project changes.
-  // Uses untrack on analytics.project so that local
-  // drill-downs (clicking a project bar) don't re-trigger.
+  // Sync sidebar filters to analytics dashboard and handle
+  // the initial fetch. Runs on mount and whenever the sidebar
+  // filters change. Uses untrack on analytics state so that
+  // local drill-downs don't re-trigger.
   $effect(() => {
     const headerProject = sessions.filters.project;
-    const current = untrack(() => analytics.project);
-    if (current !== headerProject) {
+    const headerAgent = sessions.filters.agent;
+    const headerRecentlyActive = sessions.filters.recentlyActive;
+    const headerMinUserMessages =
+      sessions.filters.minUserMessages;
+
+    const curProject = untrack(() => analytics.project);
+    const curAgent = untrack(() => analytics.agent);
+    const curActiveSince = untrack(() => analytics.activeSince);
+    const curMinUser = untrack(
+      () => analytics.minUserMessages,
+    );
+
+    let changed = false;
+    if (curProject !== headerProject) {
       analytics.project = headerProject;
+      changed = true;
     }
+    if (curAgent !== headerAgent) {
+      analytics.agent = headerAgent;
+      changed = true;
+    }
+
+    const activeSinceVal = headerRecentlyActive
+      ? new Date(
+          Date.now() - 24 * 60 * 60 * 1000,
+        ).toISOString()
+      : "";
+    if (curActiveSince !== activeSinceVal) {
+      analytics.activeSince = activeSinceVal;
+      changed = true;
+    }
+
+    const minUserVal = headerMinUserMessages > 1
+      ? headerMinUserMessages
+      : 0;
+    if (curMinUser !== minUserVal) {
+      analytics.minUserMessages = minUserVal;
+      changed = true;
+    }
+
     untrack(() => analytics.fetchAll());
   });
 

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     started_at  TEXT,
     ended_at    TEXT,
     message_count INTEGER NOT NULL DEFAULT 0,
+    user_message_count INTEGER NOT NULL DEFAULT 0,
     file_path   TEXT,
     file_size   INTEGER,
     file_mtime  INTEGER,
@@ -81,6 +82,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_started
     ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_message_count
     ON sessions(message_count);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_message_count
+    ON sessions(user_message_count);
 CREATE INDEX IF NOT EXISTS idx_sessions_agent
     ON sessions(agent);
 

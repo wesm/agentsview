@@ -85,14 +85,22 @@ func parseAnalyticsFilter(
 		hour = &v
 	}
 
+	minUserMsgs, ok := parseIntParam(w, r, "min_user_messages")
+	if !ok {
+		return db.AnalyticsFilter{}, false
+	}
+
 	return db.AnalyticsFilter{
-		From:      from,
-		To:        to,
-		Machine:   q.Get("machine"),
-		Project:   q.Get("project"),
-		Timezone:  tz,
-		DayOfWeek: dow,
-		Hour:      hour,
+		From:            from,
+		To:              to,
+		Machine:         q.Get("machine"),
+		Project:         q.Get("project"),
+		Agent:           q.Get("agent"),
+		Timezone:        tz,
+		DayOfWeek:       dow,
+		Hour:            hour,
+		MinUserMessages: minUserMsgs,
+		ActiveSince:     q.Get("active_since"),
 	}, true
 }
 

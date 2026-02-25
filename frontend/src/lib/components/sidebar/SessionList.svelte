@@ -198,6 +198,21 @@
             {/each}
           </div>
         </div>
+        <div class="filter-section">
+          <div class="filter-section-label">Min Prompts</div>
+          <div class="agent-buttons">
+            {#each [1, 2, 5, 10] as n}
+              <button
+                class="agent-filter-btn"
+                class:active={sessions.filters.minUserMessages === n}
+                onclick={() =>
+                  sessions.setMinUserMessagesFilter(n)}
+              >
+                {n}
+              </button>
+            {/each}
+          </div>
+        </div>
         {#if hasFilters}
           <button
             class="clear-filters-btn"

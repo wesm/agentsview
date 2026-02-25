@@ -62,6 +62,9 @@ class AnalyticsStore {
   metric: HeatmapMetric = $state("messages");
   selectedDate: string | null = $state(null);
   project: string = $state("");
+  agent: string = $state("");
+  minUserMessages: number = $state(0);
+  activeSince: string = $state("");
   selectedDow: number | null = $state(null);
   selectedHour: number | null = $state(null);
 
@@ -120,6 +123,9 @@ class AnalyticsStore {
     return (
       this.selectedDate !== null ||
       this.project !== "" ||
+      this.agent !== "" ||
+      this.minUserMessages > 0 ||
+      this.activeSince !== "" ||
       this.selectedDow !== null ||
       this.selectedHour !== null
     );
@@ -128,8 +134,26 @@ class AnalyticsStore {
   clearAllFilters() {
     this.selectedDate = null;
     this.project = "";
+    this.agent = "";
+    this.minUserMessages = 0;
+    this.activeSince = "";
     this.selectedDow = null;
     this.selectedHour = null;
+    this.fetchAll();
+  }
+
+  clearAgent() {
+    this.agent = "";
+    this.fetchAll();
+  }
+
+  clearMinUserMessages() {
+    this.minUserMessages = 0;
+    this.fetchAll();
+  }
+
+  clearActiveSince() {
+    this.activeSince = "";
     this.fetchAll();
   }
 
@@ -177,6 +201,11 @@ class AnalyticsStore {
     if (includeProject && this.project) {
       p.project = this.project;
     }
+    if (this.agent) p.agent = this.agent;
+    if (this.minUserMessages > 0) {
+      p.min_user_messages = this.minUserMessages;
+    }
+    if (this.activeSince) p.active_since = this.activeSince;
     if (includeTime) {
       if (this.selectedDow !== null) p.dow = this.selectedDow;
       if (this.selectedHour !== null) {
@@ -203,6 +232,11 @@ class AnalyticsStore {
       if (includeProject && this.project) {
         p.project = this.project;
       }
+      if (this.agent) p.agent = this.agent;
+      if (this.minUserMessages > 0) {
+        p.min_user_messages = this.minUserMessages;
+      }
+      if (this.activeSince) p.active_since = this.activeSince;
       if (includeTime) {
         if (this.selectedDow !== null) {
           p.dow = this.selectedDow;

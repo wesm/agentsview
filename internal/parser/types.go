@@ -39,8 +39,9 @@ type ParsedSession struct {
 	FirstMessage    string
 	StartedAt       time.Time
 	EndedAt         time.Time
-	MessageCount    int
-	File            FileInfo
+	MessageCount     int
+	UserMessageCount int
+	File             FileInfo
 }
 
 // ParsedToolCall holds a single tool invocation extracted from

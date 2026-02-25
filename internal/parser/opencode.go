@@ -422,16 +422,24 @@ func buildOpenCodeSession(
 	startedAt := millisToTime(s.timeCreated)
 	endedAt := millisToTime(s.timeUpdated)
 
+	userCount := 0
+	for _, m := range parsed {
+		if m.Role == RoleUser {
+			userCount++
+		}
+	}
+
 	sess := &ParsedSession{
-		ID:              "opencode:" + s.id,
-		Project:         project,
-		Machine:         machine,
-		Agent:           AgentOpenCode,
-		ParentSessionID: parentID,
-		FirstMessage:    firstMsg,
-		StartedAt:       startedAt,
-		EndedAt:         endedAt,
-		MessageCount:    len(parsed),
+		ID:               "opencode:" + s.id,
+		Project:          project,
+		Machine:          machine,
+		Agent:            AgentOpenCode,
+		ParentSessionID:  parentID,
+		FirstMessage:     firstMsg,
+		StartedAt:        startedAt,
+		EndedAt:          endedAt,
+		MessageCount:     len(parsed),
+		UserMessageCount: userCount,
 		File: FileInfo{
 			Path:  dbPath + "#" + s.id,
 			Mtime: s.timeUpdated * 1_000_000,

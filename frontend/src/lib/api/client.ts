@@ -97,6 +97,7 @@ export interface ListSessionsParams {
   active_since?: string;
   min_messages?: number;
   max_messages?: number;
+  min_user_messages?: number;
   cursor?: string;
   limit?: number;
 }
@@ -355,8 +356,11 @@ export interface AnalyticsParams {
   timezone?: string;
   machine?: string;
   project?: string;
+  agent?: string;
   dow?: number;
   hour?: number;
+  min_user_messages?: number;
+  active_since?: string;
 }
 
 export function getAnalyticsSummary(

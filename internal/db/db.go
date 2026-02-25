@@ -161,7 +161,21 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return toolCount == 0, nil
+	if toolCount == 0 {
+		return true, nil
+	}
+
+	var umcCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('sessions')
+		 WHERE name = 'user_message_count'`,
+	).Scan(&umcCount)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
+	}
+	return umcCount == 0, nil
 }
 
 func dropDatabase(path string) error {

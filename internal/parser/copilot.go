@@ -266,15 +266,23 @@ func ParseCopilotSession(
 	}
 	sessionID = "copilot:" + sessionID
 
+	userCount := 0
+	for _, m := range b.messages {
+		if m.Role == RoleUser {
+			userCount++
+		}
+	}
+
 	sess := &ParsedSession{
-		ID:           sessionID,
-		Project:      b.project,
-		Machine:      machine,
-		Agent:        AgentCopilot,
-		FirstMessage: b.firstMessage,
-		StartedAt:    b.startedAt,
-		EndedAt:      b.endedAt,
-		MessageCount: len(b.messages),
+		ID:               sessionID,
+		Project:          b.project,
+		Machine:          machine,
+		Agent:            AgentCopilot,
+		FirstMessage:     b.firstMessage,
+		StartedAt:        b.startedAt,
+		EndedAt:          b.endedAt,
+		MessageCount:     len(b.messages),
+		UserMessageCount: userCount,
 		File: FileInfo{
 			Path:  path,
 			Size:  info.Size(),

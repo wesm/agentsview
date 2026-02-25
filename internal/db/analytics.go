@@ -42,13 +42,16 @@ func queryChunked(
 
 // AnalyticsFilter is the shared filter for all analytics queries.
 type AnalyticsFilter struct {
-	From      string // ISO date YYYY-MM-DD, inclusive
-	To        string // ISO date YYYY-MM-DD, inclusive
-	Machine   string // optional machine filter
-	Project   string // optional project filter
-	Timezone  string // IANA timezone for day bucketing
-	DayOfWeek *int   // nil = all, 0=Mon, 6=Sun (ISO)
-	Hour      *int   // nil = all, 0-23
+	From            string // ISO date YYYY-MM-DD, inclusive
+	To              string // ISO date YYYY-MM-DD, inclusive
+	Machine         string // optional machine filter
+	Project         string // optional project filter
+	Agent           string // optional agent filter
+	Timezone        string // IANA timezone for day bucketing
+	DayOfWeek       *int   // nil = all, 0=Mon, 6=Sun (ISO)
+	Hour            *int   // nil = all, 0-23
+	MinUserMessages int    // user_message_count >= N
+	ActiveSince     string // ISO timestamp cutoff
 }
 
 // location loads the timezone or returns UTC on error.
@@ -107,6 +110,22 @@ func (f AnalyticsFilter) buildWhere(
 	if f.Project != "" {
 		preds = append(preds, "project = ?")
 		args = append(args, f.Project)
+	}
+
+	if f.Agent != "" {
+		preds = append(preds, "agent = ?")
+		args = append(args, f.Agent)
+	}
+
+	if f.MinUserMessages > 0 {
+		preds = append(preds, "user_message_count >= ?")
+		args = append(args, f.MinUserMessages)
+	}
+
+	if f.ActiveSince != "" {
+		preds = append(preds,
+			"COALESCE(ended_at, started_at, created_at) >= ?")
+		args = append(args, f.ActiveSince)
 	}
 
 	return strings.Join(preds, " AND "), args

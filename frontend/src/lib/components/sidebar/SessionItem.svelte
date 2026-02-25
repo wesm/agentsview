@@ -59,7 +59,7 @@
     <div class="session-meta">
       <span class="session-project">{session.project}</span>
       <span class="session-time">{timeStr}</span>
-      <span class="session-count">{session.message_count}</span>
+      <span class="session-count">{session.user_message_count}</span>
       {#if continuationCount > 1}
         <span class="continuation-badge">x{continuationCount}</span>
       {/if}

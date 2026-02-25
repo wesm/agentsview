@@ -88,15 +88,23 @@ func ParseGeminiSession(
 		},
 	)
 
+	userCount := 0
+	for _, m := range messages {
+		if m.Role == RoleUser {
+			userCount++
+		}
+	}
+
 	sess := &ParsedSession{
-		ID:           "gemini:" + sessionID,
-		Project:      project,
-		Machine:      machine,
-		Agent:        AgentGemini,
-		FirstMessage: firstMessage,
-		StartedAt:    startTime,
-		EndedAt:      lastUpdated,
-		MessageCount: len(messages),
+		ID:               "gemini:" + sessionID,
+		Project:          project,
+		Machine:          machine,
+		Agent:            AgentGemini,
+		FirstMessage:     firstMessage,
+		StartedAt:        startTime,
+		EndedAt:          lastUpdated,
+		MessageCount:     len(messages),
+		UserMessageCount: userCount,
 		File: FileInfo{
 			Path:  path,
 			Size:  info.Size(),

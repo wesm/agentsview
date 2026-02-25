@@ -1,5 +1,6 @@
 <script lang="ts">
   import { analytics } from "../../stores/analytics.svelte.js";
+  import { agentColor } from "../../utils/agents.js";
 
   const DAY_LABELS = [
     "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
@@ -36,6 +37,9 @@
   const filterCount = $derived(
     (analytics.selectedDate !== null ? 1 : 0) +
     (analytics.project !== "" ? 1 : 0) +
+    (analytics.agent !== "" ? 1 : 0) +
+    (analytics.minUserMessages > 0 ? 1 : 0) +
+    (analytics.activeSince !== "" ? 1 : 0) +
     (hasTime ? 1 : 0)
   );
 </script>
@@ -82,6 +86,61 @@
           </svg>
         </span>
         {analytics.project}
+        <span class="chip-x">&times;</span>
+      </button>
+    {/if}
+
+    {#if analytics.agent}
+      <button
+        class="filter-chip"
+        onclick={() => analytics.clearAgent()}
+        title="Clear agent filter"
+      >
+        <span
+          class="agent-chip-dot"
+          style:background={agentColor(analytics.agent)}
+        ></span>
+        {analytics.agent}
+        <span class="chip-x">&times;</span>
+      </button>
+    {/if}
+
+    {#if analytics.minUserMessages > 0}
+      <button
+        class="filter-chip"
+        onclick={() => analytics.clearMinUserMessages()}
+        title="Clear min prompts filter"
+      >
+        <span class="chip-icon">
+          <svg width="10" height="10" viewBox="0 0 16 16"
+            fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.5
+              3a.5.5 0 00-1 0v4a.5.5 0
+              00.146.354l2 2a.5.5 0 00.708-.708L8.5
+              7.793V4z"/>
+          </svg>
+        </span>
+        &ge;{analytics.minUserMessages} prompts
+        <span class="chip-x">&times;</span>
+      </button>
+    {/if}
+
+    {#if analytics.activeSince}
+      <button
+        class="filter-chip"
+        onclick={() => analytics.clearActiveSince()}
+        title="Clear recently active filter"
+      >
+        <span class="chip-icon">
+          <svg width="10" height="10" viewBox="0 0 16 16"
+            fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.5
+              3a.5.5 0 00-1 0v4a.5.5 0
+              00.146.354l2 2a.5.5 0 00.708-.708L8.5
+              7.793V4z"/>
+          </svg>
+        </span>
+        Active 24h
         <span class="chip-x">&times;</span>
       </button>
     {/if}
@@ -165,6 +224,13 @@
     display: flex;
     align-items: center;
     opacity: 0.7;
+  }
+
+  .agent-chip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
   }
 
   .chip-x {
