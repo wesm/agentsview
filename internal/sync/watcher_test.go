@@ -24,7 +24,7 @@ func startTestWatcherNoCleanup(
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
-	if _, err := w.WatchRecursive(dir); err != nil {
+	if _, _, err := w.WatchRecursive(dir); err != nil {
 		t.Fatalf("WatchRecursive: %v", err)
 	}
 	w.Start()

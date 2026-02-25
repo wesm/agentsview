@@ -26,10 +26,11 @@ var (
 )
 
 const (
-	periodicSyncInterval = 15 * time.Minute
-	watcherDebounce      = 500 * time.Millisecond
-	browserPollInterval  = 100 * time.Millisecond
-	browserPollAttempts  = 60
+	periodicSyncInterval  = 15 * time.Minute
+	unwatchedPollInterval = 2 * time.Minute
+	watcherDebounce       = 500 * time.Millisecond
+	browserPollInterval   = 100 * time.Millisecond
+	browserPollAttempts   = 60
 )
 
 func main() {
@@ -98,8 +99,27 @@ Environment variables:
   OPENCODE_DIR            OpenCode data directory
   AGENT_VIEWER_DATA_DIR   Data directory (database, config)
 
+Multiple directories:
+  Add arrays to ~/.agentsview/config.json to scan multiple locations:
+  {
+    "claude_project_dirs": ["/path/one", "/path/two"],
+    "codex_sessions_dirs": ["/codex/a", "/codex/b"]
+  }
+  When set, these override the default directory. Environment variables
+  override config file arrays.
+
 Data is stored in ~/.agentsview/ by default.
 `, version)
+}
+
+// warnMissingDirs logs a warning for each configured
+// directory that does not exist.
+func warnMissingDirs(dirs []string, label string) {
+	for _, d := range dirs {
+		if _, err := os.Stat(d); err != nil {
+			log.Printf("warning: %s directory not found: %s", label, d)
+		}
+	}
 }
 
 func runServe(args []string) {
@@ -108,18 +128,31 @@ func runServe(args []string) {
 	database := mustOpenDB(cfg)
 	defer database.Close()
 
+	warnMissingDirs(cfg.ResolveClaudeDirs(), "claude")
+	warnMissingDirs(cfg.ResolveCodexDirs(), "codex")
+	warnMissingDirs(cfg.ResolveCopilotDirs(), "copilot")
+	warnMissingDirs(cfg.ResolveGeminiDirs(), "gemini")
+	warnMissingDirs(cfg.ResolveOpenCodeDirs(), "opencode")
+
 	engine := sync.NewEngine(
-		database, cfg.ClaudeProjectDir,
-		cfg.CodexSessionsDir, cfg.CopilotDir,
-		cfg.GeminiDir, cfg.OpenCodeDir, "local",
+		database,
+		cfg.ResolveClaudeDirs(),
+		cfg.ResolveCodexDirs(),
+		cfg.ResolveCopilotDirs(),
+		cfg.ResolveGeminiDirs(),
+		cfg.ResolveOpenCodeDirs(),
+		"local",
 	)
 
 	runInitialSync(engine)
 
-	stopWatcher := startFileWatcher(cfg, engine)
+	stopWatcher, unwatchedDirs := startFileWatcher(cfg, engine)
 	defer stopWatcher()
 
 	go startPeriodicSync(engine)
+	if len(unwatchedDirs) > 0 {
+		go startUnwatchedPoll(engine)
+	}
 
 	port := server.FindAvailablePort(cfg.Host, cfg.Port)
 	if port != cfg.Port {
@@ -215,7 +248,7 @@ func printSyncProgress(p sync.Progress) {
 
 func startFileWatcher(
 	cfg config.Config, engine *sync.Engine,
-) func() {
+) (stopWatcher func(), unwatchedDirs []string) {
 	t := time.Now()
 	onChange := func(paths []string) {
 		engine.SyncPaths(paths)
@@ -223,40 +256,57 @@ func startFileWatcher(
 	watcher, err := sync.NewWatcher(watcherDebounce, onChange)
 	if err != nil {
 		log.Printf("warning: file watcher unavailable: %v", err)
-		return func() {}
+		return func() {}, nil
 	}
 
-	var dirs int
-	if _, err := os.Stat(cfg.ClaudeProjectDir); err == nil {
-		n, _ := watcher.WatchRecursive(cfg.ClaudeProjectDir)
-		dirs += n
+	type watchRoot struct {
+		dir  string
+		root string // actual path passed to WatchRecursive
 	}
-	if _, err := os.Stat(cfg.CodexSessionsDir); err == nil {
-		n, _ := watcher.WatchRecursive(cfg.CodexSessionsDir)
-		dirs += n
+
+	var roots []watchRoot
+	for _, d := range cfg.ResolveClaudeDirs() {
+		if _, err := os.Stat(d); err == nil {
+			roots = append(roots, watchRoot{d, d})
+		}
 	}
-	if cfg.CopilotDir != "" {
-		copilotState := filepath.Join(
-			cfg.CopilotDir, "session-state",
-		)
+	for _, d := range cfg.ResolveCodexDirs() {
+		if _, err := os.Stat(d); err == nil {
+			roots = append(roots, watchRoot{d, d})
+		}
+	}
+	for _, d := range cfg.ResolveCopilotDirs() {
+		copilotState := filepath.Join(d, "session-state")
 		if _, err := os.Stat(copilotState); err == nil {
-			n, _ := watcher.WatchRecursive(copilotState)
-			dirs += n
+			roots = append(roots, watchRoot{d, copilotState})
 		}
 	}
-	if cfg.GeminiDir != "" {
-		geminiTmp := filepath.Join(cfg.GeminiDir, "tmp")
+	for _, d := range cfg.ResolveGeminiDirs() {
+		geminiTmp := filepath.Join(d, "tmp")
 		if _, err := os.Stat(geminiTmp); err == nil {
-			n, _ := watcher.WatchRecursive(geminiTmp)
-			dirs += n
+			roots = append(roots, watchRoot{d, geminiTmp})
 		}
 	}
+
+	var totalWatched int
+	for _, r := range roots {
+		watched, uw, _ := watcher.WatchRecursive(r.root)
+		totalWatched += watched
+		if uw > 0 {
+			unwatchedDirs = append(unwatchedDirs, r.dir)
+			log.Printf(
+				"Couldn't watch %d directories under %s, will poll every %s",
+				uw, r.dir, unwatchedPollInterval,
+			)
+		}
+	}
+
 	fmt.Printf(
 		"Watching %d directories for changes (%s)\n",
-		dirs, time.Since(t).Round(time.Millisecond),
+		totalWatched, time.Since(t).Round(time.Millisecond),
 	)
 	watcher.Start()
-	return watcher.Stop
+	return watcher.Stop, unwatchedDirs
 }
 
 func startPeriodicSync(engine *sync.Engine) {
@@ -264,6 +314,15 @@ func startPeriodicSync(engine *sync.Engine) {
 	defer ticker.Stop()
 	for range ticker.C {
 		log.Println("Running scheduled sync...")
+		engine.SyncAll(nil)
+	}
+}
+
+func startUnwatchedPoll(engine *sync.Engine) {
+	ticker := time.NewTicker(unwatchedPollInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		log.Println("Polling unwatched directories...")
 		engine.SyncAll(nil)
 	}
 }

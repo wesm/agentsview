@@ -96,7 +96,7 @@ func setupWithServerOpts(
 		opt(&cfg)
 	}
 	engine := sync.NewEngine(
-		database, claudeDir, codexDir, "", "", "", "test",
+		database, []string{claudeDir}, []string{codexDir}, nil, nil, nil, "test",
 	)
 	srv := server.New(cfg, database, engine, srvOpts...)
 
@@ -1275,8 +1275,8 @@ func TestWatchSession_Events(t *testing.T) {
 	sessionPath := te.writeSessionFile(t, "watch-proj", "watch-sess.jsonl", b)
 
 	engine := sync.NewEngine(
-		te.db, te.claudeDir,
-		filepath.Join(te.dataDir, "codex"), "", "", "", "test",
+		te.db, []string{te.claudeDir},
+		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "test",
 	)
 	engine.SyncAll(nil)
 
@@ -1321,8 +1321,8 @@ func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 	sessionPath := te.writeSessionFile(t, "vanish-proj", "vanish-sess.jsonl", b)
 
 	engine := sync.NewEngine(
-		te.db, te.claudeDir,
-		filepath.Join(te.dataDir, "codex"), "", "", "", "test",
+		te.db, []string{te.claudeDir},
+		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "test",
 	)
 	engine.SyncAll(nil)
 

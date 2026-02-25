@@ -25,11 +25,11 @@ const (
 // Engine orchestrates session file discovery and sync.
 type Engine struct {
 	db            *db.DB
-	claudeDir     string
-	codexDir      string
-	copilotDir    string
-	geminiDir     string
-	opencodeDir   string
+	claudeDirs    []string
+	codexDirs     []string
+	copilotDirs   []string
+	geminiDirs    []string
+	opencodeDirs  []string
 	machine       string
 	syncMu        gosync.Mutex // serializes full sync runs
 	mu            gosync.RWMutex
@@ -49,8 +49,8 @@ type Engine struct {
 // skipped in a prior run are not re-parsed on startup.
 func NewEngine(
 	database *db.DB,
-	claudeDir, codexDir, copilotDir,
-	geminiDir, opencodeDir, machine string,
+	claudeDirs, codexDirs, copilotDirs,
+	geminiDirs, opencodeDirs []string, machine string,
 ) *Engine {
 	skipCache := make(map[string]int64)
 	if loaded, err := database.LoadSkippedFiles(); err == nil {
@@ -60,14 +60,14 @@ func NewEngine(
 	}
 
 	return &Engine{
-		db:          database,
-		claudeDir:   claudeDir,
-		codexDir:    codexDir,
-		copilotDir:  copilotDir,
-		geminiDir:   geminiDir,
-		opencodeDir: opencodeDir,
-		machine:     machine,
-		skipCache:   skipCache,
+		db:           database,
+		claudeDirs:   claudeDirs,
+		codexDirs:    codexDirs,
+		copilotDirs:  copilotDirs,
+		geminiDirs:   geminiDirs,
+		opencodeDirs: opencodeDirs,
+		machine:      machine,
+		skipCache:    skipCache,
 	}
 }
 
@@ -122,11 +122,11 @@ func (e *Engine) SyncPaths(paths []string) {
 func (e *Engine) classifyPaths(
 	paths []string,
 ) []DiscoveredFile {
-	var geminiProjects map[string]string
+	geminiProjectsByDir := make(map[string]map[string]string)
 	var files []DiscoveredFile
 	for _, p := range paths {
 		if df, ok := e.classifyOnePath(
-			p, &geminiProjects,
+			p, geminiProjectsByDir,
 		); ok {
 			files = append(files, df)
 		}
@@ -153,13 +153,16 @@ func isUnder(dir, path string) (string, bool) {
 
 func (e *Engine) classifyOnePath(
 	path string,
-	geminiProjects *map[string]string,
+	geminiProjectsByDir map[string]map[string]string,
 ) (DiscoveredFile, bool) {
 	sep := string(filepath.Separator)
 
 	// Claude: <claudeDir>/<project>/<session>.jsonl
-	if e.claudeDir != "" {
-		if rel, ok := isUnder(e.claudeDir, path); ok {
+	for _, claudeDir := range e.claudeDirs {
+		if claudeDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(claudeDir, path); ok {
 			if !strings.HasSuffix(path, ".jsonl") {
 				return DiscoveredFile{}, false
 			}
@@ -182,8 +185,11 @@ func (e *Engine) classifyOnePath(
 	}
 
 	// Codex: <codexDir>/<year>/<month>/<day>/<file>.jsonl
-	if e.codexDir != "" {
-		if rel, ok := isUnder(e.codexDir, path); ok {
+	for _, codexDir := range e.codexDirs {
+		if codexDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(codexDir, path); ok {
 			parts := strings.Split(rel, sep)
 			if len(parts) != 4 {
 				return DiscoveredFile{}, false
@@ -205,16 +211,17 @@ func (e *Engine) classifyOnePath(
 
 	// Copilot: <copilotDir>/session-state/<uuid>.jsonl
 	//      or: <copilotDir>/session-state/<uuid>/events.jsonl
-	if e.copilotDir != "" {
+	for _, copilotDir := range e.copilotDirs {
+		if copilotDir == "" {
+			continue
+		}
 		stateDir := filepath.Join(
-			e.copilotDir, "session-state",
+			copilotDir, "session-state",
 		)
 		if rel, ok := isUnder(stateDir, path); ok {
 			parts := strings.Split(rel, sep)
 			switch len(parts) {
 			case 1:
-				// Bare: <uuid>.jsonl — skip if a directory
-				// format exists (matching discovery precedence).
 				stem, ok := strings.CutSuffix(
 					parts[0], ".jsonl",
 				)
@@ -232,7 +239,6 @@ func (e *Engine) classifyOnePath(
 					Agent: parser.AgentCopilot,
 				}, true
 			case 2:
-				// Directory: <uuid>/events.jsonl
 				if parts[1] != "events.jsonl" {
 					return DiscoveredFile{}, false
 				}
@@ -248,8 +254,11 @@ func (e *Engine) classifyOnePath(
 
 	// Gemini: <geminiDir>/tmp/<dir>/chats/session-*.json
 	// <dir> is either a SHA-256 hash (old) or project name (new).
-	if e.geminiDir != "" {
-		if rel, ok := isUnder(e.geminiDir, path); ok {
+	for _, geminiDir := range e.geminiDirs {
+		if geminiDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(geminiDir, path); ok {
 			parts := strings.Split(rel, sep)
 			if len(parts) != 4 ||
 				parts[0] != "tmp" ||
@@ -262,13 +271,12 @@ func (e *Engine) classifyOnePath(
 				return DiscoveredFile{}, false
 			}
 			dirName := parts[1]
-			if *geminiProjects == nil {
-				*geminiProjects = buildGeminiProjectMap(
-					e.geminiDir,
-				)
+			if _, ok := geminiProjectsByDir[geminiDir]; !ok {
+				geminiProjectsByDir[geminiDir] =
+					buildGeminiProjectMap(geminiDir)
 			}
 			project := resolveGeminiProject(
-				dirName, *geminiProjects,
+				dirName, geminiProjectsByDir[geminiDir],
 			)
 			return DiscoveredFile{
 				Path:    path,
@@ -324,10 +332,20 @@ func (e *Engine) syncAllLocked(
 	onProgress ProgressFunc,
 ) SyncStats {
 	t0 := time.Now()
-	claude := DiscoverClaudeProjects(e.claudeDir)
-	codex := DiscoverCodexSessions(e.codexDir)
-	copilot := DiscoverCopilotSessions(e.copilotDir)
-	gemini := DiscoverGeminiSessions(e.geminiDir)
+
+	var claude, codex, copilot, gemini []DiscoveredFile
+	for _, d := range e.claudeDirs {
+		claude = append(claude, DiscoverClaudeProjects(d)...)
+	}
+	for _, d := range e.codexDirs {
+		codex = append(codex, DiscoverCodexSessions(d)...)
+	}
+	for _, d := range e.copilotDirs {
+		copilot = append(copilot, DiscoverCopilotSessions(d)...)
+	}
+	for _, d := range e.geminiDirs {
+		gemini = append(gemini, DiscoverGeminiSessions(d)...)
+	}
 
 	all := make(
 		[]DiscoveredFile, 0,
@@ -410,14 +428,23 @@ func (e *Engine) syncAllLocked(
 	return stats
 }
 
-// syncOpenCode syncs sessions from the OpenCode SQLite database.
+// syncOpenCode syncs sessions from OpenCode SQLite databases.
 // Uses per-session time_updated to detect changes, so only
 // modified sessions are fully parsed. Returns pending writes.
 func (e *Engine) syncOpenCode() []pendingWrite {
-	if e.opencodeDir == "" {
-		return nil
+	var allPending []pendingWrite
+	for _, dir := range e.opencodeDirs {
+		if dir == "" {
+			continue
+		}
+		allPending = append(allPending, e.syncOneOpenCode(dir)...)
 	}
-	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
+	return allPending
+}
+
+// syncOneOpenCode handles a single OpenCode directory.
+func (e *Engine) syncOneOpenCode(dir string) []pendingWrite {
+	dbPath := filepath.Join(dir, "opencode.db")
 
 	metas, err := parser.ListOpenCodeSessionMeta(dbPath)
 	if err != nil {
@@ -428,8 +455,6 @@ func (e *Engine) syncOpenCode() []pendingWrite {
 		return nil
 	}
 
-	// Compare each session's time_updated against what is
-	// stored in the agentsview DB. Only re-parse changed ones.
 	var changed []string
 	for _, m := range metas {
 		_, storedMtime, ok :=
@@ -964,17 +989,33 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 	case strings.HasPrefix(sessionID, "opencode:"):
 		return ""
 	case strings.HasPrefix(sessionID, "codex:"):
-		return FindCodexSourceFile(e.codexDir, sessionID[6:])
+		for _, d := range e.codexDirs {
+			if f := FindCodexSourceFile(d, sessionID[6:]); f != "" {
+				return f
+			}
+		}
+		return ""
 	case strings.HasPrefix(sessionID, "copilot:"):
-		return FindCopilotSourceFile(
-			e.copilotDir, sessionID[8:],
-		)
+		for _, d := range e.copilotDirs {
+			if f := FindCopilotSourceFile(d, sessionID[8:]); f != "" {
+				return f
+			}
+		}
+		return ""
 	case strings.HasPrefix(sessionID, "gemini:"):
-		return FindGeminiSourceFile(
-			e.geminiDir, sessionID[7:],
-		)
+		for _, d := range e.geminiDirs {
+			if f := FindGeminiSourceFile(d, sessionID[7:]); f != "" {
+				return f
+			}
+		}
+		return ""
 	default:
-		return FindClaudeSourceFile(e.claudeDir, sessionID)
+		for _, d := range e.claudeDirs {
+			if f := FindClaudeSourceFile(d, sessionID); f != "" {
+				return f
+			}
+		}
+		return ""
 	}
 }
 
@@ -1091,28 +1132,32 @@ func (e *Engine) processCodexIncludeExec(
 func (e *Engine) syncSingleOpenCode(
 	sessionID string,
 ) error {
-	if e.opencodeDir == "" {
-		return fmt.Errorf(
-			"opencode dir not configured",
-		)
-	}
-	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
 	rawID := strings.TrimPrefix(sessionID, "opencode:")
 
-	sess, msgs, err := parser.ParseOpenCodeSession(
-		dbPath, rawID, e.machine,
-	)
-	if err != nil {
-		return err
-	}
-	if sess == nil {
+	for _, dir := range e.opencodeDirs {
+		if dir == "" {
+			continue
+		}
+		dbPath := filepath.Join(dir, "opencode.db")
+		sess, msgs, err := parser.ParseOpenCodeSession(
+			dbPath, rawID, e.machine,
+		)
+		if err != nil {
+			continue // try next dir
+		}
+		if sess == nil {
+			continue
+		}
+		e.writeSessionFull(
+			pendingWrite{sess: *sess, msgs: msgs},
+		)
 		return nil
 	}
 
-	e.writeSessionFull(
-		pendingWrite{sess: *sess, msgs: msgs},
-	)
-	return nil
+	if len(e.opencodeDirs) == 0 {
+		return fmt.Errorf("opencode dir not configured")
+	}
+	return fmt.Errorf("opencode session %s not found", sessionID)
 }
 
 func strPtr(s string) *string {

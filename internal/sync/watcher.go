@@ -52,27 +52,23 @@ func NewWatcher(
 
 // WatchRecursive walks a directory tree and adds all
 // subdirectories to the watch list. Returns the number
-// of directories added.
-func (w *Watcher) WatchRecursive(root string) (int, error) {
-	var count int
-	err := filepath.WalkDir(root,
+// of directories watched and unwatched (failed to add).
+func (w *Watcher) WatchRecursive(root string) (watched int, unwatched int, err error) {
+	err = filepath.WalkDir(root,
 		func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil // skip inaccessible dirs
 			}
 			if d.IsDir() {
 				if addErr := w.watcher.Add(path); addErr != nil {
-					log.Printf(
-						"watcher: cannot watch %s: %v",
-						path, addErr,
-					)
+					unwatched++
 				} else {
-					count++
+					watched++
 				}
 			}
 			return nil
 		})
-	return count, err
+	return watched, unwatched, err
 }
 
 // Start begins processing file events in a goroutine.

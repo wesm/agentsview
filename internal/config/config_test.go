@@ -224,6 +224,83 @@ func TestSaveGithubToken_PreservesExistingKeys(t *testing.T) {
 	}
 }
 
+func TestLoadFile_ReadsDirArrays(t *testing.T) {
+	dir, _ := setupConfigDir(t)
+	writeConfig(t, dir, map[string]any{
+		"claude_project_dirs": []string{"/path/one", "/path/two"},
+		"codex_sessions_dirs": []string{"/codex/a"},
+	})
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.ClaudeProjectDirs) != 2 {
+		t.Fatalf("ClaudeProjectDirs len = %d, want 2", len(cfg.ClaudeProjectDirs))
+	}
+	if cfg.ClaudeProjectDirs[0] != "/path/one" || cfg.ClaudeProjectDirs[1] != "/path/two" {
+		t.Errorf("ClaudeProjectDirs = %v", cfg.ClaudeProjectDirs)
+	}
+	if len(cfg.CodexSessionsDirs) != 1 || cfg.CodexSessionsDirs[0] != "/codex/a" {
+		t.Errorf("CodexSessionsDirs = %v", cfg.CodexSessionsDirs)
+	}
+}
+
+func TestResolveDirs_DefaultOnly(t *testing.T) {
+	dir, _ := setupConfigDir(t)
+	// Empty config file — no dir arrays
+	writeConfig(t, dir, map[string]any{})
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := cfg.ResolveClaudeDirs()
+	if len(dirs) != 1 {
+		t.Fatalf("len = %d, want 1", len(dirs))
+	}
+	if dirs[0] != cfg.ClaudeProjectDir {
+		t.Errorf("got %q, want %q", dirs[0], cfg.ClaudeProjectDir)
+	}
+}
+
+func TestResolveDirs_ConfigFileOverridesDefault(t *testing.T) {
+	dir, _ := setupConfigDir(t)
+	writeConfig(t, dir, map[string]any{
+		"claude_project_dirs": []string{"/a", "/b"},
+	})
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := cfg.ResolveClaudeDirs()
+	if len(dirs) != 2 || dirs[0] != "/a" || dirs[1] != "/b" {
+		t.Errorf("got %v, want [/a /b]", dirs)
+	}
+}
+
+func TestResolveDirs_EnvVarOverridesConfigFile(t *testing.T) {
+	dir, _ := setupConfigDir(t)
+	writeConfig(t, dir, map[string]any{
+		"claude_project_dirs": []string{"/a", "/b"},
+	})
+	t.Setenv("CLAUDE_PROJECTS_DIR", "/env/override")
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := cfg.ResolveClaudeDirs()
+	if len(dirs) != 1 || dirs[0] != "/env/override" {
+		t.Errorf("got %v, want [/env/override]", dirs)
+	}
+}
+
 func TestResolveDataDir_DefaultAndEnvOverride(t *testing.T) {
 	// Without env override, should return default
 	dir, err := ResolveDataDir()

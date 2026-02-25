@@ -27,6 +27,16 @@ type Config struct {
 	CursorSecret     string        `json:"cursor_secret"`
 	GithubToken      string        `json:"github_token,omitempty"`
 	WriteTimeout     time.Duration `json:"-"`
+
+	// Multi-directory support (from config.json).
+	// When set, these take precedence over the single-dir
+	// fields above. Env vars override these with a
+	// single-element slice.
+	ClaudeProjectDirs []string `json:"claude_project_dirs,omitempty"`
+	CodexSessionsDirs []string `json:"codex_sessions_dirs,omitempty"`
+	CopilotDirs       []string `json:"copilot_dirs,omitempty"`
+	GeminiDirs        []string `json:"gemini_dirs,omitempty"`
+	OpenCodeDirs      []string `json:"opencode_dirs,omitempty"`
 }
 
 // Default returns a Config with default values.
@@ -98,8 +108,13 @@ func (c *Config) loadFile() error {
 	}
 
 	var file struct {
-		GithubToken  string `json:"github_token"`
-		CursorSecret string `json:"cursor_secret"`
+		GithubToken       string   `json:"github_token"`
+		CursorSecret      string   `json:"cursor_secret"`
+		ClaudeProjectDirs []string `json:"claude_project_dirs"`
+		CodexSessionsDirs []string `json:"codex_sessions_dirs"`
+		CopilotDirs       []string `json:"copilot_dirs"`
+		GeminiDirs        []string `json:"gemini_dirs"`
+		OpenCodeDirs      []string `json:"opencode_dirs"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parsing config: %w", err)
@@ -109,6 +124,24 @@ func (c *Config) loadFile() error {
 	}
 	if file.CursorSecret != "" {
 		c.CursorSecret = file.CursorSecret
+	}
+	// Only apply config-file arrays when not already set by
+	// env var. loadEnv runs before loadFile, so a non-nil
+	// slice here means the env var won.
+	if len(file.ClaudeProjectDirs) > 0 && c.ClaudeProjectDirs == nil {
+		c.ClaudeProjectDirs = file.ClaudeProjectDirs
+	}
+	if len(file.CodexSessionsDirs) > 0 && c.CodexSessionsDirs == nil {
+		c.CodexSessionsDirs = file.CodexSessionsDirs
+	}
+	if len(file.CopilotDirs) > 0 && c.CopilotDirs == nil {
+		c.CopilotDirs = file.CopilotDirs
+	}
+	if len(file.GeminiDirs) > 0 && c.GeminiDirs == nil {
+		c.GeminiDirs = file.GeminiDirs
+	}
+	if len(file.OpenCodeDirs) > 0 && c.OpenCodeDirs == nil {
+		c.OpenCodeDirs = file.OpenCodeDirs
 	}
 	return nil
 }
@@ -155,22 +188,60 @@ func (c *Config) ensureCursorSecret() error {
 func (c *Config) loadEnv() {
 	if v := os.Getenv("CLAUDE_PROJECTS_DIR"); v != "" {
 		c.ClaudeProjectDir = v
+		c.ClaudeProjectDirs = []string{v}
 	}
 	if v := os.Getenv("CODEX_SESSIONS_DIR"); v != "" {
 		c.CodexSessionsDir = v
+		c.CodexSessionsDirs = []string{v}
 	}
 	if v := os.Getenv("COPILOT_DIR"); v != "" {
 		c.CopilotDir = v
+		c.CopilotDirs = []string{v}
 	}
 	if v := os.Getenv("GEMINI_DIR"); v != "" {
 		c.GeminiDir = v
+		c.GeminiDirs = []string{v}
 	}
 	if v := os.Getenv("OPENCODE_DIR"); v != "" {
 		c.OpenCodeDir = v
+		c.OpenCodeDirs = []string{v}
 	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v
 	}
+}
+
+// ResolveClaudeDirs returns the effective list of Claude
+// project directories. Precedence: env var (single) >
+// config file array > default (single).
+func (c *Config) ResolveClaudeDirs() []string {
+	return c.resolveDirs(c.ClaudeProjectDirs, c.ClaudeProjectDir)
+}
+
+func (c *Config) ResolveCodexDirs() []string {
+	return c.resolveDirs(c.CodexSessionsDirs, c.CodexSessionsDir)
+}
+
+func (c *Config) ResolveCopilotDirs() []string {
+	return c.resolveDirs(c.CopilotDirs, c.CopilotDir)
+}
+
+func (c *Config) ResolveGeminiDirs() []string {
+	return c.resolveDirs(c.GeminiDirs, c.GeminiDir)
+}
+
+func (c *Config) ResolveOpenCodeDirs() []string {
+	return c.resolveDirs(c.OpenCodeDirs, c.OpenCodeDir)
+}
+
+func (c *Config) resolveDirs(multi []string, single string) []string {
+	if len(multi) > 0 {
+		return multi
+	}
+	if single != "" {
+		return []string{single}
+	}
+	return nil
 }
 
 // RegisterServeFlags registers serve-command flags on fs.

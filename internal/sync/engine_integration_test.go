@@ -39,8 +39,8 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	env.engine = sync.NewEngine(
-		env.db, env.claudeDir, env.codexDir, "",
-		env.geminiDir, env.opencodeDir, "local",
+		env.db, []string{env.claudeDir}, []string{env.codexDir}, nil,
+		[]string{env.geminiDir}, []string{env.opencodeDir}, "local",
 	)
 	return env
 }
@@ -846,7 +846,7 @@ func TestSyncPathsTrailingSlashDirs(t *testing.T) {
 	codexDir := t.TempDir() + "/"
 	database := dbtest.OpenTestDB(t)
 	engine := sync.NewEngine(
-		database, claudeDir, codexDir, "", "", "", "local",
+		database, []string{claudeDir}, []string{codexDir}, nil, nil, nil, "local",
 	)
 
 	content := testjsonl.NewSessionBuilder().
@@ -1327,4 +1327,69 @@ func TestSyncEngineConcurrentSerialization(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestSyncEngineMultiClaudeDir(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	claudeDir1 := t.TempDir()
+	claudeDir2 := t.TempDir()
+	database := dbtest.OpenTestDB(t)
+
+	engine := sync.NewEngine(
+		database,
+		[]string{claudeDir1, claudeDir2},
+		nil, nil, nil, nil, "local",
+	)
+
+	content1 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Hello from dir1").
+		String()
+	content2 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Hello from dir2").
+		String()
+
+	// Write sessions to different directories
+	path1 := filepath.Join(claudeDir1, "proj1", "sess1.jsonl")
+	dbtest.WriteTestFile(t, path1, []byte(content1))
+
+	path2 := filepath.Join(claudeDir2, "proj2", "sess2.jsonl")
+	dbtest.WriteTestFile(t, path2, []byte(content2))
+
+	stats := engine.SyncAll(nil)
+	if stats.TotalSessions != 2 {
+		t.Errorf("total = %d, want 2", stats.TotalSessions)
+	}
+
+	assertSessionState(t, database, "sess1", func(sess *db.Session) {
+		if sess.MessageCount != 1 {
+			t.Errorf("sess1 message_count = %d, want 1", sess.MessageCount)
+		}
+	})
+	assertSessionState(t, database, "sess2", func(sess *db.Session) {
+		if sess.MessageCount != 1 {
+			t.Errorf("sess2 message_count = %d, want 1", sess.MessageCount)
+		}
+	})
+
+	// SyncPaths should work across directories
+	appended := content1 + testjsonl.NewSessionBuilder().
+		AddClaudeAssistant(tsEarlyS5, "Reply").
+		String()
+	os.WriteFile(path1, []byte(appended), 0o644)
+	engine.SyncPaths([]string{path1})
+
+	assertSessionState(t, database, "sess1", func(sess *db.Session) {
+		if sess.MessageCount != 2 {
+			t.Errorf("sess1 after append message_count = %d, want 2", sess.MessageCount)
+		}
+	})
+
+	// FindSourceFile should search across directories
+	src := engine.FindSourceFile("sess2")
+	if src == "" {
+		t.Error("FindSourceFile failed for sess2 in second directory")
+	}
 }
