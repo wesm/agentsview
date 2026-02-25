@@ -415,14 +415,25 @@ func buildGeminiProjectMap(
 		return result
 	}
 
-	for absPath, name := range pf.Projects {
+	// Sort keys for deterministic first-seen-wins on
+	// duplicate short names.
+	paths := make([]string, 0, len(pf.Projects))
+	for absPath := range pf.Projects {
+		paths = append(paths, absPath)
+	}
+	sort.Strings(paths)
+
+	for _, absPath := range paths {
+		name := pf.Projects[absPath]
 		project := parser.ExtractProjectFromCwd(absPath)
 		if project == "" {
 			project = "unknown"
 		}
 		result[geminiPathHash(absPath)] = project
 		if name != "" {
-			result[name] = project
+			if _, exists := result[name]; !exists {
+				result[name] = project
+			}
 		}
 	}
 	return result
@@ -459,6 +470,12 @@ func resolveGeminiProject(
 	if p := projectMap[dirName]; p != "" {
 		return p
 	}
+	// Old-format dirs use a SHA-256 hash of the project path.
+	// If the hash isn't in the project map (e.g. projects.json
+	// was cleaned up), we can't resolve it. A project name
+	// that coincidentally matches the 64-char hex pattern
+	// would also hit this path, but that's vanishingly
+	// unlikely compared to orphaned hashes.
 	if isHexHash(dirName) {
 		return "unknown"
 	}

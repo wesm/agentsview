@@ -144,24 +144,28 @@ class AnalyticsStore {
     sessions.filters.agent = "";
     sessions.filters.minUserMessages = 0;
     sessions.filters.recentlyActive = false;
+    sessions.load();
     this.fetchAll();
   }
 
   clearAgent() {
     this.agent = "";
     sessions.filters.agent = "";
+    sessions.load();
     this.fetchAll();
   }
 
   clearMinUserMessages() {
     this.minUserMessages = 0;
     sessions.filters.minUserMessages = 0;
+    sessions.load();
     this.fetchAll();
   }
 
   clearRecentlyActive() {
     this.recentlyActive = false;
     sessions.filters.recentlyActive = false;
+    sessions.load();
     this.fetchAll();
   }
 
@@ -178,6 +182,7 @@ class AnalyticsStore {
   clearProject() {
     this.project = "";
     sessions.filters.project = "";
+    sessions.load();
     this.fetchAll();
   }
 
