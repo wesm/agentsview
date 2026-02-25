@@ -288,6 +288,9 @@ class SessionsStore {
 
   setHideUnknownProjectFilter(hide: boolean) {
     this.filters.hideUnknownProject = hide;
+    if (hide && this.filters.project === "unknown") {
+      this.filters.project = "";
+    }
     this.activeSessionId = null;
     this.resetPagination();
     this.load();

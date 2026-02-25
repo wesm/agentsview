@@ -382,6 +382,81 @@ describe("SessionsStore", () => {
     });
   });
 
+  describe("hideUnknownProject filter", () => {
+    it("should send exclude_project=unknown when enabled", async () => {
+      sessions.filters.hideUnknownProject = true;
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        exclude_project: "unknown",
+      });
+    });
+
+    it("should omit exclude_project when disabled", async () => {
+      sessions.filters.hideUnknownProject = false;
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        exclude_project: undefined,
+      });
+    });
+
+    it("should clear project filter when hiding unknown and project is unknown", async () => {
+      sessions.filters.project = "unknown";
+      sessions.setHideUnknownProjectFilter(true);
+      await vi.waitFor(() => {
+        expect(api.listSessions).toHaveBeenCalled();
+      });
+
+      expect(sessions.filters.project).toBe("");
+      expect(sessions.filters.hideUnknownProject).toBe(true);
+      expectListSessionsCalledWith({
+        project: undefined,
+        exclude_project: "unknown",
+      });
+    });
+
+    it("should preserve project filter when hiding unknown and project is not unknown", async () => {
+      sessions.filters.project = "my_app";
+      sessions.setHideUnknownProjectFilter(true);
+      await vi.waitFor(() => {
+        expect(api.listSessions).toHaveBeenCalled();
+      });
+
+      expect(sessions.filters.project).toBe("my_app");
+      expect(sessions.filters.hideUnknownProject).toBe(true);
+    });
+
+    it("should round-trip via initFromParams", () => {
+      sessions.initFromParams({
+        exclude_project: "unknown",
+      });
+      expect(sessions.filters.hideUnknownProject).toBe(true);
+    });
+
+    it("should not set hideUnknown for other exclude values", () => {
+      sessions.initFromParams({
+        exclude_project: "something_else",
+      });
+      expect(sessions.filters.hideUnknownProject).toBe(false);
+    });
+
+    it("should be included in hasActiveFilters", () => {
+      sessions.filters.hideUnknownProject = true;
+      expect(sessions.hasActiveFilters).toBe(true);
+    });
+
+    it("should be cleared by clearSessionFilters", async () => {
+      sessions.filters.hideUnknownProject = true;
+      sessions.clearSessionFilters();
+      await vi.waitFor(() => {
+        expect(api.listSessions).toHaveBeenCalled();
+      });
+
+      expect(sessions.filters.hideUnknownProject).toBe(false);
+    });
+  });
+
   describe("loadProjects dedup", () => {
     beforeEach(() => {
       mockGetProjects();
