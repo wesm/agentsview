@@ -449,6 +449,8 @@ type uploadResponse struct {
 
 type syncResultResponse struct {
 	TotalSessions int `json:"total_sessions"`
+	Synced        int `json:"synced"`
+	Skipped       int `json:"skipped"`
 }
 
 // --- Tests ---
@@ -1420,20 +1422,74 @@ func TestResyncEndpoint(t *testing.T) {
 			AddClaudeUser(tsZero, "msg resync"),
 	)
 
-	req := httptest.NewRequest("POST", "/api/v1/resync", nil)
-	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
-	te.handler.ServeHTTP(w, req)
+	// Initial sync — session gets processed normally.
+	syncReq := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	syncW := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	te.handler.ServeHTTP(syncW, syncReq)
 
-	events := parseSSEEvents(w.BodyString())
-	hasDone := false
-	for _, e := range events {
-		if e == "done" {
-			hasDone = true
+	syncStats := parseSSEDoneStats(t, syncW.BodyString())
+	if syncStats.Synced != 1 {
+		t.Fatalf("initial sync: synced = %d, want 1",
+			syncStats.Synced)
+	}
+
+	// Second normal sync — file is unchanged so it's skipped.
+	sync2Req := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	sync2W := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	te.handler.ServeHTTP(sync2W, sync2Req)
+
+	sync2Stats := parseSSEDoneStats(t, sync2W.BodyString())
+	if sync2Stats.Synced != 0 {
+		t.Fatalf("second sync: synced = %d, want 0 (skipped)",
+			sync2Stats.Synced)
+	}
+
+	// Resync — should re-process the same unchanged file.
+	resyncReq := httptest.NewRequest(
+		"POST", "/api/v1/resync", nil,
+	)
+	resyncW := &flushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+	te.handler.ServeHTTP(resyncW, resyncReq)
+
+	resyncStats := parseSSEDoneStats(t, resyncW.BodyString())
+	if resyncStats.Synced != 1 {
+		t.Fatalf("resync: synced = %d, want 1 (reprocessed)",
+			resyncStats.Synced)
+	}
+}
+
+// parseSSEDoneStats extracts the SyncStats from the "done" SSE
+// event in a response body. Fails the test if no done event.
+func parseSSEDoneStats(
+	t *testing.T, body string,
+) syncResultResponse {
+	t.Helper()
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	var lastEvent string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if ev, ok := strings.CutPrefix(line, "event: "); ok {
+			lastEvent = ev
+			continue
+		}
+		if lastEvent == "done" {
+			if data, ok := strings.CutPrefix(
+				line, "data: ",
+			); ok {
+				var stats syncResultResponse
+				if err := json.Unmarshal(
+					[]byte(data), &stats,
+				); err != nil {
+					t.Fatalf("parsing done data: %v", err)
+				}
+				return stats
+			}
 		}
 	}
-	if !hasDone {
-		t.Error("expected done event in resync SSE stream")
-	}
+	t.Fatal("no done event in SSE stream")
+	return syncResultResponse{}
 }
 
 func TestListSessions_Limits(t *testing.T) {

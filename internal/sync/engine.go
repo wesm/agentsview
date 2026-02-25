@@ -31,6 +31,7 @@ type Engine struct {
 	geminiDir     string
 	opencodeDir   string
 	machine       string
+	syncMu        gosync.Mutex // serializes full sync runs
 	mu            gosync.RWMutex
 	lastSync      time.Time
 	lastSyncStats SyncStats
@@ -287,6 +288,11 @@ func (e *Engine) classifyOnePath(
 func (e *Engine) ResyncAll(
 	onProgress ProgressFunc,
 ) SyncStats {
+	// Serialize with SyncAll so pre-steps and the sync
+	// itself run atomically.
+	e.syncMu.Lock()
+	defer e.syncMu.Unlock()
+
 	// 1. Clear in-memory skip cache.
 	e.skipMu.Lock()
 	e.skipCache = make(map[string]int64)
@@ -304,11 +310,19 @@ func (e *Engine) ResyncAll(
 		log.Printf("resync: reset mtimes: %v", err)
 	}
 
-	return e.SyncAll(onProgress)
+	return e.syncAllLocked(onProgress)
 }
 
 // SyncAll discovers and syncs all session files from all agents.
 func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
+	e.syncMu.Lock()
+	defer e.syncMu.Unlock()
+	return e.syncAllLocked(onProgress)
+}
+
+func (e *Engine) syncAllLocked(
+	onProgress ProgressFunc,
+) SyncStats {
 	t0 := time.Now()
 	claude := DiscoverClaudeProjects(e.claudeDir)
 	codex := DiscoverCodexSessions(e.codexDir)

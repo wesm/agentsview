@@ -2,19 +2,29 @@
   import { ui } from "../../stores/ui.svelte.js";
   import { sync } from "../../stores/sync.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
-  import type { SyncProgress } from "../../api/types.js";
 
-  type View = "confirm" | "progress" | "done";
+  type View = "confirm" | "progress" | "done" | "error";
 
   let view: View = $state("confirm");
-  let progress: SyncProgress | null = $state(null);
+  let errorMessage: string = $state("");
 
   function startResync() {
-    view = "progress";
-    sync.triggerResync(() => {
-      view = "done";
-      sessions.load();
-    });
+    const started = sync.triggerResync(
+      () => {
+        view = "done";
+        sessions.load();
+      },
+      (err) => {
+        errorMessage = err.message;
+        view = "error";
+      },
+    );
+    if (started) {
+      view = "progress";
+    } else {
+      errorMessage = "A sync is already in progress.";
+      view = "error";
+    }
   }
 
   function close() {
@@ -124,6 +134,19 @@
           {/if}
           <div class="done-actions">
             <button class="btn btn-primary" onclick={close}>
+              Close
+            </button>
+          </div>
+        </div>
+
+      {:else if view === "error"}
+        <div class="error-view">
+          <p class="error-message">{errorMessage}</p>
+          <div class="error-actions">
+            <button class="btn btn-primary" onclick={startResync}>
+              Retry
+            </button>
+            <button class="btn" onclick={close}>
               Close
             </button>
           </div>
@@ -269,6 +292,28 @@
 
   .done-actions {
     display: flex;
+    justify-content: flex-end;
+  }
+
+  .error-view {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .error-message {
+    font-size: 12px;
+    color: var(--accent-red, #f85149);
+    background: var(--bg-inset);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--accent-red, #f85149);
+    word-break: break-word;
+  }
+
+  .error-actions {
+    display: flex;
+    gap: 8px;
     justify-content: flex-end;
   }
 
