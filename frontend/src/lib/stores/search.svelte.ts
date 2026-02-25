@@ -56,7 +56,7 @@ class SearchStore {
         { project: project || undefined, limit: 30 },
         { signal },
       );
-      this.results = res.results;
+      this.results = res.results ?? [];
     } catch (error: unknown) {
       if (error instanceof DOMException
         && error.name === "AbortError") {

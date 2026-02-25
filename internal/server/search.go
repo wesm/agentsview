@@ -68,10 +68,14 @@ func (s *Server) handleSearch(
 		return
 	}
 
+	results := page.Results
+	if results == nil {
+		results = []db.SearchResult{}
+	}
 	writeJSON(w, http.StatusOK, searchResponse{
 		Query:   query,
-		Results: page.Results,
-		Count:   len(page.Results),
+		Results: results,
+		Count:   len(results),
 		Next:    page.NextCursor,
 	})
 }

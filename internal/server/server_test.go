@@ -894,6 +894,26 @@ func TestSearch_DeadlineExceeded(t *testing.T) {
 	assertTimeoutRace(t, w)
 }
 
+func TestSearch_ZeroResults(t *testing.T) {
+	te := setup(t)
+	if !te.db.HasFTS() {
+		t.Skip("skipping search test: no FTS support")
+	}
+	te.seedSession(t, "s1", "my-app", 1)
+	te.seedMessages(t, "s1", 1)
+
+	w := te.get(t, "/api/v1/search?q=spamalot")
+	assertStatus(t, w, http.StatusOK)
+
+	resp := decode[searchResponse](t, w)
+	if resp.Results == nil {
+		t.Fatal("results must be [] not null")
+	}
+	if resp.Count != 0 {
+		t.Fatalf("expected count=0, got %d", resp.Count)
+	}
+}
+
 func TestSearch_NotAvailable(t *testing.T) {
 	te := setup(t)
 	// Simulate missing FTS by dropping the virtual table.
