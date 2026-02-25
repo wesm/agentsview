@@ -19,7 +19,12 @@
   import { copyToClipboard } from "./lib/utils/clipboard.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
 
-  let copiedSessionId = $state(false);
+  let copiedSessionId = $state("");
+
+  function sessionDisplayId(id: string): string {
+    const idx = id.indexOf(":");
+    return idx >= 0 ? id.slice(idx + 1) : id;
+  }
 
   let messageListRef:
     | {
@@ -194,19 +199,22 @@
                   })}
                 </span>
               {/if}
-              <button
-                class="session-id"
-                title={session.id}
-                onclick={async () => {
-                  const ok = await copyToClipboard(session.id);
-                  if (ok) {
-                    copiedSessionId = true;
-                    setTimeout(() => (copiedSessionId = false), 1500);
-                  }
-                }}
-              >
-                {copiedSessionId ? "Copied!" : session.id.slice(0, 8)}
-              </button>
+              {#if session.agent === "claude" || session.agent === "codex"}
+                {@const rawId = sessionDisplayId(session.id)}
+                <button
+                  class="session-id"
+                  title={rawId}
+                  onclick={async () => {
+                    const ok = await copyToClipboard(rawId);
+                    if (ok) {
+                      copiedSessionId = session.id;
+                      setTimeout(() => (copiedSessionId = ""), 1500);
+                    }
+                  }}
+                >
+                  {copiedSessionId === session.id ? "Copied!" : rawId.slice(0, 8)}
+                </button>
+              {/if}
             </span>
           {/if}
         </div>
