@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	gosync "sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1245,14 +1243,17 @@ func TestSyncEngineOpenCodeToolCallReplace(t *testing.T) {
 }
 
 // TestSyncEngineConcurrentSerialization verifies that
-// SyncAll and ResyncAll never execute concurrently thanks
-// to the syncMu mutex. The progress callback tracks an
-// atomic "active" counter; if both syncs ran in parallel,
-// the counter would exceed 1.
+// SyncAll and ResyncAll are serialized by syncMu.
+//
+// Strategy: SyncAll's progress callback blocks on a
+// barrier channel, holding the mutex. A second goroutine
+// launches ResyncAll and signals when it enters its own
+// progress callback. If the mutex works, the second
+// signal only arrives after the barrier is released.
 func TestSyncEngineConcurrentSerialization(t *testing.T) {
 	env := setupTestEnv(t)
 
-	for i := range 5 {
+	for i := range 3 {
 		content := testjsonl.NewSessionBuilder().
 			AddClaudeUser(tsZero, fmt.Sprintf("msg %d", i)).
 			String()
@@ -1262,22 +1263,29 @@ func TestSyncEngineConcurrentSerialization(t *testing.T) {
 		)
 	}
 
-	var active atomic.Int32
-	var maxActive atomic.Int32
+	// barrier blocks SyncAll's progress callback,
+	// keeping syncMu held.
+	barrier := make(chan struct{})
+	// syncAllEntered signals that SyncAll is inside
+	// the mutex-protected section.
+	syncAllEntered := make(chan struct{})
+	// resyncEntered signals that ResyncAll reached its
+	// progress callback (i.e. acquired the mutex).
+	resyncEntered := make(chan struct{})
 
-	trackingProgress := func(p sync.Progress) {
-		n := active.Add(1)
-		for {
-			cur := maxActive.Load()
-			if n <= cur ||
-				maxActive.CompareAndSwap(cur, n) {
-				break
-			}
-		}
-		// Yield to widen the overlap window if the mutex
-		// were absent.
-		runtime.Gosched()
-		active.Add(-1)
+	var syncOnce, resyncOnce gosync.Once
+
+	syncProgress := func(_ sync.Progress) {
+		syncOnce.Do(func() {
+			close(syncAllEntered)
+			<-barrier // hold mutex until released
+		})
+	}
+
+	resyncProgress := func(_ sync.Progress) {
+		resyncOnce.Do(func() {
+			close(resyncEntered)
+		})
 	}
 
 	var wg gosync.WaitGroup
@@ -1285,18 +1293,38 @@ func TestSyncEngineConcurrentSerialization(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		env.engine.SyncAll(trackingProgress)
+		env.engine.SyncAll(syncProgress)
 	}()
+
+	// Wait until SyncAll is inside the locked section.
+	<-syncAllEntered
+
 	go func() {
 		defer wg.Done()
-		env.engine.ResyncAll(trackingProgress)
+		env.engine.ResyncAll(resyncProgress)
 	}()
 
-	wg.Wait()
-
-	if maxActive.Load() > 1 {
-		t.Error(
-			"SyncAll and ResyncAll ran concurrently",
+	// ResyncAll should be blocked on the mutex. Give it
+	// a moment to prove it can't enter.
+	select {
+	case <-resyncEntered:
+		t.Fatal(
+			"ResyncAll entered while SyncAll held mutex",
 		)
+	case <-time.After(50 * time.Millisecond):
+		// Expected: ResyncAll is blocked.
 	}
+
+	// Release the barrier so SyncAll finishes.
+	close(barrier)
+
+	// Now ResyncAll should proceed.
+	select {
+	case <-resyncEntered:
+		// Expected: ResyncAll acquired mutex.
+	case <-time.After(5 * time.Second):
+		t.Fatal("ResyncAll never entered after barrier release")
+	}
+
+	wg.Wait()
 }
