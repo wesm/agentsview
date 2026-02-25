@@ -164,17 +164,17 @@ func (e *Engine) classifyOnePath(
 		}
 		if rel, ok := isUnder(claudeDir, path); ok {
 			if !strings.HasSuffix(path, ".jsonl") {
-				return DiscoveredFile{}, false
+				continue
 			}
 			stem := strings.TrimSuffix(
 				filepath.Base(path), ".jsonl",
 			)
 			if strings.HasPrefix(stem, "agent-") {
-				return DiscoveredFile{}, false
+				continue
 			}
 			parts := strings.Split(rel, sep)
 			if len(parts) != 2 {
-				return DiscoveredFile{}, false
+				continue
 			}
 			return DiscoveredFile{
 				Path:    path,
@@ -192,15 +192,15 @@ func (e *Engine) classifyOnePath(
 		if rel, ok := isUnder(codexDir, path); ok {
 			parts := strings.Split(rel, sep)
 			if len(parts) != 4 {
-				return DiscoveredFile{}, false
+				continue
 			}
 			if !isDigits(parts[0]) ||
 				!isDigits(parts[1]) ||
 				!isDigits(parts[2]) {
-				return DiscoveredFile{}, false
+				continue
 			}
 			if !strings.HasSuffix(parts[3], ".jsonl") {
-				return DiscoveredFile{}, false
+				continue
 			}
 			return DiscoveredFile{
 				Path:  path,
@@ -226,13 +226,13 @@ func (e *Engine) classifyOnePath(
 					parts[0], ".jsonl",
 				)
 				if !ok {
-					return DiscoveredFile{}, false
+					continue
 				}
 				dirEvents := filepath.Join(
 					stateDir, stem, "events.jsonl",
 				)
 				if _, err := os.Stat(dirEvents); err == nil {
-					return DiscoveredFile{}, false
+					continue
 				}
 				return DiscoveredFile{
 					Path:  path,
@@ -240,14 +240,14 @@ func (e *Engine) classifyOnePath(
 				}, true
 			case 2:
 				if parts[1] != "events.jsonl" {
-					return DiscoveredFile{}, false
+					continue
 				}
 				return DiscoveredFile{
 					Path:  path,
 					Agent: parser.AgentCopilot,
 				}, true
 			default:
-				return DiscoveredFile{}, false
+				continue
 			}
 		}
 	}
@@ -263,12 +263,12 @@ func (e *Engine) classifyOnePath(
 			if len(parts) != 4 ||
 				parts[0] != "tmp" ||
 				parts[2] != "chats" {
-				return DiscoveredFile{}, false
+				continue
 			}
 			name := parts[3]
 			if !strings.HasPrefix(name, "session-") ||
 				!strings.HasSuffix(name, ".json") {
-				return DiscoveredFile{}, false
+				continue
 			}
 			dirName := parts[1]
 			if _, ok := geminiProjectsByDir[geminiDir]; !ok {
@@ -1134,6 +1134,7 @@ func (e *Engine) syncSingleOpenCode(
 ) error {
 	rawID := strings.TrimPrefix(sessionID, "opencode:")
 
+	var lastErr error
 	for _, dir := range e.opencodeDirs {
 		if dir == "" {
 			continue
@@ -1143,7 +1144,8 @@ func (e *Engine) syncSingleOpenCode(
 			dbPath, rawID, e.machine,
 		)
 		if err != nil {
-			continue // try next dir
+			lastErr = err
+			continue
 		}
 		if sess == nil {
 			continue
@@ -1156,6 +1158,11 @@ func (e *Engine) syncSingleOpenCode(
 
 	if len(e.opencodeDirs) == 0 {
 		return fmt.Errorf("opencode dir not configured")
+	}
+	if lastErr != nil {
+		return fmt.Errorf(
+			"opencode session %s: %w", sessionID, lastErr,
+		)
 	}
 	return fmt.Errorf("opencode session %s not found", sessionID)
 }
