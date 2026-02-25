@@ -1412,6 +1412,30 @@ func TestTriggerSync_SSEEvents(t *testing.T) {
 	}
 }
 
+func TestResyncEndpoint(t *testing.T) {
+	te := setup(t)
+
+	te.writeSessionFile(t, "resync-proj", "resync.jsonl",
+		testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsZero, "msg resync"),
+	)
+
+	req := httptest.NewRequest("POST", "/api/v1/resync", nil)
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	te.handler.ServeHTTP(w, req)
+
+	events := parseSSEEvents(w.BodyString())
+	hasDone := false
+	for _, e := range events {
+		if e == "done" {
+			hasDone = true
+		}
+	}
+	if !hasDone {
+		t.Error("expected done event in resync SSE stream")
+	}
+}
+
 func TestListSessions_Limits(t *testing.T) {
 	te := setup(t)
 	// db.MaxSessionLimit is 500

@@ -91,6 +91,19 @@ class SyncStore {
   }
 
   triggerSync(onComplete?: () => void) {
+    this.runSync(api.triggerSync, onComplete);
+  }
+
+  triggerResync(onComplete?: () => void) {
+    this.runSync(api.triggerResync, onComplete);
+  }
+
+  private runSync(
+    syncFn: (
+      onProgress?: (p: SyncProgress) => void,
+    ) => api.SyncHandle,
+    onComplete?: () => void,
+  ) {
     if (this.syncing) return;
     this.syncing = true;
     this.progress = null;
@@ -100,7 +113,7 @@ class SyncStore {
       this.progress = null;
     };
 
-    const handle = api.triggerSync((p: SyncProgress) => {
+    const handle = syncFn((p: SyncProgress) => {
       this.progress = p;
     });
 

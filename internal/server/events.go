@@ -175,6 +175,22 @@ func (s *Server) handleTriggerSync(
 	stream.SendJSON("done", stats)
 }
 
+func (s *Server) handleTriggerResync(
+	w http.ResponseWriter, r *http.Request,
+) {
+	stream, err := NewSSEStream(w)
+	if err != nil {
+		stats := s.engine.ResyncAll(nil)
+		writeJSON(w, http.StatusOK, stats)
+		return
+	}
+
+	stats := s.engine.ResyncAll(func(p syncpkg.Progress) {
+		stream.SendJSON("progress", p)
+	})
+	stream.SendJSON("done", stats)
+}
+
 func (s *Server) handleSyncStatus(
 	w http.ResponseWriter, r *http.Request,
 ) {

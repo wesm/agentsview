@@ -3,6 +3,7 @@ type ModalType =
   | "commandPalette"
   | "shortcuts"
   | "publish"
+  | "resync"
   | null;
 
 function readStoredTheme(): Theme | null {

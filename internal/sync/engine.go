@@ -280,6 +280,33 @@ func (e *Engine) classifyOnePath(
 	return DiscoveredFile{}, false
 }
 
+// ResyncAll clears all skip caches and resets stored mtimes so
+// that the subsequent SyncAll re-parses every file. This is the
+// "full resync" path triggered from the UI when schema changes
+// or parser fixes require re-processing without deleting the DB.
+func (e *Engine) ResyncAll(
+	onProgress ProgressFunc,
+) SyncStats {
+	// 1. Clear in-memory skip cache.
+	e.skipMu.Lock()
+	e.skipCache = make(map[string]int64)
+	e.skipMu.Unlock()
+
+	// 2. Clear persisted skip cache.
+	if err := e.db.ReplaceSkippedFiles(
+		map[string]int64{},
+	); err != nil {
+		log.Printf("resync: clear skipped files: %v", err)
+	}
+
+	// 3. Zero all stored mtimes so shouldSkipFile returns false.
+	if err := e.db.ResetAllMtimes(); err != nil {
+		log.Printf("resync: reset mtimes: %v", err)
+	}
+
+	return e.SyncAll(onProgress)
+}
+
 // SyncAll discovers and syncs all session files from all agents.
 func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	t0 := time.Now()

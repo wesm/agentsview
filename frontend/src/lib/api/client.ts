@@ -197,13 +197,14 @@ export interface SyncHandle {
   done: Promise<SyncStats>;
 }
 
-export function triggerSync(
+function streamSyncSSE(
+  path: string,
   onProgress?: (p: SyncProgress) => void,
 ): SyncHandle {
   const controller = new AbortController();
 
   const done = (async () => {
-    const res = await fetch(`${BASE}/sync`, {
+    const res = await fetch(`${BASE}${path}`, {
       method: "POST",
       signal: controller.signal,
     });
@@ -248,6 +249,18 @@ export function triggerSync(
   })();
 
   return { abort: () => controller.abort(), done };
+}
+
+export function triggerSync(
+  onProgress?: (p: SyncProgress) => void,
+): SyncHandle {
+  return streamSyncSSE("/sync", onProgress);
+}
+
+export function triggerResync(
+  onProgress?: (p: SyncProgress) => void,
+): SyncHandle {
+  return streamSyncSSE("/resync", onProgress);
 }
 
 /**

@@ -135,6 +135,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/v1/stats", s.withTimeout(s.handleGetStats))
 	s.mux.Handle("GET /api/v1/version", s.withTimeout(s.handleGetVersion))
 	s.mux.HandleFunc("POST /api/v1/sync", s.handleTriggerSync)
+	s.mux.HandleFunc("POST /api/v1/resync", s.handleTriggerResync)
 	s.mux.Handle("GET /api/v1/sync/status", s.withTimeout(s.handleSyncStatus))
 	s.mux.Handle("GET /api/v1/config/github", s.withTimeout(s.handleGetGithubConfig))
 	s.mux.Handle(

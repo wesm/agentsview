@@ -8,6 +8,7 @@
   import CommandPalette from "./lib/components/command-palette/CommandPalette.svelte";
   import ShortcutsModal from "./lib/components/modals/ShortcutsModal.svelte";
   import PublishModal from "./lib/components/modals/PublishModal.svelte";
+  import ResyncModal from "./lib/components/modals/ResyncModal.svelte";
   import AnalyticsPage from "./lib/components/analytics/AnalyticsPage.svelte";
   import InsightsPage from "./lib/components/insights/InsightsPage.svelte";
   import { sessions } from "./lib/stores/sessions.svelte.js";
@@ -241,6 +242,10 @@
 
 {#if ui.activeModal === "publish"}
   <PublishModal />
+{/if}
+
+{#if ui.activeModal === "resync"}
+  <ResyncModal />
 {/if}
 
 <style>

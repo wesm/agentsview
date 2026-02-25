@@ -436,6 +436,21 @@ func (db *DB) GetFileInfoByPath(
 	return s.Int64, m.Int64, true
 }
 
+// ResetAllMtimes zeroes file_mtime for every session, forcing
+// the next sync to re-process all files regardless of whether
+// their size+mtime matches what was previously stored.
+func (db *DB) ResetAllMtimes() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.writer.Exec(
+		"UPDATE sessions SET file_mtime = 0",
+	)
+	if err != nil {
+		return fmt.Errorf("resetting mtimes: %w", err)
+	}
+	return nil
+}
+
 // DeleteSession removes a session and its messages (cascading).
 func (db *DB) DeleteSession(id string) error {
 	db.mu.Lock()
