@@ -172,6 +172,38 @@ describe("UIStore", () => {
     });
   });
 
+  describe("postMessage theme control", () => {
+    it("should change theme on valid theme:set message", () => {
+      ui.theme = "light";
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "theme:set", theme: "dark" },
+        }),
+      );
+      expect(ui.theme).toBe("dark");
+    });
+
+    it("should ignore invalid theme values", () => {
+      ui.theme = "light";
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "theme:set", theme: "purple" },
+        }),
+      );
+      expect(ui.theme).toBe("light");
+    });
+
+    it("should ignore unrelated message types", () => {
+      ui.theme = "light";
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "some-other-event", theme: "dark" },
+        }),
+      );
+      expect(ui.theme).toBe("light");
+    });
+  });
+
   describe("toggles", () => {
     it("should toggle theme between light and dark", () => {
       ui.theme = "light";

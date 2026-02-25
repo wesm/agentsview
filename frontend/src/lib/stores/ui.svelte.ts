@@ -43,6 +43,19 @@ class UIStore {
         }
       });
     });
+
+    // Allow parent windows to control theme via postMessage
+    if (typeof window !== "undefined") {
+      window.addEventListener("message", (event: MessageEvent) => {
+        if (
+          event.data &&
+          event.data.type === "theme:set" &&
+          (event.data.theme === "light" || event.data.theme === "dark")
+        ) {
+          this.theme = event.data.theme;
+        }
+      });
+    }
   }
 
   toggleTheme() {
