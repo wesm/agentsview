@@ -12,20 +12,21 @@ import (
 )
 
 type sessionSpec struct {
-	project  string
-	suffix   string
-	msgCount int
+	project      string
+	suffix       string
+	msgCount     int
+	userMsgCount int
 }
 
 var specs = []sessionSpec{
-	{"project-alpha", "small-2", 2},
-	{"project-alpha", "small-5", 5},
-	{"project-beta", "mixed-content-6", 6},
-	{"project-beta", "medium-8", 8},
-	{"project-beta", "medium-100", 100},
-	{"project-gamma", "large-200", 200},
-	{"project-gamma", "large-1500", 1500},
-	{"project-delta", "xlarge-5500", 5500},
+	{"project-alpha", "small-2", 2, 1},
+	{"project-alpha", "small-5", 5, 3},
+	{"project-beta", "mixed-content-6", 6, 3},
+	{"project-beta", "medium-8", 8, 4},
+	{"project-beta", "medium-100", 100, 50},
+	{"project-gamma", "large-200", 200, 100},
+	{"project-gamma", "large-1500", 1500, 750},
+	{"project-delta", "xlarge-5500", 5500, 2750},
 }
 
 func main() {
@@ -86,9 +87,10 @@ func createSessionFixture(
 		FirstMessage: ptr(
 			fmt.Sprintf("First message for %s", spec.project),
 		),
-		StartedAt:    ptr(startedAt.Format(time.RFC3339Nano)),
-		EndedAt:      ptr(endedAt.Format(time.RFC3339Nano)),
-		MessageCount: spec.msgCount,
+		StartedAt:        ptr(startedAt.Format(time.RFC3339Nano)),
+		EndedAt:          ptr(endedAt.Format(time.RFC3339Nano)),
+		MessageCount:     spec.msgCount,
+		UserMessageCount: spec.userMsgCount,
 	}
 	if err := database.UpsertSession(sess); err != nil {
 		return fmt.Errorf("upserting session: %w", err)

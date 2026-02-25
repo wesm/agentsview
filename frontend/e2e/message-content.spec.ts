@@ -10,7 +10,7 @@ const LOC = {
 
 const BETA_6 = {
   project: "project-beta",
-  count: 6,
+  count: 3, // user_message_count shown in sidebar
   displayRows: 5,
 };
 
