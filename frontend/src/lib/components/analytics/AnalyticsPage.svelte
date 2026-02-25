@@ -84,7 +84,7 @@
       changed = true;
     }
 
-    const minUserVal = headerMinUserMessages > 1
+    const minUserVal = headerMinUserMessages > 0
       ? headerMinUserMessages
       : 0;
     if (curMinUser !== minUserVal) {

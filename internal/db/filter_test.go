@@ -162,6 +162,45 @@ func TestSessionFilterActiveSince(t *testing.T) {
 	}
 }
 
+func TestSessionFilterMinUserMessages(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "one-shot", "proj", func(s *Session) {
+		s.MessageCount = 3
+		s.UserMessageCount = 1
+	})
+	insertSession(t, d, "short", "proj", func(s *Session) {
+		s.MessageCount = 6
+		s.UserMessageCount = 3
+	})
+	insertSession(t, d, "long", "proj", func(s *Session) {
+		s.MessageCount = 20
+		s.UserMessageCount = 10
+	})
+
+	tests := []struct {
+		name            string
+		minUserMessages int
+		want            int
+	}{
+		{"NoFilter", 0, 3},
+		{"Min1", 1, 3},
+		{"Min2", 2, 2},
+		{"Min5", 5, 1},
+		{"Min10", 10, 1},
+		{"Min11", 11, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := filterWith(func(f *SessionFilter) {
+				f.MinUserMessages = tt.minUserMessages
+			})
+			requireCount(t, d, f, tt.want)
+		})
+	}
+}
+
 func TestActiveSinceUsesEndedAtOverStartedAt(t *testing.T) {
 	d := testDB(t)
 

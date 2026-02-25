@@ -2003,6 +2003,86 @@ func TestTimeFilter(t *testing.T) {
 	})
 }
 
+func TestAnalyticsFilterAgentAndMinUserMessages(
+	t *testing.T,
+) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "c1", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T09:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T10:00:00Z")
+		s.MessageCount = 10
+		s.UserMessageCount = 5
+		s.Agent = "claude"
+	})
+	insertSession(t, d, "c2", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T11:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T12:00:00Z")
+		s.MessageCount = 4
+		s.UserMessageCount = 1
+		s.Agent = "claude"
+	})
+	insertSession(t, d, "x1", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T14:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T15:00:00Z")
+		s.MessageCount = 20
+		s.UserMessageCount = 8
+		s.Agent = "codex"
+	})
+
+	f := baseFilter()
+
+	t.Run("NoFilters", func(t *testing.T) {
+		s := mustSummary(t, d, ctx, f)
+		if s.TotalSessions != 3 {
+			t.Errorf("TotalSessions = %d, want 3",
+				s.TotalSessions)
+		}
+	})
+
+	t.Run("AgentOnly", func(t *testing.T) {
+		af := f
+		af.Agent = "claude"
+		s := mustSummary(t, d, ctx, af)
+		if s.TotalSessions != 2 {
+			t.Errorf("TotalSessions = %d, want 2",
+				s.TotalSessions)
+		}
+	})
+
+	t.Run("MinUserMessagesOnly", func(t *testing.T) {
+		af := f
+		af.MinUserMessages = 5
+		s := mustSummary(t, d, ctx, af)
+		if s.TotalSessions != 2 {
+			t.Errorf("TotalSessions = %d, want 2",
+				s.TotalSessions)
+		}
+	})
+
+	t.Run("AgentAndMinUserMessages", func(t *testing.T) {
+		af := f
+		af.Agent = "claude"
+		af.MinUserMessages = 2
+		s := mustSummary(t, d, ctx, af)
+		if s.TotalSessions != 1 {
+			t.Errorf("TotalSessions = %d, want 1",
+				s.TotalSessions)
+		}
+	})
+
+	t.Run("ActiveSince", func(t *testing.T) {
+		af := f
+		af.ActiveSince = "2024-06-01T13:00:00Z"
+		s := mustSummary(t, d, ctx, af)
+		if s.TotalSessions != 1 {
+			t.Errorf("TotalSessions = %d, want 1",
+				s.TotalSessions)
+		}
+	})
+}
+
 func TestLocalTime(t *testing.T) {
 	tests := []struct {
 		name  string

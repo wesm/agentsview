@@ -534,7 +534,7 @@ func ParseCodexSession(
 
 	userCount := 0
 	for _, m := range b.messages {
-		if m.Role == RoleUser {
+		if m.Role == RoleUser && m.Content != "" {
 			userCount++
 		}
 	}

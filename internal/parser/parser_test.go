@@ -1386,6 +1386,37 @@ func TestParseCodexSession(t *testing.T) {
 	}
 }
 
+func TestCodexUserMessageCount(t *testing.T) {
+	content := testjsonl.JoinJSONL(
+		testjsonl.CodexSessionMetaJSON(
+			"umc-test", "/Users/alice/code/app", "user", tsEarly,
+		),
+		testjsonl.CodexMsgJSON("user", "Fix the tests", tsEarlyS1),
+		testjsonl.CodexFunctionCallJSON(
+			"shell_command", "Running tests", tsEarlyS5,
+		),
+		testjsonl.CodexMsgJSON("assistant", "Tests pass now", tsLate),
+		testjsonl.CodexMsgJSON("user", "Great, thanks", tsLateS5),
+	)
+
+	path := createTestFile(t, "codex-umc.jsonl", content)
+	sess, msgs, err := ParseCodexSession(path, "local", false)
+	if err != nil {
+		t.Fatalf("ParseCodexSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("got %d messages, want 4", len(msgs))
+	}
+	// 2 user messages with real text content.
+	if sess.UserMessageCount != 2 {
+		t.Errorf("UserMessageCount = %d, want 2",
+			sess.UserMessageCount)
+	}
+}
+
 func TestCodexSessionTimestampSemantics(t *testing.T) {
 	t.Run("invalid timestamp logs warning", func(t *testing.T) {
 		content := testjsonl.CodexMsgJSON("user", "hello", "garbage") + "\n"
@@ -1876,6 +1907,41 @@ func TestFormatGeminiToolCall(t *testing.T) {
 	}
 }
 
+func TestGeminiUserMessageCount(t *testing.T) {
+	hash := "abc123def456"
+	content := testjsonl.GeminiSessionJSON(
+		"umc-gemini", hash, tsEarly, tsLateS5,
+		[]map[string]any{
+			testjsonl.GeminiUserMsg("u1", tsEarly, "Fix the bug"),
+			testjsonl.GeminiAssistantMsg(
+				"a1", tsEarlyS5, "Looking at it.", nil,
+			),
+			testjsonl.GeminiUserMsg("u2", tsLate, "Ship it"),
+			testjsonl.GeminiAssistantMsg(
+				"a2", tsLateS5, "Done.", nil,
+			),
+		},
+	)
+
+	path := createTestFile(t, "gemini-umc.json", content)
+	sess, msgs, err := ParseGeminiSession(
+		path, "my_project", "local",
+	)
+	if err != nil {
+		t.Fatalf("ParseGeminiSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("got %d messages, want 4", len(msgs))
+	}
+	if sess.UserMessageCount != 2 {
+		t.Errorf("UserMessageCount = %d, want 2",
+			sess.UserMessageCount)
+	}
+}
+
 func TestGeminiSessionID(t *testing.T) {
 	data := []byte(`{"sessionId":"abc-123","messages":[]}`)
 	got := GeminiSessionID(data)
@@ -1886,6 +1952,79 @@ func TestGeminiSessionID(t *testing.T) {
 	got = GeminiSessionID([]byte(`{}`))
 	if got != "" {
 		t.Errorf("GeminiSessionID empty = %q, want empty", got)
+	}
+}
+
+func TestClaudeUserMessageCount(t *testing.T) {
+	tests := []struct {
+		name          string
+		content       string
+		wantUserCount int
+		wantMsgCount  int
+	}{
+		{
+			name: "counts real user prompts only",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("Fix the bug", tsEarly),
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": map[string]string{"file_path": "main.go"}},
+				}, tsEarlyS1),
+				// Tool-result user message: Content="" but has tool_result blocks.
+				// This should NOT count as a user prompt.
+				`{"type":"user","timestamp":"`+tsEarlyS5+`","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"package main"}]}}`,
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "text", "text": "Here is the fix."},
+				}, tsLate),
+				testjsonl.ClaudeUserJSON("Thanks!", tsLateS5),
+			),
+			wantUserCount: 2,
+			wantMsgCount:  5,
+		},
+		{
+			name: "no user prompts in tool-only session",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "tool_use", "id": "toolu_2", "name": "Bash", "input": map[string]string{"command": "ls"}},
+				}, tsEarly),
+				`{"type":"user","timestamp":"`+tsEarlyS1+`","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"file.go"}]}}`,
+			),
+			wantUserCount: 0,
+			wantMsgCount:  2,
+		},
+		{
+			name: "single user prompt",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("Hello", tsEarly),
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "text", "text": "Hi!"},
+				}, tsEarlyS5),
+			),
+			wantUserCount: 1,
+			wantMsgCount:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := createTestFile(t, "test.jsonl", tt.content)
+			sess, msgs, err := ParseClaudeSession(
+				path, "test-proj", "local",
+			)
+			if err != nil {
+				t.Fatalf("ParseClaudeSession: %v", err)
+			}
+			if len(msgs) != tt.wantMsgCount {
+				t.Fatalf("message count = %d, want %d",
+					len(msgs), tt.wantMsgCount)
+			}
+			if sess.UserMessageCount != tt.wantUserCount {
+				t.Errorf(
+					"UserMessageCount = %d, want %d",
+					sess.UserMessageCount,
+					tt.wantUserCount,
+				)
+			}
+		})
 	}
 }
 

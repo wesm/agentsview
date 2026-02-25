@@ -141,7 +141,7 @@ func ParseClaudeSession(
 
 	userCount := 0
 	for _, m := range messages {
-		if m.Role == RoleUser {
+		if m.Role == RoleUser && m.Content != "" {
 			userCount++
 		}
 	}

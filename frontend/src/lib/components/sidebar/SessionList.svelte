@@ -201,7 +201,7 @@
         <div class="filter-section">
           <div class="filter-section-label">Min Prompts</div>
           <div class="agent-buttons">
-            {#each [1, 2, 5, 10] as n}
+            {#each [2, 3, 5, 10] as n}
               <button
                 class="agent-filter-btn"
                 class:active={sessions.filters.minUserMessages === n}

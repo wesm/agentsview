@@ -436,6 +436,42 @@ func TestParseCopilotSession_ObjectArguments(t *testing.T) {
 	}
 }
 
+func TestCopilotUserMessageCount(t *testing.T) {
+	// Tool-result user messages (Content == "") should not count
+	// as user prompts. This was the exact bug: Copilot emits
+	// user-role messages for tool results with empty Content,
+	// inflating UserMessageCount.
+	path := writeCopilotJSONL(t,
+		`{"type":"session.start","data":{"sessionId":"umc-test"},"timestamp":"2025-01-15T10:00:00Z"}`,
+		`{"type":"user.message","data":{"content":"Fix the bug"},"timestamp":"2025-01-15T10:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-1","name":"view","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
+		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-1","success":true,"result":"file contents"},"timestamp":"2025-01-15T10:00:03Z"}`,
+		`{"type":"assistant.message","data":{"content":"I see the issue."},"timestamp":"2025-01-15T10:00:04Z"}`,
+		`{"type":"user.message","data":{"content":"Ship it"},"timestamp":"2025-01-15T10:00:05Z"}`,
+		`{"type":"assistant.message","data":{"content":"Done."},"timestamp":"2025-01-15T10:00:06Z"}`,
+	)
+
+	sess, msgs, err := ParseCopilotSession(path, "m")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected non-nil session")
+	}
+
+	// Messages: user, assistant(tool), user(tool-result), assistant, user, assistant
+	if len(msgs) != 6 {
+		t.Fatalf("got %d messages, want 6", len(msgs))
+	}
+
+	// Only 2 real user prompts: "Fix the bug" and "Ship it".
+	// The tool-result message at index 2 has empty Content.
+	if sess.UserMessageCount != 2 {
+		t.Errorf("UserMessageCount = %d, want 2",
+			sess.UserMessageCount)
+	}
+}
+
 func TestSessionIDFromPath(t *testing.T) {
 	tests := []struct {
 		path string

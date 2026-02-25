@@ -424,7 +424,7 @@ func buildOpenCodeSession(
 
 	userCount := 0
 	for _, m := range parsed {
-		if m.Role == RoleUser {
+		if m.Role == RoleUser && m.Content != "" {
 			userCount++
 		}
 	}

@@ -36,7 +36,7 @@ function defaultFilters(): Filters {
     recentlyActive: false,
     minMessages: 0,
     maxMessages: 0,
-    minUserMessages: 1,
+    minUserMessages: 0,
   };
 }
 
@@ -116,7 +116,7 @@ class SessionsStore {
       maxMessages: Number.isFinite(maxMsgs) ? maxMsgs : 0,
       minUserMessages: Number.isFinite(minUserMsgs)
         ? minUserMsgs
-        : 1,
+        : 0,
     };
     this.activeSessionId = null;
     this.resetPagination();
@@ -287,7 +287,7 @@ class SessionsStore {
       f.dateFrom ||
       f.dateTo ||
       f.date ||
-      f.minUserMessages > 1
+      f.minUserMessages > 0
     );
   }
 
