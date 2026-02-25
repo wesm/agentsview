@@ -47,11 +47,11 @@
   data-session-id={session.id}
   onclick={() => sessions.selectSession(session.id)}
 >
-  <div
-    class="agent-dot"
+  <span
+    class="agent-pill"
     class:recently-active={recentlyActive}
     style:background={agentColor}
-  ></div>
+  >{session.agent}</span>
   <div class="session-info">
     <div class="session-name">{displayName}</div>
     <div class="session-meta">
@@ -87,14 +87,20 @@
     border-left-color: var(--accent-blue);
   }
 
-  .agent-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+  .agent-pill {
+    font-size: 8px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 6px;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
     flex-shrink: 0;
+    line-height: 1.4;
+    white-space: nowrap;
   }
 
-  .agent-dot.recently-active {
+  .agent-pill.recently-active {
     animation: pulse-glow 3s ease-in-out infinite;
     will-change: box-shadow;
   }
