@@ -778,9 +778,10 @@ func TestIsDirOrSymlink(t *testing.T) {
 }
 
 func TestFindClaudeSourceFile_Symlink(t *testing.T) {
-	dir := t.TempDir()
-
-	realDir := filepath.Join(dir, "real-project")
+	// Real directory lives outside the search root so the
+	// session is only reachable through the symlink.
+	externalDir := t.TempDir()
+	realDir := filepath.Join(externalDir, "real-project")
 	if err := os.MkdirAll(realDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -791,13 +792,17 @@ func TestFindClaudeSourceFile_Symlink(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	linkDir := filepath.Join(dir, "linked-project")
+	searchDir := t.TempDir()
+	linkDir := filepath.Join(searchDir, "linked-project")
 	if err := os.Symlink(realDir, linkDir); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	got := FindClaudeSourceFile(dir, "sess-abc")
+	got := FindClaudeSourceFile(searchDir, "sess-abc")
 	if got == "" {
-		t.Error("expected to find session via symlink")
+		t.Fatal("expected to find session via symlink")
+	}
+	if filepath.Dir(got) != linkDir {
+		t.Errorf("expected path through symlink, got %q", got)
 	}
 }
