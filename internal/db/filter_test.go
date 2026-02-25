@@ -201,6 +201,40 @@ func TestSessionFilterMinUserMessages(t *testing.T) {
 	}
 }
 
+func TestSessionFilterExcludeProject(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "known", "my_project", func(s *Session) {
+		s.MessageCount = 5
+	})
+	insertSession(t, d, "unknown1", "unknown", func(s *Session) {
+		s.MessageCount = 3
+	})
+	insertSession(t, d, "unknown2", "unknown", func(s *Session) {
+		s.MessageCount = 7
+	})
+
+	tests := []struct {
+		name           string
+		excludeProject string
+		want           int
+	}{
+		{"NoFilter", "", 3},
+		{"ExcludeUnknown", "unknown", 1},
+		{"ExcludeMyProject", "my_project", 2},
+		{"ExcludeNonexistent", "nope", 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := filterWith(func(f *SessionFilter) {
+				f.ExcludeProject = tt.excludeProject
+			})
+			requireCount(t, d, f, tt.want)
+		})
+	}
+}
+
 func TestActiveSinceUsesEndedAtOverStartedAt(t *testing.T) {
 	d := testDB(t)
 

@@ -89,6 +89,7 @@ function buildQuery(
 
 export interface ListSessionsParams {
   project?: string;
+  exclude_project?: string;
   machine?: string;
   agent?: string;
   date?: string;

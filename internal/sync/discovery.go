@@ -392,12 +392,20 @@ type geminiProjectsFile struct {
 	Projects map[string]string `json:"projects"`
 }
 
+// geminiTrustedFoldersFile holds the structure of
+// ~/.gemini/trustedFolders.json.
+type geminiTrustedFoldersFile struct {
+	TrustedFolders []string `json:"trustedFolders"`
+}
+
 // buildGeminiProjectMap reads ~/.gemini/projects.json and
-// builds a map from directory name to resolved project name.
-// Entries are keyed by both the SHA-256 hash of the absolute
-// path (old Gemini format) and the short project name from the
-// JSON value (new format). ExtractProjectFromCwd resolves
-// worktrees to the main repository.
+// ~/.gemini/trustedFolders.json to build a map from directory
+// name to resolved project name. Entries are keyed by both the
+// SHA-256 hash of the absolute path (old Gemini format) and
+// the short project name from the JSON value (new format).
+// trustedFolders.json provides additional path-to-hash
+// mappings for directories that projects.json has lost.
+// ExtractProjectFromCwd resolves worktrees to the main repo.
 func buildGeminiProjectMap(
 	geminiDir string,
 ) map[string]string {
@@ -406,37 +414,68 @@ func buildGeminiProjectMap(
 	data, err := os.ReadFile(
 		filepath.Join(geminiDir, "projects.json"),
 	)
-	if err != nil {
-		return result
+	if err == nil {
+		var pf geminiProjectsFile
+		if err := json.Unmarshal(data, &pf); err == nil {
+			addProjectPaths(result, pf.Projects)
+		}
 	}
 
-	var pf geminiProjectsFile
-	if err := json.Unmarshal(data, &pf); err != nil {
-		return result
+	// trustedFolders.json lists additional project paths
+	// that may not be in projects.json (Gemini CLI cleans
+	// up projects.json but trustedFolders.json persists
+	// longer). Format: {"trustedFolders": ["/abs/path",...]}
+	tfData, err := os.ReadFile(
+		filepath.Join(geminiDir, "trustedFolders.json"),
+	)
+	if err == nil {
+		var tf geminiTrustedFoldersFile
+		if err := json.Unmarshal(tfData, &tf); err == nil {
+			paths := make(
+				map[string]string, len(tf.TrustedFolders),
+			)
+			for _, p := range tf.TrustedFolders {
+				paths[p] = ""
+			}
+			addProjectPaths(result, paths)
+		}
 	}
 
+	return result
+}
+
+// addProjectPaths adds hash and name entries for the given
+// absolute paths. name is the short project name from
+// projects.json (empty for trustedFolders.json entries).
+// Existing entries are not overwritten.
+func addProjectPaths(
+	result map[string]string,
+	paths map[string]string,
+) {
 	// Sort keys for deterministic first-seen-wins on
 	// duplicate short names.
-	paths := make([]string, 0, len(pf.Projects))
-	for absPath := range pf.Projects {
-		paths = append(paths, absPath)
+	sorted := make([]string, 0, len(paths))
+	for absPath := range paths {
+		sorted = append(sorted, absPath)
 	}
-	sort.Strings(paths)
+	sort.Strings(sorted)
 
-	for _, absPath := range paths {
-		name := pf.Projects[absPath]
+	for _, absPath := range sorted {
+		name := paths[absPath]
 		project := parser.ExtractProjectFromCwd(absPath)
 		if project == "" {
 			project = "unknown"
 		}
-		result[geminiPathHash(absPath)] = project
+		hash := geminiPathHash(absPath)
+		if _, exists := result[hash]; !exists {
+			result[hash] = project
+		}
 		if name != "" {
 			if _, exists := result[name]; !exists {
 				result[name] = project
 			}
 		}
 	}
-	return result
 }
 
 // geminiPathHash computes the SHA-256 hex hash of a path,

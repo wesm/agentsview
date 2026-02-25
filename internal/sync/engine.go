@@ -927,17 +927,17 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
 	s := db.Session{
-		ID:              pw.sess.ID,
-		Project:         pw.sess.Project,
-		Machine:         pw.sess.Machine,
-		Agent:           string(pw.sess.Agent),
+		ID:               pw.sess.ID,
+		Project:          pw.sess.Project,
+		Machine:          pw.sess.Machine,
+		Agent:            string(pw.sess.Agent),
 		MessageCount:     pw.sess.MessageCount,
 		UserMessageCount: pw.sess.UserMessageCount,
 		ParentSessionID:  strPtr(pw.sess.ParentSessionID),
-		FilePath:        strPtr(pw.sess.File.Path),
-		FileSize:        int64Ptr(pw.sess.File.Size),
-		FileMtime:       int64Ptr(pw.sess.File.Mtime),
-		FileHash:        strPtr(pw.sess.File.Hash),
+		FilePath:         strPtr(pw.sess.File.Path),
+		FileSize:         int64Ptr(pw.sess.File.Size),
+		FileMtime:        int64Ptr(pw.sess.File.Mtime),
+		FileHash:         strPtr(pw.sess.File.Hash),
 	}
 	if pw.sess.FirstMessage != "" {
 		s.FirstMessage = &pw.sess.FirstMessage

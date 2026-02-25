@@ -22,6 +22,9 @@
   let isRecentlyActiveOn = $derived(
     sessions.filters.recentlyActive,
   );
+  let isHideUnknownOn = $derived(
+    sessions.filters.hideUnknownProject,
+  );
 
   let groups = $derived(sessions.groupedSessions);
   let totalCount = $derived(groups.length);
@@ -174,6 +177,23 @@
               class:on={isRecentlyActiveOn}
             ></span>
             Recently Active
+          </button>
+        </div>
+        <div class="filter-section">
+          <div class="filter-section-label">Project</div>
+          <button
+            class="filter-toggle"
+            class:active={isHideUnknownOn}
+            onclick={() =>
+              sessions.setHideUnknownProjectFilter(
+                !isHideUnknownOn,
+              )}
+          >
+            <span
+              class="toggle-check"
+              class:on={isHideUnknownOn}
+            ></span>
+            Hide unknown
           </button>
         </div>
         <div class="filter-section">

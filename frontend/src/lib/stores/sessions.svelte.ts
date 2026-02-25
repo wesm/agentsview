@@ -21,6 +21,7 @@ interface Filters {
   dateFrom: string;
   dateTo: string;
   recentlyActive: boolean;
+  hideUnknownProject: boolean;
   minMessages: number;
   maxMessages: number;
   minUserMessages: number;
@@ -34,6 +35,7 @@ function defaultFilters(): Filters {
     dateFrom: "",
     dateTo: "",
     recentlyActive: false,
+    hideUnknownProject: false,
     minMessages: 0,
     maxMessages: 0,
     minUserMessages: 0,
@@ -67,6 +69,9 @@ class SessionsStore {
     const f = this.filters;
     return {
       project: f.project || undefined,
+      exclude_project: f.hideUnknownProject
+        ? "unknown"
+        : undefined,
       agent: f.agent || undefined,
       date: f.date || undefined,
       date_from: f.dateFrom || undefined,
@@ -112,6 +117,8 @@ class SessionsStore {
       dateFrom: params["date_from"] ?? "",
       dateTo: params["date_to"] ?? "",
       recentlyActive: params["active_since"] === "true",
+      hideUnknownProject:
+        params["exclude_project"] === "unknown",
       minMessages: Number.isFinite(minMsgs) ? minMsgs : 0,
       maxMessages: Number.isFinite(maxMsgs) ? maxMsgs : 0,
       minUserMessages: Number.isFinite(minUserMsgs)
@@ -279,11 +286,19 @@ class SessionsStore {
     this.load();
   }
 
+  setHideUnknownProjectFilter(hide: boolean) {
+    this.filters.hideUnknownProject = hide;
+    this.activeSessionId = null;
+    this.resetPagination();
+    this.load();
+  }
+
   get hasActiveFilters(): boolean {
     const f = this.filters;
     return !!(
       f.agent ||
       f.recentlyActive ||
+      f.hideUnknownProject ||
       f.dateFrom ||
       f.dateTo ||
       f.date ||

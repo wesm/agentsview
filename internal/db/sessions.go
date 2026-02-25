@@ -65,21 +65,21 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 
 // Session represents a row in the sessions table.
 type Session struct {
-	ID              string  `json:"id"`
-	Project         string  `json:"project"`
-	Machine         string  `json:"machine"`
-	Agent           string  `json:"agent"`
-	FirstMessage    *string `json:"first_message"`
-	StartedAt       *string `json:"started_at"`
-	EndedAt         *string `json:"ended_at"`
+	ID               string  `json:"id"`
+	Project          string  `json:"project"`
+	Machine          string  `json:"machine"`
+	Agent            string  `json:"agent"`
+	FirstMessage     *string `json:"first_message"`
+	StartedAt        *string `json:"started_at"`
+	EndedAt          *string `json:"ended_at"`
 	MessageCount     int     `json:"message_count"`
 	UserMessageCount int     `json:"user_message_count"`
 	ParentSessionID  *string `json:"parent_session_id,omitempty"`
-	FilePath        *string `json:"file_path,omitempty"`
-	FileSize        *int64  `json:"file_size,omitempty"`
-	FileMtime       *int64  `json:"file_mtime,omitempty"`
-	FileHash        *string `json:"file_hash,omitempty"`
-	CreatedAt       string  `json:"created_at"`
+	FilePath         *string `json:"file_path,omitempty"`
+	FileSize         *int64  `json:"file_size,omitempty"`
+	FileMtime        *int64  `json:"file_mtime,omitempty"`
+	FileHash         *string `json:"file_hash,omitempty"`
+	CreatedAt        string  `json:"created_at"`
 }
 
 // SessionCursor is the opaque pagination token.
@@ -161,18 +161,19 @@ func (db *DB) DecodeCursor(s string) (SessionCursor, error) {
 
 // SessionFilter specifies how to query sessions.
 type SessionFilter struct {
-	Project     string
-	Machine     string
-	Agent       string
-	Date        string // exact date YYYY-MM-DD
-	DateFrom    string // range start (inclusive)
-	DateTo      string // range end (inclusive)
-	ActiveSince string // ISO-8601 timestamp; filters on most recent activity
-	MinMessages     int // message_count >= N (0 = no filter)
-	MaxMessages     int // message_count <= N (0 = no filter)
-	MinUserMessages int // user_message_count >= N (0 = no filter)
-	Cursor      string // opaque cursor from previous page
-	Limit       int
+	Project         string
+	ExcludeProject  string // exclude sessions with this project name
+	Machine         string
+	Agent           string
+	Date            string // exact date YYYY-MM-DD
+	DateFrom        string // range start (inclusive)
+	DateTo          string // range end (inclusive)
+	ActiveSince     string // ISO-8601 timestamp; filters on most recent activity
+	MinMessages     int    // message_count >= N (0 = no filter)
+	MaxMessages     int    // message_count <= N (0 = no filter)
+	MinUserMessages int    // user_message_count >= N (0 = no filter)
+	Cursor          string // opaque cursor from previous page
+	Limit           int
 }
 
 // SessionPage is a page of session results.
@@ -191,6 +192,10 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 	if f.Project != "" {
 		preds = append(preds, "project = ?")
 		args = append(args, f.Project)
+	}
+	if f.ExcludeProject != "" {
+		preds = append(preds, "project != ?")
+		args = append(args, f.ExcludeProject)
 	}
 	if f.Machine != "" {
 		preds = append(preds, "machine = ?")

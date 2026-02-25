@@ -435,6 +435,103 @@ func TestResolveGeminiProject(t *testing.T) {
 	}
 }
 
+func TestBuildGeminiProjectMapTrustedFolders(t *testing.T) {
+	dir := t.TempDir()
+
+	// No projects.json, but trustedFolders.json exists.
+	tfJSON := `{"trustedFolders":["/Users/alice/code/my-app","/Users/alice/code/other"]}`
+	if err := os.WriteFile(
+		filepath.Join(dir, "trustedFolders.json"),
+		[]byte(tfJSON), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	m := buildGeminiProjectMap(dir)
+
+	// Hash keys for trustedFolders paths should resolve.
+	hash1 := geminiPathHash("/Users/alice/code/my-app")
+	if m[hash1] != "my_app" {
+		t.Errorf("hash for my-app = %q, want %q",
+			m[hash1], "my_app")
+	}
+	hash2 := geminiPathHash("/Users/alice/code/other")
+	if m[hash2] != "other" {
+		t.Errorf("hash for other = %q, want %q",
+			m[hash2], "other")
+	}
+}
+
+func TestBuildGeminiProjectMapBothFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// projects.json has one path.
+	pJSON := `{"projects":{"/Users/alice/code/proj-a":"proj-a"}}`
+	if err := os.WriteFile(
+		filepath.Join(dir, "projects.json"),
+		[]byte(pJSON), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// trustedFolders.json has an additional path.
+	tfJSON := `{"trustedFolders":["/Users/alice/code/proj-b"]}`
+	if err := os.WriteFile(
+		filepath.Join(dir, "trustedFolders.json"),
+		[]byte(tfJSON), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	m := buildGeminiProjectMap(dir)
+
+	hashA := geminiPathHash("/Users/alice/code/proj-a")
+	if m[hashA] != "proj_a" {
+		t.Errorf("proj-a hash = %q, want %q",
+			m[hashA], "proj_a")
+	}
+	hashB := geminiPathHash("/Users/alice/code/proj-b")
+	if m[hashB] != "proj_b" {
+		t.Errorf("proj-b hash = %q, want %q",
+			m[hashB], "proj_b")
+	}
+}
+
+func TestBuildGeminiProjectMapProjectsWin(t *testing.T) {
+	dir := t.TempDir()
+
+	// projects.json maps a path.
+	pJSON := `{"projects":{"/Users/alice/code/my-app":"my-app"}}`
+	if err := os.WriteFile(
+		filepath.Join(dir, "projects.json"),
+		[]byte(pJSON), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// trustedFolders.json also has the same path.
+	// projects.json should win (processed first).
+	tfJSON := `{"trustedFolders":["/Users/alice/code/my-app"]}`
+	if err := os.WriteFile(
+		filepath.Join(dir, "trustedFolders.json"),
+		[]byte(tfJSON), 0o644,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	m := buildGeminiProjectMap(dir)
+
+	hash := geminiPathHash("/Users/alice/code/my-app")
+	if m[hash] != "my_app" {
+		t.Errorf("hash = %q, want %q", m[hash], "my_app")
+	}
+	// Name key from projects.json should also exist.
+	if m["my-app"] != "my_app" {
+		t.Errorf("name key = %q, want %q",
+			m["my-app"], "my_app")
+	}
+}
+
 func TestDiscoverGeminiNamedDirs(t *testing.T) {
 	dir := setupTestDir(t, []string{
 		filepath.Join(
