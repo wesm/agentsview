@@ -94,6 +94,7 @@ export interface ListSessionsParams {
   date?: string;
   date_from?: string;
   date_to?: string;
+  active_since?: string;
   min_messages?: number;
   max_messages?: number;
   cursor?: string;

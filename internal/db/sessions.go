@@ -162,6 +162,7 @@ type SessionFilter struct {
 	Date        string // exact date YYYY-MM-DD
 	DateFrom    string // range start (inclusive)
 	DateTo      string // range end (inclusive)
+	ActiveSince string // ISO-8601 timestamp; filters on most recent activity
 	MinMessages int    // message_count >= N (0 = no filter)
 	MaxMessages int    // message_count <= N (0 = no filter)
 	Cursor      string // opaque cursor from previous page
@@ -207,6 +208,11 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 		preds = append(preds,
 			"date(COALESCE(started_at, created_at)) <= ?")
 		args = append(args, f.DateTo)
+	}
+	if f.ActiveSince != "" {
+		preds = append(preds,
+			"COALESCE(ended_at, started_at, created_at) >= ?")
+		args = append(args, f.ActiveSince)
 	}
 	if f.MinMessages > 0 {
 		preds = append(preds, "message_count >= ?")

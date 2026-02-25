@@ -20,6 +20,7 @@ interface Filters {
   date: string;
   dateFrom: string;
   dateTo: string;
+  recentlyActive: boolean;
   minMessages: number;
   maxMessages: number;
 }
@@ -31,6 +32,7 @@ function defaultFilters(): Filters {
     date: "",
     dateFrom: "",
     dateTo: "",
+    recentlyActive: false,
     minMessages: 0,
     maxMessages: 0,
   };
@@ -67,6 +69,11 @@ class SessionsStore {
       date: f.date || undefined,
       date_from: f.dateFrom || undefined,
       date_to: f.dateTo || undefined,
+      active_since: f.recentlyActive
+        ? new Date(
+            Date.now() - 24 * 60 * 60 * 1000,
+          ).toISOString()
+        : undefined,
       min_messages:
         f.minMessages > 0 ? f.minMessages : undefined,
       max_messages:
@@ -96,6 +103,7 @@ class SessionsStore {
       date: params["date"] ?? "",
       dateFrom: params["date_from"] ?? "",
       dateTo: params["date_to"] ?? "",
+      recentlyActive: params["active_since"] === "true",
       minMessages: Number.isFinite(minMsgs) ? minMsgs : 0,
       maxMessages: Number.isFinite(maxMsgs) ? maxMsgs : 0,
     };
@@ -247,14 +255,7 @@ class SessionsStore {
   }
 
   setRecentlyActiveFilter(active: boolean) {
-    if (active) {
-      const cutoff = new Date(
-        Date.now() - 24 * 60 * 60 * 1000,
-      );
-      this.filters.dateFrom = cutoff.toISOString();
-    } else {
-      this.filters.dateFrom = "";
-    }
+    this.filters.recentlyActive = active;
     this.activeSessionId = null;
     this.resetPagination();
     this.load();
@@ -262,7 +263,13 @@ class SessionsStore {
 
   get hasActiveFilters(): boolean {
     const f = this.filters;
-    return !!(f.agent || f.dateFrom || f.dateTo || f.date);
+    return !!(
+      f.agent ||
+      f.recentlyActive ||
+      f.dateFrom ||
+      f.dateTo ||
+      f.date
+    );
   }
 
   clearSessionFilters() {
@@ -302,10 +309,17 @@ function recencyKey(s: Session): string {
 
 const RECENTLY_ACTIVE_MS = 10 * 60 * 1000;
 
+/** Ticking timestamp that updates every 30s so derived
+ *  recency checks stay reactive without manual triggers. */
+let now = $state(Date.now());
+setInterval(() => {
+  now = Date.now();
+}, 30_000);
+
 export function isRecentlyActive(session: Session): boolean {
   const key = recencyKey(session);
   const ts = new Date(key).getTime();
-  return Date.now() - ts < RECENTLY_ACTIVE_MS;
+  return now - ts < RECENTLY_ACTIVE_MS;
 }
 
 /**

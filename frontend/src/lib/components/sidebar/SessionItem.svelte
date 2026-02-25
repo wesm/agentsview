@@ -2,6 +2,7 @@
   import type { Session } from "../../api/types.js";
   import { sessions, isRecentlyActive } from "../../stores/sessions.svelte.js";
   import { formatRelativeTime, truncate } from "../../utils/format.js";
+  import { agentColor as getAgentColor } from "../../utils/agents.js";
 
   interface Props {
     session: Session;
@@ -25,18 +26,10 @@
 
   let recentlyActive = $derived(isRecentlyActive(session));
 
-  let baseAgentColor = $derived(
-    session.agent === "codex"
-      ? "var(--accent-green)"
-      : session.agent === "copilot"
-        ? "var(--accent-amber)"
-        : session.agent === "opencode"
-          ? "var(--accent-purple)"
-          : "var(--accent-blue)",
-  );
-
   let agentColor = $derived(
-    recentlyActive ? "var(--accent-green)" : baseAgentColor,
+    recentlyActive
+      ? "var(--accent-green)"
+      : getAgentColor(session.agent),
   );
 
   let displayName = $derived(

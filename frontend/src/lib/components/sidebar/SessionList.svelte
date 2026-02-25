@@ -3,19 +3,10 @@
   import { sessions } from "../../stores/sessions.svelte.js";
   import SessionItem from "./SessionItem.svelte";
   import { formatNumber } from "../../utils/format.js";
+  import { KNOWN_AGENTS } from "../../utils/agents.js";
 
   const ITEM_HEIGHT = 40;
   const OVERSCAN = 10;
-  const KNOWN_AGENTS: Array<{
-    name: string;
-    color: string;
-  }> = [
-    { name: "claude", color: "var(--accent-blue)" },
-    { name: "codex", color: "var(--accent-green)" },
-    { name: "copilot", color: "var(--accent-amber)" },
-    { name: "gemini", color: "var(--accent-blue)" },
-    { name: "opencode", color: "var(--accent-purple)" },
-  ];
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollTop = $state(0);
@@ -29,7 +20,7 @@
 
   let hasFilters = $derived(sessions.hasActiveFilters);
   let isRecentlyActiveOn = $derived(
-    !!sessions.filters.dateFrom,
+    sessions.filters.recentlyActive,
   );
 
   let groups = $derived(sessions.groupedSessions);

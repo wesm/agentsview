@@ -51,6 +51,7 @@ func (s *Server) handleListSessions(
 		Date:        date,
 		DateFrom:    dateFrom,
 		DateTo:      dateTo,
+		ActiveSince: q.Get("active_since"),
 		MinMessages: minMsgs,
 		MaxMessages: maxMsgs,
 		Cursor:      q.Get("cursor"),
