@@ -48,6 +48,13 @@ func (s *Server) handleListSessions(
 		return
 	}
 
+	activeSince := q.Get("active_since")
+	if activeSince != "" && !isValidTimestamp(activeSince) {
+		writeError(w, http.StatusBadRequest,
+			"invalid active_since: use RFC3339 timestamp")
+		return
+	}
+
 	filter := db.SessionFilter{
 		Project:         q.Get("project"),
 		Machine:         q.Get("machine"),
@@ -55,7 +62,7 @@ func (s *Server) handleListSessions(
 		Date:            date,
 		DateFrom:        dateFrom,
 		DateTo:          dateTo,
-		ActiveSince:     q.Get("active_since"),
+		ActiveSince:     activeSince,
 		MinMessages:     minMsgs,
 		MaxMessages:     maxMsgs,
 		MinUserMessages: minUserMsgs,

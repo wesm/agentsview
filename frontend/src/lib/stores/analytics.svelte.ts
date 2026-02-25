@@ -64,7 +64,7 @@ class AnalyticsStore {
   project: string = $state("");
   agent: string = $state("");
   minUserMessages: number = $state(0);
-  activeSince: string = $state("");
+  recentlyActive: boolean = $state(false);
   selectedDow: number | null = $state(null);
   selectedHour: number | null = $state(null);
 
@@ -125,7 +125,7 @@ class AnalyticsStore {
       this.project !== "" ||
       this.agent !== "" ||
       this.minUserMessages > 0 ||
-      this.activeSince !== "" ||
+      this.recentlyActive ||
       this.selectedDow !== null ||
       this.selectedHour !== null
     );
@@ -136,7 +136,7 @@ class AnalyticsStore {
     this.project = "";
     this.agent = "";
     this.minUserMessages = 0;
-    this.activeSince = "";
+    this.recentlyActive = false;
     this.selectedDow = null;
     this.selectedHour = null;
     this.fetchAll();
@@ -152,8 +152,8 @@ class AnalyticsStore {
     this.fetchAll();
   }
 
-  clearActiveSince() {
-    this.activeSince = "";
+  clearRecentlyActive() {
+    this.recentlyActive = false;
     this.fetchAll();
   }
 
@@ -205,7 +205,11 @@ class AnalyticsStore {
     if (this.minUserMessages > 0) {
       p.min_user_messages = this.minUserMessages;
     }
-    if (this.activeSince) p.active_since = this.activeSince;
+    if (this.recentlyActive) {
+      p.active_since = new Date(
+        Date.now() - 24 * 60 * 60 * 1000,
+      ).toISOString();
+    }
     if (includeTime) {
       if (this.selectedDow !== null) p.dow = this.selectedDow;
       if (this.selectedHour !== null) {
@@ -236,7 +240,11 @@ class AnalyticsStore {
       if (this.minUserMessages > 0) {
         p.min_user_messages = this.minUserMessages;
       }
-      if (this.activeSince) p.active_since = this.activeSince;
+      if (this.recentlyActive) {
+        p.active_since = new Date(
+          Date.now() - 24 * 60 * 60 * 1000,
+        ).toISOString();
+      }
       if (includeTime) {
         if (this.selectedDow !== null) {
           p.dow = this.selectedDow;

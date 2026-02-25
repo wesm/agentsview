@@ -39,7 +39,7 @@
     (analytics.project !== "" ? 1 : 0) +
     (analytics.agent !== "" ? 1 : 0) +
     (analytics.minUserMessages > 0 ? 1 : 0) +
-    (analytics.activeSince !== "" ? 1 : 0) +
+    (analytics.recentlyActive ? 1 : 0) +
     (hasTime ? 1 : 0)
   );
 </script>
@@ -125,10 +125,10 @@
       </button>
     {/if}
 
-    {#if analytics.activeSince}
+    {#if analytics.recentlyActive}
       <button
         class="filter-chip"
-        onclick={() => analytics.clearActiveSince()}
+        onclick={() => analytics.clearRecentlyActive()}
         title="Clear recently active filter"
       >
         <span class="chip-icon">

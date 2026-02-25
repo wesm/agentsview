@@ -210,6 +210,55 @@ func TestSessionsDateValidation(t *testing.T) {
 	}
 }
 
+func TestActiveSinceValidation(t *testing.T) {
+	te := setup(t)
+
+	tests := []struct {
+		name   string
+		path   string
+		query  string
+		status int
+	}{
+		{
+			"Sessions_InvalidActiveSince",
+			"/api/v1/sessions",
+			"?active_since=garbage",
+			http.StatusBadRequest,
+		},
+		{
+			"Sessions_ValidActiveSince",
+			"/api/v1/sessions",
+			"?active_since=2024-06-01T10:00:00Z",
+			http.StatusOK,
+		},
+		{
+			"Sessions_ValidActiveSinceNano",
+			"/api/v1/sessions",
+			"?active_since=2024-06-01T10:00:00.123456789Z",
+			http.StatusOK,
+		},
+		{
+			"Analytics_InvalidActiveSince",
+			"/api/v1/analytics/summary",
+			analyticsRange + "&active_since=not-a-timestamp",
+			http.StatusBadRequest,
+		},
+		{
+			"Analytics_ValidActiveSince",
+			"/api/v1/analytics/summary",
+			analyticsRange + "&active_since=2024-06-01T00:00:00Z",
+			http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := te.get(t, tt.path+tt.query)
+			assertStatus(t, w, tt.status)
+		})
+	}
+}
+
 func TestAnalyticsActivity(t *testing.T) {
 	te := setup(t)
 	seedAnalyticsEnv(t, te)

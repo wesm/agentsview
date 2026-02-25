@@ -59,7 +59,9 @@
 
     const curProject = untrack(() => analytics.project);
     const curAgent = untrack(() => analytics.agent);
-    const curActiveSince = untrack(() => analytics.activeSince);
+    const curRecentlyActive = untrack(
+      () => analytics.recentlyActive,
+    );
     const curMinUser = untrack(
       () => analytics.minUserMessages,
     );
@@ -74,13 +76,8 @@
       changed = true;
     }
 
-    const activeSinceVal = headerRecentlyActive
-      ? new Date(
-          Date.now() - 24 * 60 * 60 * 1000,
-        ).toISOString()
-      : "";
-    if (curActiveSince !== activeSinceVal) {
-      analytics.activeSince = activeSinceVal;
+    if (curRecentlyActive !== headerRecentlyActive) {
+      analytics.recentlyActive = headerRecentlyActive;
       changed = true;
     }
 

@@ -15,6 +15,16 @@ func isValidDate(s string) bool {
 	return err == nil
 }
 
+// isValidTimestamp checks RFC3339 or RFC3339Nano format.
+func isValidTimestamp(s string) bool {
+	_, err := time.Parse(time.RFC3339, s)
+	if err == nil {
+		return true
+	}
+	_, err = time.Parse(time.RFC3339Nano, s)
+	return err == nil
+}
+
 // defaultDateRange returns (from, to) defaulting to the last
 // 30 days if not provided.
 func defaultDateRange(
@@ -90,6 +100,13 @@ func parseAnalyticsFilter(
 		return db.AnalyticsFilter{}, false
 	}
 
+	activeSince := q.Get("active_since")
+	if activeSince != "" && !isValidTimestamp(activeSince) {
+		writeError(w, http.StatusBadRequest,
+			"invalid active_since: use RFC3339 timestamp")
+		return db.AnalyticsFilter{}, false
+	}
+
 	return db.AnalyticsFilter{
 		From:            from,
 		To:              to,
@@ -100,7 +117,7 @@ func parseAnalyticsFilter(
 		DayOfWeek:       dow,
 		Hour:            hour,
 		MinUserMessages: minUserMsgs,
-		ActiveSince:     q.Get("active_since"),
+		ActiveSince:     activeSince,
 	}, true
 }
 
