@@ -16,7 +16,9 @@ var ignoredSystemDirs = map[string]bool{
 	"tmp": true, "private": true,
 }
 
-func normalizeName(s string) string {
+// NormalizeName converts dashes to underscores for consistent
+// project name formatting.
+func NormalizeName(s string) string {
 	return strings.ReplaceAll(s, "-", "_")
 }
 
@@ -29,7 +31,7 @@ func GetProjectName(dirName string) string {
 	}
 
 	if !strings.HasPrefix(dirName, "-") {
-		return normalizeName(dirName)
+		return NormalizeName(dirName)
 	}
 
 	parts := strings.Split(dirName, "-")
@@ -40,7 +42,7 @@ func GetProjectName(dirName string) string {
 			if strings.EqualFold(part, marker) && i+1 < len(parts) {
 				result := strings.Join(parts[i+1:], "-")
 				if result != "" {
-					return normalizeName(result)
+					return NormalizeName(result)
 				}
 			}
 		}
@@ -49,11 +51,11 @@ func GetProjectName(dirName string) string {
 	// Strategy 2: use last non-system-directory component
 	for i := len(parts) - 1; i >= 0; i-- {
 		if p := parts[i]; p != "" && !ignoredSystemDirs[strings.ToLower(p)] {
-			return normalizeName(p)
+			return NormalizeName(p)
 		}
 	}
 
-	return normalizeName(dirName)
+	return NormalizeName(dirName)
 }
 
 // ExtractProjectFromCwd extracts a project name from a working
@@ -80,7 +82,7 @@ func ExtractProjectFromCwdWithBranch(
 		if isInvalidPathBase(name) {
 			return ""
 		}
-		return normalizeName(name)
+		return NormalizeName(name)
 	}
 
 	name := filepath.Base(cleaned)
@@ -91,7 +93,7 @@ func ExtractProjectFromCwdWithBranch(
 	if isInvalidPathBase(name) {
 		return ""
 	}
-	return normalizeName(name)
+	return NormalizeName(name)
 }
 
 func isInvalidPathBase(name string) bool {

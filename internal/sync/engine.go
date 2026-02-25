@@ -245,7 +245,8 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
-	// Gemini: <geminiDir>/tmp/<hash>/chats/session-*.json
+	// Gemini: <geminiDir>/tmp/<dir>/chats/session-*.json
+	// <dir> is either a SHA-256 hash (old) or project name (new).
 	if e.geminiDir != "" {
 		if rel, ok := isUnder(e.geminiDir, path); ok {
 			parts := strings.Split(rel, sep)
@@ -259,16 +260,15 @@ func (e *Engine) classifyOnePath(
 				!strings.HasSuffix(name, ".json") {
 				return DiscoveredFile{}, false
 			}
-			hash := parts[1]
+			dirName := parts[1]
 			if *geminiProjects == nil {
 				*geminiProjects = buildGeminiProjectMap(
 					e.geminiDir,
 				)
 			}
-			project := (*geminiProjects)[hash]
-			if project == "" {
-				project = "unknown"
-			}
+			project := resolveGeminiProject(
+				dirName, *geminiProjects,
+			)
 			return DiscoveredFile{
 				Path:    path,
 				Project: project,

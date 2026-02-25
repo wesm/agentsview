@@ -2,6 +2,7 @@ package sync
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -299,10 +300,7 @@ func DiscoverGeminiSessions(
 			continue
 		}
 
-		project := projectMap[hash]
-		if project == "" {
-			project = "unknown"
-		}
+		project := resolveGeminiProject(hash, projectMap)
 
 		for _, sf := range entries {
 			if sf.IsDir() {
@@ -395,7 +393,11 @@ type geminiProjectsFile struct {
 }
 
 // buildGeminiProjectMap reads ~/.gemini/projects.json and
-// builds a map from project hash to resolved project name.
+// builds a map from directory name to resolved project name.
+// Entries are keyed by both the SHA-256 hash of the absolute
+// path (old Gemini format) and the short project name from the
+// JSON value (new format). ExtractProjectFromCwd resolves
+// worktrees to the main repository.
 func buildGeminiProjectMap(
 	geminiDir string,
 ) map[string]string {
@@ -413,13 +415,15 @@ func buildGeminiProjectMap(
 		return result
 	}
 
-	for absPath := range pf.Projects {
-		hash := geminiPathHash(absPath)
+	for absPath, name := range pf.Projects {
 		project := parser.ExtractProjectFromCwd(absPath)
 		if project == "" {
 			project = "unknown"
 		}
-		result[hash] = project
+		result[geminiPathHash(absPath)] = project
+		if name != "" {
+			result[name] = project
+		}
 	}
 	return result
 }
@@ -429,6 +433,36 @@ func buildGeminiProjectMap(
 func geminiPathHash(path string) string {
 	h := sha256.Sum256([]byte(path))
 	return fmt.Sprintf("%x", h)
+}
+
+// isHexHash reports whether s is a 64-character lowercase hex
+// string (i.e. a SHA-256 hash).
+func isHexHash(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
+}
+
+// resolveGeminiProject maps a tmp/ subdirectory name to a
+// project name. Newer Gemini CLI versions use the project name
+// directly; older versions use a SHA-256 hash. Both are looked
+// up in the project map (built from projects.json) which
+// resolves worktrees to the main repository via
+// ExtractProjectFromCwd. For named dirs not in the map, the
+// directory name itself is used.
+func resolveGeminiProject(
+	dirName string,
+	projectMap map[string]string,
+) string {
+	if p := projectMap[dirName]; p != "" {
+		return p
+	}
+	if isHexHash(dirName) {
+		return "unknown"
+	}
+	return parser.NormalizeName(dirName)
 }
 
 // DiscoverCopilotSessions finds all JSONL files under

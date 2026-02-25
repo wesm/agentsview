@@ -362,10 +362,18 @@ func TestBuildGeminiProjectMap(t *testing.T) {
 	}
 
 	m := buildGeminiProjectMap(dir)
+
+	// Hash key (old format)
 	hash := geminiPathHash("/Users/alice/code/my-app")
 	if m[hash] != "my_app" {
 		t.Errorf("project for hash = %q, want %q",
 			m[hash], "my_app")
+	}
+
+	// Name key (new format)
+	if m["my-app"] != "my_app" {
+		t.Errorf("project for name = %q, want %q",
+			m["my-app"], "my_app")
 	}
 }
 
@@ -373,6 +381,77 @@ func TestBuildGeminiProjectMapMissingFile(t *testing.T) {
 	m := buildGeminiProjectMap(t.TempDir())
 	if len(m) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(m))
+	}
+}
+
+func TestResolveGeminiProject(t *testing.T) {
+	projectMap := map[string]string{
+		geminiPathHash("/Users/alice/code/my-app"): "my_app",
+		"my-app":    "my_app",
+		"worktree1": "main_repo",
+	}
+
+	tests := []struct {
+		name    string
+		dirName string
+		want    string
+	}{
+		{
+			"HashLookupHit",
+			geminiPathHash("/Users/alice/code/my-app"),
+			"my_app",
+		},
+		{
+			"HashLookupMiss",
+			geminiPathHash("/Users/alice/code/other"),
+			"unknown",
+		},
+		{
+			"NamedDirInMap",
+			"my-app",
+			"my_app",
+		},
+		{
+			"NamedDirWorktreeResolved",
+			"worktree1",
+			"main_repo",
+		},
+		{
+			"NamedDirNotInMap",
+			"new-project",
+			"new_project",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveGeminiProject(
+				tt.dirName, projectMap,
+			)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDiscoverGeminiNamedDirs(t *testing.T) {
+	dir := setupTestDir(t, []string{
+		filepath.Join(
+			"tmp", "my-project", "chats",
+			"session-2026-01-01T10-00-abc.json",
+		),
+	})
+
+	files := DiscoverGeminiSessions(dir)
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	if files[0].Project != "my_project" {
+		t.Errorf(
+			"project = %q, want %q",
+			files[0].Project, "my_project",
+		)
 	}
 }
 
