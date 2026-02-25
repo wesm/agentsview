@@ -207,8 +207,11 @@
                   onclick={async () => {
                     const ok = await copyToClipboard(rawId);
                     if (ok) {
-                      copiedSessionId = session.id;
-                      setTimeout(() => (copiedSessionId = ""), 1500);
+                      const id = session.id;
+                      copiedSessionId = id;
+                      setTimeout(() => {
+                        if (copiedSessionId === id) copiedSessionId = "";
+                      }, 1500);
                     }
                   }}
                 >
