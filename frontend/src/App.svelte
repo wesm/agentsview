@@ -187,6 +187,8 @@
                 class:agent-claude={session.agent === "claude"}
                 class:agent-codex={session.agent === "codex"}
                 class:agent-copilot={session.agent === "copilot"}
+                class:agent-gemini={session.agent === "gemini"}
+                class:agent-opencode={session.agent === "opencode"}
               >{session.agent}</span>
               {#if session.started_at}
                 <span class="session-time">
