@@ -234,6 +234,44 @@ class SessionsStore {
     this.resetPagination();
     this.load();
   }
+
+  setAgentFilter(agent: string) {
+    if (this.filters.agent === agent) {
+      this.filters.agent = "";
+    } else {
+      this.filters.agent = agent;
+    }
+    this.activeSessionId = null;
+    this.resetPagination();
+    this.load();
+  }
+
+  setRecentlyActiveFilter(active: boolean) {
+    if (active) {
+      const cutoff = new Date(
+        Date.now() - 24 * 60 * 60 * 1000,
+      );
+      this.filters.dateFrom = cutoff.toISOString();
+    } else {
+      this.filters.dateFrom = "";
+    }
+    this.activeSessionId = null;
+    this.resetPagination();
+    this.load();
+  }
+
+  get hasActiveFilters(): boolean {
+    const f = this.filters;
+    return !!(f.agent || f.dateFrom || f.dateTo || f.date);
+  }
+
+  clearSessionFilters() {
+    const project = this.filters.project;
+    this.filters = { ...defaultFilters(), project };
+    this.activeSessionId = null;
+    this.resetPagination();
+    this.load();
+  }
 }
 
 export function createSessionsStore(): SessionsStore {
@@ -260,6 +298,14 @@ function minString(
 
 function recencyKey(s: Session): string {
   return s.ended_at ?? s.started_at ?? s.created_at;
+}
+
+const RECENTLY_ACTIVE_MS = 10 * 60 * 1000;
+
+export function isRecentlyActive(session: Session): boolean {
+  const key = recencyKey(session);
+  const ts = new Date(key).getTime();
+  return Date.now() - ts < RECENTLY_ACTIVE_MS;
 }
 
 /**
