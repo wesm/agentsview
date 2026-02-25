@@ -1,5 +1,48 @@
-import { describe, it, expect } from "vitest";
-import { commitsDisagree } from "./sync.svelte.js";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+} from "vitest";
+import { commitsDisagree, sync } from "./sync.svelte.js";
+import * as api from "../api/client.js";
+import type { SyncStats } from "../api/types.js";
+
+vi.mock("../api/client.js", () => ({
+  triggerSync: vi.fn(),
+  triggerResync: vi.fn(),
+  getSyncStatus: vi.fn(),
+  getStats: vi.fn(),
+  getVersion: vi.fn(),
+  watchSession: vi.fn(),
+}));
+
+const MOCK_STATS: SyncStats = {
+  synced: 5,
+  skipped: 3,
+  total_sessions: 8,
+};
+
+function mockResyncSuccess(): void {
+  vi.mocked(api.triggerResync).mockReturnValue({
+    abort: vi.fn(),
+    done: Promise.resolve(MOCK_STATS),
+  });
+  vi.mocked(api.getStats).mockResolvedValue({
+    session_count: 8,
+    message_count: 100,
+    project_count: 3,
+    machine_count: 1,
+  });
+}
+
+function mockResyncFailure(error: Error): void {
+  vi.mocked(api.triggerResync).mockReturnValue({
+    abort: vi.fn(),
+    done: Promise.reject(error),
+  });
+}
 
 describe("commitsDisagree", () => {
   it.each([
@@ -33,4 +76,88 @@ describe("commitsDisagree", () => {
       expect(commitsDisagree(hash1, hash2)).toBe(expected);
     },
   );
+});
+
+describe("SyncStore.triggerResync", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset singleton state between tests.
+    const s = sync as unknown as Record<string, unknown>;
+    s.syncing = false;
+    s.progress = null;
+  });
+
+  it("returns false when already syncing", () => {
+    mockResyncSuccess();
+    const first = sync.triggerResync();
+    expect(first).toBe(true);
+    expect(sync.syncing).toBe(true);
+
+    const second = sync.triggerResync();
+    expect(second).toBe(false);
+  });
+
+  it("calls onError on stream failure", async () => {
+    const error = new Error("stream failed");
+    mockResyncFailure(error);
+
+    const onError = vi.fn();
+    sync.triggerResync(undefined, onError);
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(error);
+    });
+    expect(sync.syncing).toBe(false);
+  });
+
+  it("resets syncing on non-Error rejection", async () => {
+    vi.mocked(api.triggerResync).mockReturnValue({
+      abort: vi.fn(),
+      done: Promise.reject("string error"),
+    });
+
+    const onError = vi.fn();
+    sync.triggerResync(undefined, onError);
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalled();
+    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Sync failed" }),
+    );
+    expect(sync.syncing).toBe(false);
+  });
+
+  it("allows retry after error", async () => {
+    mockResyncFailure(new Error("fail"));
+    const onError = vi.fn();
+    sync.triggerResync(undefined, onError);
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalled();
+    });
+
+    // Retry should succeed
+    mockResyncSuccess();
+    const onComplete = vi.fn();
+    const started = sync.triggerResync(onComplete);
+    expect(started).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(onComplete).toHaveBeenCalled();
+    });
+    expect(sync.syncing).toBe(false);
+  });
+
+  it("calls onComplete on success", async () => {
+    mockResyncSuccess();
+    const onComplete = vi.fn();
+    sync.triggerResync(onComplete);
+
+    await vi.waitFor(() => {
+      expect(onComplete).toHaveBeenCalled();
+    });
+    expect(sync.syncing).toBe(false);
+    expect(sync.lastSyncStats).toEqual(MOCK_STATS);
+  });
 });

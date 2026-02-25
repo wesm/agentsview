@@ -2,8 +2,12 @@ package sync_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	gosync "sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1238,4 +1242,61 @@ func TestSyncEngineOpenCodeToolCallReplace(t *testing.T) {
 		"run ls", "here are the files",
 	)
 	assertToolCallCount(t, env.db, agentviewID, 0)
+}
+
+// TestSyncEngineConcurrentSerialization verifies that
+// SyncAll and ResyncAll never execute concurrently thanks
+// to the syncMu mutex. The progress callback tracks an
+// atomic "active" counter; if both syncs ran in parallel,
+// the counter would exceed 1.
+func TestSyncEngineConcurrentSerialization(t *testing.T) {
+	env := setupTestEnv(t)
+
+	for i := range 5 {
+		content := testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsZero, fmt.Sprintf("msg %d", i)).
+			String()
+		env.writeClaudeSession(
+			t, "proj",
+			fmt.Sprintf("conc-%d.jsonl", i), content,
+		)
+	}
+
+	var active atomic.Int32
+	var maxActive atomic.Int32
+
+	trackingProgress := func(p sync.Progress) {
+		n := active.Add(1)
+		for {
+			cur := maxActive.Load()
+			if n <= cur ||
+				maxActive.CompareAndSwap(cur, n) {
+				break
+			}
+		}
+		// Yield to widen the overlap window if the mutex
+		// were absent.
+		runtime.Gosched()
+		active.Add(-1)
+	}
+
+	var wg gosync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		env.engine.SyncAll(trackingProgress)
+	}()
+	go func() {
+		defer wg.Done()
+		env.engine.ResyncAll(trackingProgress)
+	}()
+
+	wg.Wait()
+
+	if maxActive.Load() > 1 {
+		t.Error(
+			"SyncAll and ResyncAll ran concurrently",
+		)
+	}
 }
