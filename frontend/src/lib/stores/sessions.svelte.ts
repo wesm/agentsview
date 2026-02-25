@@ -110,15 +110,21 @@ class SessionsStore {
       10,
     );
 
+    const hideUnknown =
+      params["exclude_project"] === "unknown";
+    let project = params["project"] ?? "";
+    if (hideUnknown && project === "unknown") {
+      project = "";
+    }
+
     this.filters = {
-      project: params["project"] ?? "",
+      project,
       agent: params["agent"] ?? "",
       date: params["date"] ?? "",
       dateFrom: params["date_from"] ?? "",
       dateTo: params["date_to"] ?? "",
       recentlyActive: params["active_since"] === "true",
-      hideUnknownProject:
-        params["exclude_project"] === "unknown",
+      hideUnknownProject: hideUnknown,
       minMessages: Number.isFinite(minMsgs) ? minMsgs : 0,
       maxMessages: Number.isFinite(maxMsgs) ? maxMsgs : 0,
       minUserMessages: Number.isFinite(minUserMsgs)

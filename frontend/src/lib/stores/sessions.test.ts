@@ -441,6 +441,15 @@ describe("SessionsStore", () => {
       expect(sessions.filters.hideUnknownProject).toBe(false);
     });
 
+    it("should clear conflicting project=unknown in initFromParams", () => {
+      sessions.initFromParams({
+        project: "unknown",
+        exclude_project: "unknown",
+      });
+      expect(sessions.filters.project).toBe("");
+      expect(sessions.filters.hideUnknownProject).toBe(true);
+    });
+
     it("should be included in hasActiveFilters", () => {
       sessions.filters.hideUnknownProject = true;
       expect(sessions.hasActiveFilters).toBe(true);
