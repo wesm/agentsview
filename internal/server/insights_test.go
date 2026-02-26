@@ -15,80 +15,82 @@ type listInsightsResponse struct {
 	Insights []db.Insight `json:"insights"`
 }
 
-func TestListInsights_Empty(t *testing.T) {
-	te := setup(t)
-
-	w := te.get(t, "/api/v1/insights")
-	assertStatus(t, w, http.StatusOK)
-
-	r := decode[listInsightsResponse](t, w)
-	if len(r.Insights) != 0 {
-		t.Fatalf("expected 0 insights, got %d",
-			len(r.Insights))
+func TestListInsights(t *testing.T) {
+	tests := []struct {
+		name       string
+		seed       func(t *testing.T, te *testEnv)
+		path       string
+		wantStatus int
+		wantCount  int
+		wantBody   string
+	}{
+		{
+			name:       "Empty",
+			seed:       func(t *testing.T, te *testEnv) {},
+			path:       "/api/v1/insights",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "WithData",
+			seed: func(t *testing.T, te *testEnv) {
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("my-app"))
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("other-app"))
+				te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
+			},
+			path:       "/api/v1/insights",
+			wantStatus: http.StatusOK,
+			wantCount:  3,
+		},
+		{
+			name: "TypeFilter",
+			seed: func(t *testing.T, te *testEnv) {
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("my-app"))
+				te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
+			},
+			path:       "/api/v1/insights?type=daily_activity",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "ReturnsAll",
+			seed: func(t *testing.T, te *testEnv) {
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("my-app"))
+				te.seedInsight(t, "daily_activity", "2025-01-16", strPtr("my-app"))
+			},
+			path:       "/api/v1/insights",
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name:       "InvalidType",
+			seed:       func(t *testing.T, te *testEnv) {},
+			path:       "/api/v1/insights?type=invalid",
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "invalid type",
+		},
 	}
-}
 
-func TestListInsights_WithData(t *testing.T) {
-	te := setup(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			te := setup(t)
+			tt.seed(t, te)
 
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("my-app"))
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("other-app"))
-	te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
+			w := te.get(t, tt.path)
+			assertStatus(t, w, tt.wantStatus)
 
-	w := te.get(t, "/api/v1/insights")
-	assertStatus(t, w, http.StatusOK)
+			if tt.wantBody != "" {
+				assertBodyContains(t, w, tt.wantBody)
+			}
 
-	r := decode[listInsightsResponse](t, w)
-	if len(r.Insights) != 3 {
-		t.Fatalf("expected 3 insights, got %d",
-			len(r.Insights))
+			if tt.wantStatus == http.StatusOK {
+				r := decode[listInsightsResponse](t, w)
+				if len(r.Insights) != tt.wantCount {
+					t.Fatalf("expected %d insights, got %d", tt.wantCount, len(r.Insights))
+				}
+			}
+		})
 	}
-}
-
-func TestListInsights_TypeFilter(t *testing.T) {
-	te := setup(t)
-
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("my-app"))
-	te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
-
-	w := te.get(t,
-		"/api/v1/insights?type=daily_activity")
-	assertStatus(t, w, http.StatusOK)
-
-	r := decode[listInsightsResponse](t, w)
-	if len(r.Insights) != 1 {
-		t.Fatalf("expected 1 insight, got %d",
-			len(r.Insights))
-	}
-}
-
-func TestListInsights_ReturnsAll(t *testing.T) {
-	te := setup(t)
-
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("my-app"))
-	te.seedInsight(t, "daily_activity", "2025-01-16",
-		strPtr("my-app"))
-
-	w := te.get(t, "/api/v1/insights")
-	assertStatus(t, w, http.StatusOK)
-
-	r := decode[listInsightsResponse](t, w)
-	if len(r.Insights) != 2 {
-		t.Fatalf("expected 2 insights, got %d",
-			len(r.Insights))
-	}
-}
-
-func TestListInsights_InvalidType(t *testing.T) {
-	te := setup(t)
-
-	w := te.get(t, "/api/v1/insights?type=invalid")
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "invalid type")
 }
 
 func TestGetInsight_Found(t *testing.T) {
