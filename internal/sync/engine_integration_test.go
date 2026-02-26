@@ -162,7 +162,6 @@ func TestSyncEngineIntegration(t *testing.T) {
 	// Verify session was stored
 	assertSessionProject(t, env.db, "test-session", "my_app")
 	assertSessionMessageCount(t, env.db, "test-session", 2)
-	assertSessionState(t, env.db, "test-session", nil)
 
 	// Verify messages
 	assertMessageRoles(
@@ -1604,11 +1603,9 @@ func TestSyncForkDetection(t *testing.T) {
 	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1, Synced: 2, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "parent-uuid", 10)
+	assertSessionMessageCount(t, env.db, "parent-uuid-i", 2)
 
 	assertSessionState(t, env.db, "parent-uuid-i", func(sess *db.Session) {
-		if sess.MessageCount != 2 {
-			t.Errorf("fork message_count = %d, want 2", sess.MessageCount)
-		}
 		if sess.ParentSessionID == nil || *sess.ParentSessionID != "parent-uuid" {
 			t.Errorf("fork parent = %v, want parent-uuid", sess.ParentSessionID)
 		}
