@@ -236,8 +236,9 @@
   }
 
   .match {
-    background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
-    color: inherit;
+    background: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+    color: var(--accent-blue);
+    font-weight: 600;
     border-radius: 1px;
   }
 
