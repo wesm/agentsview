@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1433,9 +1434,25 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 		"filter-single.jsonl", content2,
 	)
 
-	// Use SyncAll first, then SyncSingleSession to exercise
-	// the writeSessionFull path.
+	// SyncAll to populate the session in the DB.
 	env.engine.SyncAll(nil)
+
+	// Corrupt stored counts and clear mtime so
+	// SyncSingleSession re-parses via writeSessionFull.
+	err := env.db.Update(func(tx *sql.Tx) error {
+		_, err := tx.Exec(
+			"UPDATE sessions"+
+				" SET message_count = 999,"+
+				" user_message_count = 999,"+
+				" file_mtime = NULL"+
+				" WHERE id = ?",
+			"filter-single",
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("corrupt counts: %v", err)
+	}
 
 	if err := env.engine.SyncSingleSession(
 		"filter-single",
@@ -1443,6 +1460,7 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 		t.Fatalf("SyncSingleSession: %v", err)
 	}
 
+	// Counts should be corrected by writeSessionFull.
 	assertSessionState(
 		t, env.db, "filter-single",
 		func(sess *db.Session) {
