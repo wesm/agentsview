@@ -414,7 +414,7 @@ func parseSSE(body string) []SSEEvent {
 			currentEvent = SSEEvent{}
 		}
 	}
-	if currentEvent.Event != "" {
+	if currentEvent.Event != "" || currentEvent.Data != "" {
 		events = append(events, currentEvent)
 	}
 	return events
