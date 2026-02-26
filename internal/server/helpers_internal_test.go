@@ -68,7 +68,10 @@ func assertTimeoutResponse(
 	if err != nil {
 		t.Fatalf("reading body: %v", err)
 	}
-	resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{bytes.NewReader(body), resp.Body}
 	var je jsonError
 	if err := json.Unmarshal(body, &je); err != nil {
 		t.Fatalf(
@@ -104,7 +107,10 @@ func isTimeoutResponse(
 	if err != nil {
 		return false
 	}
-	resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{bytes.NewReader(body), resp.Body}
 	var je jsonError
 	if json.Unmarshal(body, &je) != nil {
 		return false
