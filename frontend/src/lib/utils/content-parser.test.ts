@@ -139,6 +139,56 @@ describe("parseContent", () => {
   });
 });
 
+describe("parseContent - thinking blocks", () => {
+  it("separates thinking from following text at blank line", () => {
+    const text =
+      "[Thinking]\nsome thoughts\n\nHere is my response";
+    const segments = parseContent(text, false);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({
+      type: "thinking",
+      content: "some thoughts",
+    });
+    expect(segments[1]).toMatchObject({
+      type: "text",
+      content: "Here is my response",
+    });
+  });
+
+  it("merges consecutive thinking blocks into one", () => {
+    const text =
+      "[Thinking]\nfirst thought\n[Thinking]\nsecond thought";
+    const segments = parseContent(text, false);
+    const thinking = segments.filter(
+      (s) => s.type === "thinking",
+    );
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0]!.content).toContain("first thought");
+    expect(thinking[0]!.content).toContain("second thought");
+  });
+
+  it("does not merge thinking blocks separated by text", () => {
+    const text =
+      "[Thinking]\nthought one\n\nSome text\n[Thinking]\nthought two";
+    const segments = parseContent(text, false);
+    const thinking = segments.filter(
+      (s) => s.type === "thinking",
+    );
+    expect(thinking).toHaveLength(2);
+  });
+
+  it("shows response text when thinking is stripped", () => {
+    const text =
+      "[Thinking]\nanalysis\n\nThe answer is 42.";
+    const segments = parseContent(text, false);
+    const textSegs = segments.filter(
+      (s) => s.type === "text",
+    );
+    expect(textSegs).toHaveLength(1);
+    expect(textSegs[0]!.content).toBe("The answer is 42.");
+  });
+});
+
 describe("isToolOnly", () => {
   it("returns false for user messages", () => {
     const msg = makeMsg({ role: "user", content: "[Bash]\nhi" });

@@ -576,7 +576,7 @@ var (
 	codeBlockRe  = regexp.MustCompile("(?s)```(\\w*)\\n(.*?)```")
 	inlineCodeRe = regexp.MustCompile("`([^`]+)`")
 	thinkingRe   = regexp.MustCompile(
-		`(?s)\[Thinking\]\n?(.*?)(?:\n\[|\n\n\[|$)`)
+		`(?s)\[Thinking\]\n?(.*?)(?:\n\[|\n\n|$)`)
 	toolBlockRe = regexp.MustCompile(
 		`(?s)\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|` +
 			`Question|Todo List|Entering Plan Mode|` +

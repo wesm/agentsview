@@ -17,7 +17,7 @@ export interface ContentSegment {
  * internal/server/export.go:403-412
  */
 const THINKING_RE =
-  /\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n\[|$)/g;
+  /\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n|$)/g;
 
 const TOOL_NAMES =
   "Tool|Read|Write|Edit|Bash|Glob|Grep|TaskCreate|TaskUpdate|TaskGet|TaskList|Task|Skill|" +
@@ -147,7 +147,10 @@ function buildSegments(
 
   for (const m of matches) {
     if (m.start > pos) {
-      const gap = text.slice(pos, m.start).trimEnd();
+      const gap = text
+        .slice(pos, m.start)
+        .replace(/^\n\n+/, "")
+        .trimEnd();
       if (gap) {
         segments.push({ type: "text", content: gap });
       }
@@ -157,13 +160,34 @@ function buildSegments(
   }
 
   if (pos < text.length) {
-    const tail = text.slice(pos).trimEnd();
+    const tail = text
+      .slice(pos)
+      .replace(/^\n\n+/, "")
+      .trimEnd();
     if (tail) {
       segments.push({ type: "text", content: tail });
     }
   }
 
   return segments;
+}
+
+function mergeThinking(
+  segments: ContentSegment[],
+): ContentSegment[] {
+  const result: ContentSegment[] = [];
+  for (const seg of segments) {
+    const prev = result[result.length - 1];
+    if (
+      seg.type === "thinking" &&
+      prev?.type === "thinking"
+    ) {
+      prev.content += "\n\n" + seg.content;
+    } else {
+      result.push({ ...seg });
+    }
+  }
+  return result;
 }
 
 /** Parse message content into typed segments */
@@ -186,7 +210,9 @@ export function parseContent(text: string, hasToolUse = true): ContentSegment[] 
   }
 
   const deduped = resolveOverlaps(matches);
-  const segments = buildSegments(text, deduped);
+  const segments = mergeThinking(
+    buildSegments(text, deduped),
+  );
 
   segmentCache.set(cacheKey, segments);
   return segments;

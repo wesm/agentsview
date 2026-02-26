@@ -1,0 +1,33 @@
+{
+  "lastUpdated": "2024-01-01T10:00:05Z",
+  "messages": [
+    {
+      "content": "Explain how this works",
+      "id": "u1",
+      "timestamp": "2024-01-01T10:00:00Z",
+      "type": "user"
+    },
+    {
+      "content": "Here is how it works: the system reads the config file on startup.",
+      "id": "a1",
+      "model": "gemini-2.5-pro",
+      "thoughts": [
+        {
+          "description": "The user wants an explanation of the system.",
+          "subject": "Understanding request",
+          "timestamp": "2024-01-01T10:00:01Z"
+        },
+        {
+          "description": "I should describe the config loading flow.",
+          "subject": "Planning response",
+          "timestamp": "2024-01-01T10:00:02Z"
+        }
+      ],
+      "timestamp": "2024-01-01T10:00:05Z",
+      "type": "gemini"
+    }
+  ],
+  "projectHash": "abc123def456",
+  "sessionId": "sess-uuid-thinking",
+  "startTime": "2024-01-01T10:00:00Z"
+}

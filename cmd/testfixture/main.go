@@ -21,7 +21,7 @@ type sessionSpec struct {
 var specs = []sessionSpec{
 	{"project-alpha", "small-2", 2, 1},
 	{"project-alpha", "small-5", 5, 3},
-	{"project-beta", "mixed-content-6", 6, 3},
+	{"project-beta", "mixed-content-7", 7, 3},
 	{"project-beta", "medium-8", 8, 4},
 	{"project-beta", "medium-100", 100, 50},
 	{"project-gamma", "large-200", 200, 100},
@@ -97,7 +97,7 @@ func createSessionFixture(
 	}
 
 	var msgs []db.Message
-	if spec.suffix == "mixed-content-6" {
+	if spec.suffix == "mixed-content-7" {
 		msgs = generateMixedContentMessages(sessionID, startedAt)
 	} else {
 		msgs = generateMessages(
@@ -171,6 +171,12 @@ func generateMixedContentMessages(
 			role:       "assistant",
 			content:    "[Bash]\nls -la /src",
 			hasToolUse: true,
+		},
+		{
+			role: "assistant",
+			content: "[Thinking]\nGemini-style reasoning\n\n" +
+				"This is the visible response after thinking.",
+			hasThinking: true,
 		},
 		{
 			role:    "user",

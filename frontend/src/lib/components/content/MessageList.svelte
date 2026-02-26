@@ -45,7 +45,7 @@
     if (!ui.showThinking) {
       msgs = msgs.filter(
         (m) => !(m.has_thinking && !m.content.replace(
-          /\[Thinking\]\n?[\s\S]*?(?:\n\[|\n\n\[|$)/g, "",
+          /\[Thinking\]\n?[\s\S]*?(?:\n\[|\n\n|$)/g, "",
         ).trim()),
       );
     }

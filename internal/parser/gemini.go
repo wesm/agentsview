@@ -183,7 +183,7 @@ func extractGeminiContent(
 		})
 	}
 
-	return strings.Join(parts, "\n"),
+	return strings.Join(parts, "\n\n"),
 		hasThinking, hasToolUse, parsed
 }
 

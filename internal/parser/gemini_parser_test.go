@@ -67,6 +67,37 @@ func TestParseGeminiSession_ToolCalls(t *testing.T) {
 	})
 }
 
+func TestParseGeminiSession_ThinkingWithText(t *testing.T) {
+	content := loadFixture(t, "gemini/thinking_only.json")
+	_, msgs := runGeminiParserTest(t, content)
+
+	require.Equal(t, 2, len(msgs))
+
+	msg := msgs[1]
+	assert.True(t, msg.HasThinking)
+	assert.False(t, msg.HasToolUse)
+
+	// Thinking and content should be separated by blank lines
+	assert.Contains(t, msg.Content, "[Thinking]")
+	assert.Contains(t, msg.Content, "Here is how it works")
+
+	// Verify blank-line separation between thinking blocks
+	// and between thinking and content
+	thinkIdx := strings.LastIndex(
+		msg.Content, "[Thinking]",
+	)
+	contentIdx := strings.Index(
+		msg.Content,
+		"Here is how it works",
+	)
+	assert.Less(t, thinkIdx, contentIdx)
+
+	// The text between last thinking block and response
+	// should contain a blank line
+	between := msg.Content[thinkIdx:contentIdx]
+	assert.Contains(t, between, "\n\n")
+}
+
 func TestParseGeminiSession_EdgeCases(t *testing.T) {
 	t.Run("only system messages", func(t *testing.T) {
 		content := loadFixture(t, "gemini/system_messages.json")

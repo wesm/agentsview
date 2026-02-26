@@ -8,10 +8,10 @@ const LOC = {
   row: ".virtual-row",
 } as const;
 
-const BETA_6 = {
+const BETA_7 = {
   project: "project-beta",
   count: 3, // user_message_count shown in sidebar
-  displayRows: 5,
+  displayRows: 6,
 };
 
 function getSessionItem(
@@ -85,7 +85,7 @@ test.describe("Mixed content rendering", () => {
   test("tool group renders for consecutive tool-only messages", async ({
     page,
   }) => {
-    const { project, count, displayRows } = BETA_6;
+    const { project, count, displayRows } = BETA_7;
     const sid = await selectSession(page, project, count);
     await expectSessionLoaded(page, sid, displayRows);
 
@@ -105,7 +105,7 @@ test.describe("Mixed content rendering", () => {
   test("tool block expands on click and text is selectable", async ({
     page,
   }) => {
-    const { project, count, displayRows } = BETA_6;
+    const { project, count, displayRows } = BETA_7;
     const sid = await selectSession(page, project, count);
     await expectSessionLoaded(page, sid, displayRows);
 
@@ -141,7 +141,7 @@ test.describe("Mixed content rendering", () => {
   test("text selection does not collapse tool block", async ({
     page,
   }) => {
-    const { project, count, displayRows } = BETA_6;
+    const { project, count, displayRows } = BETA_7;
     const sid = await selectSession(page, project, count);
     await expectSessionLoaded(page, sid, displayRows);
 
@@ -178,7 +178,7 @@ test.describe("Mixed content rendering", () => {
   test("thinking block is collapsed by default", async ({
     page,
   }) => {
-    const { project, count, displayRows } = BETA_6;
+    const { project, count, displayRows } = BETA_7;
     const sid = await selectSession(page, project, count);
     await expectSessionLoaded(page, sid, displayRows);
 
@@ -198,5 +198,46 @@ test.describe("Mixed content rendering", () => {
     await expect(thinkingContent).toContainText(
       "Let me analyze...",
     );
+  });
+
+  test("thinking+text message shows response text", async ({
+    page,
+  }) => {
+    const { project, count, displayRows } = BETA_7;
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
+
+    // The response text after thinking should be visible
+    await expect(
+      page
+        .locator(LOC.row)
+        .filter({
+          hasText: "visible response after thinking",
+        }),
+    ).toBeVisible();
+  });
+
+  test("response text remains after toggling thinking off", async ({
+    page,
+  }) => {
+    const { project, count, displayRows } = BETA_7;
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
+
+    // Toggle thinking off with keyboard shortcut
+    await page.keyboard.press("t");
+
+    // Thinking blocks should be hidden
+    const thinkingBlocks = page.locator(".thinking-block");
+    await expect(thinkingBlocks).toHaveCount(0);
+
+    // Response text should still be visible
+    await expect(
+      page
+        .locator(LOC.row)
+        .filter({
+          hasText: "visible response after thinking",
+        }),
+    ).toBeVisible();
   });
 });
