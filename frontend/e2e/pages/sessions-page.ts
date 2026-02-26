@@ -67,9 +67,12 @@ export class SessionsPage {
     await this.projectTypeahead.locator(".typeahead-trigger").click();
     const input = this.projectTypeahead.locator(".typeahead-input");
     await input.fill(project);
+    // Match option starting with exact project name to avoid
+    // substring collisions (e.g. "proj" matching "proj-alpha").
     await this.projectTypeahead
-      .locator(".typeahead-option", { hasText: project })
-      .first()
+      .locator(".typeahead-option", {
+        hasText: new RegExp(`^${project} \\(`),
+      })
       .click();
   }
 
