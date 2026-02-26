@@ -4,17 +4,16 @@ import "testing"
 
 func TestInferRelationshipTypes(t *testing.T) {
 	tests := []struct {
-		name    string
-		results []ParseResult
-		want    []RelationshipType
-	}{
-		{
-			"no parent",
-			[]ParseResult{
-				{Session: ParsedSession{ID: "abc"}},
-			},
-			[]RelationshipType{RelNone},
+		name   string
+		inputs []ParseResult
+		want   []RelationshipType
+	}{{
+		"no parent",
+		[]ParseResult{
+			{Session: ParsedSession{ID: "abc"}},
 		},
+		[]RelationshipType{RelNone},
+	},
 		{
 			"agent prefix gets subagent",
 			[]ParseResult{
@@ -72,11 +71,14 @@ func TestInferRelationshipTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			InferRelationshipTypes(tt.results)
-			for i, r := range tt.results {
+			InferRelationshipTypes(tt.inputs)
+			if len(tt.inputs) != len(tt.want) {
+				t.Fatalf("len(inputs) = %d, want %d", len(tt.inputs), len(tt.want))
+			}
+			for i, r := range tt.inputs {
 				if r.Session.RelationshipType != tt.want[i] {
 					t.Errorf(
-						"results[%d].RelationshipType = %q, want %q",
+						"inputs[%d].RelationshipType = %q, want %q",
 						i, r.Session.RelationshipType, tt.want[i],
 					)
 				}
