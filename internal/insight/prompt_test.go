@@ -10,240 +10,187 @@ import (
 	"github.com/wesm/agentsview/internal/dbtest"
 )
 
-func TestBuildPrompt_WithSessions(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	dbtest.SeedSession(t, d, "s1", "my-app", func(s *db.Session) {
-		s.MessageCount = 5
-		s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
-		s.EndedAt = dbtest.Ptr("2025-01-15T11:00:00Z")
-		s.FirstMessage = dbtest.Ptr("Fix the login bug")
-	})
-	dbtest.SeedSession(t, d, "s2", "other-app", func(s *db.Session) {
-		s.MessageCount = 3
-		s.StartedAt = dbtest.Ptr("2025-01-15T14:00:00Z")
-		s.EndedAt = dbtest.Ptr("2025-01-15T15:00:00Z")
-		s.FirstMessage = dbtest.Ptr("Add tests")
-	})
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-15",
-		DateTo:   "2025-01-15",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	checks := []string{
-		"summarizing a day",
-		"Date: 2025-01-15",
-		"s1",
-		"my-app",
-		"Fix the login bug",
-		"s2",
-		"other-app",
-		"Add tests",
-	}
-	for _, want := range checks {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing %q", want)
-		}
-	}
-}
-
-func TestBuildPrompt_ProjectFilter(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	dbtest.SeedSession(t, d, "s1", "my-app", func(s *db.Session) {
-		s.MessageCount = 5
-		s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
-		s.EndedAt = dbtest.Ptr("2025-01-15T11:00:00Z")
-	})
-	dbtest.SeedSession(t, d, "s2", "other-app", func(s *db.Session) {
-		s.MessageCount = 3
-		s.StartedAt = dbtest.Ptr("2025-01-15T14:00:00Z")
-		s.EndedAt = dbtest.Ptr("2025-01-15T15:00:00Z")
-	})
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-15",
-		DateTo:   "2025-01-15",
-		Project:  "my-app",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	if !strings.Contains(prompt, "Project: my-app") {
-		t.Error("prompt missing project header")
-	}
-	if strings.Contains(prompt, "other-app") {
-		t.Error("prompt should not include other-app sessions")
-	}
-}
-
-func TestBuildPrompt_UserPrompt(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-15",
-		DateTo:   "2025-01-15",
-		Prompt:   "Focus on security improvements",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	if !strings.Contains(prompt, "Additional Context") {
-		t.Error("prompt missing Additional Context section")
-	}
-	if !strings.Contains(
-		prompt, "Focus on security improvements",
-	) {
-		t.Error("prompt missing user prompt text")
-	}
-}
-
-func TestBuildPrompt_AgentAnalysis(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "agent_analysis",
-		DateFrom: "2025-01-15",
-		DateTo:   "2025-01-15",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	if !strings.Contains(prompt, "analyzing AI agent") {
-		t.Error("prompt missing analysis instruction")
-	}
-}
-
-func TestBuildPrompt_Truncation(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	for i := range 55 {
-		dbtest.SeedSession(
-			t, d,
-			fmt.Sprintf("s%d", i), "my-app",
-			func(s *db.Session) {
-				s.MessageCount = 1
-				s.StartedAt = dbtest.Ptr(
-					"2025-01-15T10:00:00Z",
-				)
-				s.EndedAt = dbtest.Ptr(
-					fmt.Sprintf(
-						"2025-01-15T11:%02d:00Z", i,
-					),
-				)
+func TestBuildPrompt(t *testing.T) {
+	tests := []struct {
+		name         string
+		req          GenerateRequest
+		seed         func(t *testing.T, d *db.DB)
+		wantContains []string
+		wantNot      []string
+		checkPrompt  func(t *testing.T, prompt string)
+	}{
+		{
+			name: "with sessions",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-15",
+				DateTo:   "2025-01-15",
 			},
-		)
-	}
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-15",
-		DateTo:   "2025-01-15",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	if !strings.Contains(prompt, "omitted") {
-		t.Error("prompt should mention truncation")
-	}
-	count := strings.Count(prompt, "### Session")
-	if count != 50 {
-		t.Errorf("got %d sessions in prompt, want 50", count)
-	}
-}
-
-func TestBuildPrompt_DateRange(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	dbtest.SeedSession(
-		t, d, "s1", "my-app", func(s *db.Session) {
-			s.MessageCount = 3
-			s.StartedAt = dbtest.Ptr(
-				"2025-01-13T10:00:00Z",
-			)
+			seed: func(t *testing.T, d *db.DB) {
+				dbtest.SeedSession(t, d, "s1", "my-app", func(s *db.Session) {
+					s.MessageCount = 5
+					s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
+					s.EndedAt = dbtest.Ptr("2025-01-15T11:00:00Z")
+					s.FirstMessage = dbtest.Ptr("Fix the login bug")
+				})
+				dbtest.SeedSession(t, d, "s2", "other-app", func(s *db.Session) {
+					s.MessageCount = 3
+					s.StartedAt = dbtest.Ptr("2025-01-15T14:00:00Z")
+					s.EndedAt = dbtest.Ptr("2025-01-15T15:00:00Z")
+					s.FirstMessage = dbtest.Ptr("Add tests")
+				})
+			},
+			wantContains: []string{
+				"summarizing a day",
+				"Date: 2025-01-15",
+				"s1",
+				"my-app",
+				"Fix the login bug",
+				"s2",
+				"other-app",
+				"Add tests",
+			},
 		},
-	)
-	dbtest.SeedSession(
-		t, d, "s2", "my-app", func(s *db.Session) {
-			s.MessageCount = 2
-			s.StartedAt = dbtest.Ptr(
-				"2025-01-17T14:00:00Z",
-			)
+		{
+			name: "project filter",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-15",
+				DateTo:   "2025-01-15",
+				Project:  "my-app",
+			},
+			seed: func(t *testing.T, d *db.DB) {
+				dbtest.SeedSession(t, d, "s1", "my-app", func(s *db.Session) {
+					s.MessageCount = 5
+					s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
+					s.EndedAt = dbtest.Ptr("2025-01-15T11:00:00Z")
+				})
+				dbtest.SeedSession(t, d, "s2", "other-app", func(s *db.Session) {
+					s.MessageCount = 3
+					s.StartedAt = dbtest.Ptr("2025-01-15T14:00:00Z")
+					s.EndedAt = dbtest.Ptr("2025-01-15T15:00:00Z")
+				})
+			},
+			wantContains: []string{"Project: my-app"},
+			wantNot:      []string{"other-app"},
 		},
-	)
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-13",
-		DateTo:   "2025-01-17",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
+		{
+			name: "user prompt",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-15",
+				DateTo:   "2025-01-15",
+				Prompt:   "Focus on security improvements",
+			},
+			wantContains: []string{
+				"Additional Context",
+				"Focus on security improvements",
+			},
+		},
+		{
+			name: "agent analysis",
+			req: GenerateRequest{
+				Type:     "agent_analysis",
+				DateFrom: "2025-01-15",
+				DateTo:   "2025-01-15",
+			},
+			wantContains: []string{"analyzing AI agent"},
+		},
+		{
+			name: "truncation",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-15",
+				DateTo:   "2025-01-15",
+			},
+			seed: func(t *testing.T, d *db.DB) {
+				for i := range 55 {
+					dbtest.SeedSession(
+						t, d,
+						fmt.Sprintf("s%d", i), "my-app",
+						func(s *db.Session) {
+							s.MessageCount = 1
+							s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
+							s.EndedAt = dbtest.Ptr(fmt.Sprintf("2025-01-15T11:%02d:00Z", i))
+						},
+					)
+				}
+			},
+			wantContains: []string{"omitted"},
+			checkPrompt: func(t *testing.T, prompt string) {
+				count := strings.Count(prompt, "### Session")
+				if count != 50 {
+					t.Errorf("got %d sessions in prompt, want 50", count)
+				}
+			},
+		},
+		{
+			name: "date range",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-13",
+				DateTo:   "2025-01-17",
+			},
+			seed: func(t *testing.T, d *db.DB) {
+				dbtest.SeedSession(t, d, "s1", "my-app", func(s *db.Session) {
+					s.MessageCount = 3
+					s.StartedAt = dbtest.Ptr("2025-01-13T10:00:00Z")
+				})
+				dbtest.SeedSession(t, d, "s2", "my-app", func(s *db.Session) {
+					s.MessageCount = 2
+					s.StartedAt = dbtest.Ptr("2025-01-17T14:00:00Z")
+				})
+			},
+			wantContains: []string{"Date Range: 2025-01-13 to 2025-01-17"},
+			wantNot:      []string{"Date: 2025"},
+		},
+		{
+			name: "date range no sessions",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-13",
+				DateTo:   "2025-01-17",
+			},
+			wantContains: []string{"date range"},
+		},
+		{
+			name: "no sessions",
+			req: GenerateRequest{
+				Type:     "daily_activity",
+				DateFrom: "2025-01-15",
+				DateTo:   "2025-01-15",
+			},
+			wantContains: []string{"No sessions found"},
+		},
 	}
 
-	if !strings.Contains(
-		prompt, "Date Range: 2025-01-13 to 2025-01-17",
-	) {
-		t.Error("prompt missing date range header")
-	}
-	if strings.Contains(prompt, "Date: 2025") {
-		t.Error(
-			"prompt should use Date Range, not Date",
-		)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := dbtest.OpenTestDB(t)
+			ctx := context.Background()
 
-func TestBuildPrompt_DateRangeNoSessions(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
+			if tt.seed != nil {
+				tt.seed(t, d)
+			}
 
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-13",
-		DateTo:   "2025-01-17",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
+			prompt, err := BuildPrompt(ctx, d, tt.req)
+			if err != nil {
+				t.Fatalf("BuildPrompt: %v", err)
+			}
 
-	if !strings.Contains(prompt, "date range") {
-		t.Error(
-			"prompt should say 'date range' not 'date'",
-		)
-	}
-}
-
-func TestBuildPrompt_NoSessions(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-	ctx := context.Background()
-
-	prompt, err := BuildPrompt(ctx, d, GenerateRequest{
-		Type:     "daily_activity",
-		DateFrom: "2025-01-15",
-		DateTo:   "2025-01-15",
-	})
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	if !strings.Contains(prompt, "No sessions found") {
-		t.Error("prompt should indicate no sessions")
+			for _, want := range tt.wantContains {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing %q", want)
+				}
+			}
+			for _, notWant := range tt.wantNot {
+				if strings.Contains(prompt, notWant) {
+					t.Errorf("prompt unexpectedly contains %q", notWant)
+				}
+			}
+			if tt.checkPrompt != nil {
+				tt.checkPrompt(t, prompt)
+			}
+		})
 	}
 }
