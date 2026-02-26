@@ -14,7 +14,6 @@
   let highlightIndex = $state(0);
   let inputEl = $state<HTMLInputElement>();
   let containerEl = $state<HTMLDivElement>();
-  let pointerInsideContainer = $state(false);
 
   const allOption = { name: "", label: "All Projects", count: 0 };
 
@@ -90,22 +89,18 @@
   function handleBlur(e: FocusEvent) {
     const related = e.relatedTarget as Node | null;
     if (containerEl && related && containerEl.contains(related)) return;
-    // When clicking scrollbar or non-focusable parts of the
-    // dropdown, relatedTarget is null but the pointer is still
-    // inside the container. Keep the dropdown open.
-    if (pointerInsideContainer) return;
     closeDropdown();
+  }
+
+  function preventBlur(e: MouseEvent) {
+    // Prevent mousedown on the list from stealing focus from the
+    // input. This keeps blur firing correctly for outside clicks
+    // while allowing scrollbar and option interactions.
+    e.preventDefault();
   }
 </script>
 
-<div
-  class="typeahead"
-  role="group"
-  bind:this={containerEl}
-  onpointerdown={() => (pointerInsideContainer = true)}
-  onpointerup={() => (pointerInsideContainer = false)}
-  onpointerleave={() => (pointerInsideContainer = false)}
->
+<div class="typeahead" bind:this={containerEl}>
   {#if open}
     <input
       bind:this={inputEl}
@@ -119,7 +114,7 @@
       aria-label="Filter projects"
       autocomplete="off"
     />
-    <ul class="typeahead-list" role="listbox">
+    <ul class="typeahead-list" role="listbox" onmousedown={preventBlur}>
       {#each filtered as option, i}
         <li
           class="typeahead-option"
