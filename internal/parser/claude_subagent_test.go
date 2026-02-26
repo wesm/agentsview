@@ -30,11 +30,9 @@ func parseAndGetToolCalls(t *testing.T, filename string, lines []string) []Parse
 
 func TestSubagentSessionIDMapping(t *testing.T) {
 	tests := []struct {
-		name             string
-		lines            []string
-		wantMap          map[string]string // maps ToolUseID to expected SubagentSessionID
-		wantTask         int               // expected number of Task tools
-		wantEmptyNonTask bool              // if true, verifies non-Task tools have empty SubagentSessionID
+		name      string
+		lines     []string
+		wantTools []ParsedToolCall
 	}{
 		{
 			name: "Basic Mapping",
@@ -48,8 +46,9 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 				// user with tool_result
 				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","uuid":"u3","parentUuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_abc123","content":"done"}]}}`,
 			},
-			wantMap:  map[string]string{"toolu_abc123": "agent-deadbeef123"},
-			wantTask: 1,
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_abc123", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-deadbeef123"},
+			},
 		},
 		{
 			name: "No UUIDs",
@@ -59,8 +58,9 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 				`{"type":"queue-operation","operation":"enqueue","timestamp":"2024-01-01T10:00:01Z","sessionId":"test-session","content":"{\"task_id\":\"cafebabe\",\"tool_use_id\":\"toolu_xyz789\",\"description\":\"research\",\"task_type\":\"local_agent\"}"}`,
 				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_xyz789","content":"done"}]}}`,
 			},
-			wantMap:  map[string]string{"toolu_xyz789": "agent-cafebabe"},
-			wantTask: 1,
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_xyz789", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-cafebabe"},
+			},
 		},
 		{
 			name: "Non-Task Tool Unchanged",
@@ -70,9 +70,9 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 				`{"type":"queue-operation","operation":"enqueue","timestamp":"2024-01-01T10:00:01Z","sessionId":"test-session","content":"{\"task_id\":\"deadbeef\",\"tool_use_id\":\"toolu_read1\",\"description\":\"test\",\"task_type\":\"local_agent\"}"}`,
 				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","uuid":"u3","parentUuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_read1","content":"file contents"}]}}`,
 			},
-			wantMap:          map[string]string{},
-			wantTask:         0,
-			wantEmptyNonTask: true,
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_read1", ToolName: "Read", Category: "Read", SubagentSessionID: ""},
+			},
 		},
 		{
 			name: "XML Content",
@@ -82,8 +82,9 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 				`{"type":"queue-operation","operation":"enqueue","timestamp":"2024-01-01T10:00:01Z","sessionId":"test-session","content":"<task-notification>\n<task-id>a02eb277c065b35a2</task-id>\n<tool-use-id>toolu_01CuRUbKy9rSQUo2Beu9xjLu</tool-use-id>\n<status>completed</status>\n<summary>Agent completed</summary>\n</task-notification>"}`,
 				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","uuid":"u3","parentUuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01CuRUbKy9rSQUo2Beu9xjLu","content":"done"}]}}`,
 			},
-			wantMap:  map[string]string{"toolu_01CuRUbKy9rSQUo2Beu9xjLu": "agent-a02eb277c065b35a2"},
-			wantTask: 1,
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_01CuRUbKy9rSQUo2Beu9xjLu", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-a02eb277c065b35a2"},
+			},
 		},
 		{
 			name: "XML Content No UUIDs",
@@ -93,8 +94,9 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 				`{"type":"queue-operation","operation":"enqueue","timestamp":"2024-01-01T10:00:01Z","sessionId":"test-session","content":"<task-notification>\n<task-id>beef4567</task-id>\n<tool-use-id>toolu_01XYZ</tool-use-id>\n<status>running</status>\n</task-notification>"}`,
 				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01XYZ","content":"done"}]}}`,
 			},
-			wantMap:  map[string]string{"toolu_01XYZ": "agent-beef4567"},
-			wantTask: 1,
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_01XYZ", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-beef4567"},
+			},
 		},
 		{
 			name: "Multiple Subagents",
@@ -105,11 +107,10 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 				`{"type":"queue-operation","operation":"enqueue","timestamp":"2024-01-01T10:00:01Z","sessionId":"test-session","content":"{\"task_id\":\"bbb222\",\"tool_use_id\":\"toolu_b\",\"description\":\"task B\",\"task_type\":\"local_agent\"}"}`,
 				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","uuid":"u3","parentUuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_a","content":"done A"},{"type":"tool_result","tool_use_id":"toolu_b","content":"done B"}]}}`,
 			},
-			wantMap: map[string]string{
-				"toolu_a": "agent-aaa111",
-				"toolu_b": "agent-bbb222",
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_a", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-aaa111"},
+				{ToolUseID: "toolu_b", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-bbb222"},
 			},
-			wantTask: 2,
 		},
 	}
 
@@ -119,29 +120,7 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 			filename := strings.ReplaceAll(tt.name, " ", "_") + ".jsonl"
 			toolCalls := parseAndGetToolCalls(t, filename, tt.lines)
 
-			if tt.wantEmptyNonTask {
-				for _, tc := range toolCalls {
-					if tc.SubagentSessionID != "" {
-						t.Errorf("non-Task tool %q got SubagentSessionID = %q, want empty",
-							tc.ToolName, tc.SubagentSessionID)
-					}
-				}
-				return
-			}
-
-			taskCount := 0
-			for _, tc := range toolCalls {
-				if tc.ToolName == "Task" {
-					taskCount++
-					want := tt.wantMap[tc.ToolUseID]
-					if tc.SubagentSessionID != want {
-						t.Errorf("SubagentSessionID = %q, want %q", tc.SubagentSessionID, want)
-					}
-				}
-			}
-			if taskCount != tt.wantTask {
-				t.Errorf("found %d Task tool calls, want %d", taskCount, tt.wantTask)
-			}
+			assertToolCalls(t, toolCalls, tt.wantTools)
 		})
 	}
 }
