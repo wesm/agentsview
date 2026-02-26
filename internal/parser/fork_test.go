@@ -4,9 +4,27 @@ package parser
 
 import (
 	"testing"
+	"time"
 
 	"github.com/wesm/agentsview/internal/testjsonl"
 )
+
+func parseTestContent(t *testing.T, name, content string, expectedLen int) []ParseResult {
+	t.Helper()
+	path := createTestFile(t, name, content)
+	results, err := ParseClaudeSession(path, "proj", "local")
+	if err != nil {
+		t.Fatalf("ParseClaudeSession: %v", err)
+	}
+	if len(results) != expectedLen {
+		t.Fatalf("got %d results, want %d", len(results), expectedLen)
+	}
+	return results
+}
+
+func formatTime(ts time.Time) string {
+	return ts.Format(time.RFC3339)
+}
 
 func TestForkDetection_LinearSession(t *testing.T) {
 	// Linear chain: a -> b -> c -> d, all with uuid/parentUuid.
@@ -18,15 +36,7 @@ func TestForkDetection_LinearSession(t *testing.T) {
 		AddClaudeAssistantWithUUID("2024-01-01T10:00:03Z", "answer", "d", "c").
 		String()
 
-	path := createTestFile(t, "linear.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
+	results := parseTestContent(t, "linear.jsonl", content, 1)
 
 	assertSessionMeta(t, &results[0].Session, "linear", "proj", AgentClaude)
 	assertMessageCount(t, len(results[0].Messages), 4)
@@ -67,15 +77,7 @@ func TestForkDetection_LargeGapFork(t *testing.T) {
 		AddClaudeAssistantWithUUID("2024-01-01T10:01:01Z", "fork a1", "j", "i").
 		String()
 
-	path := createTestFile(t, "fork.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 2 {
-		t.Fatalf("got %d results, want 2", len(results))
-	}
+	results := parseTestContent(t, "fork.jsonl", content, 2)
 
 	// Main session: all entries on first branch (a,b,c,d,e,f,g,h,k,l)
 	main := results[0]
@@ -118,15 +120,7 @@ func TestForkDetection_SmallGapRetry(t *testing.T) {
 		AddClaudeAssistantWithUUID("2024-01-01T10:01:01Z", "retry answer", "f", "e").
 		String()
 
-	path := createTestFile(t, "retry.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
+	results := parseTestContent(t, "retry.jsonl", content, 1)
 
 	// Latest branch wins: a, b, e, f
 	assertMessageCount(t, len(results[0].Messages), 4)
@@ -145,15 +139,7 @@ func TestForkDetection_NoUUIDs(t *testing.T) {
 		AddClaudeAssistant("2024-01-01T10:00:03Z", "goodbye").
 		String()
 
-	path := createTestFile(t, "nouuid.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
+	results := parseTestContent(t, "nouuid.jsonl", content, 1)
 
 	assertMessageCount(t, len(results[0].Messages), 4)
 	assertMessage(t, results[0].Messages[0], RoleUser, "hello")
@@ -167,15 +153,7 @@ func TestForkDetection_MixedUUIDs(t *testing.T) {
 		AddClaudeUser("2024-01-01T10:00:02Z", "no uuid again").
 		String()
 
-	path := createTestFile(t, "mixed.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
+	results := parseTestContent(t, "mixed.jsonl", content, 1)
 
 	assertMessageCount(t, len(results[0].Messages), 3)
 }
@@ -214,17 +192,9 @@ func TestForkDetection_NestedFork(t *testing.T) {
 		AddClaudeAssistantWithUUID("2024-01-01T10:02:01Z", "n-ok", "x", "w").
 		String()
 
-	path := createTestFile(t, "nested-fork.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
 	// Expect 3 results: main, nested fork from n, fork from b
 	// (depth-first: nested fork discovered during recursive walk of b's fork)
-	if len(results) != 3 {
-		t.Fatalf("got %d results, want 3", len(results))
-	}
+	results := parseTestContent(t, "nested-fork.jsonl", content, 3)
 
 	// Main: a,b,c,d,e,f,g,h,k,l = 10 messages
 	assertMessageCount(t, len(results[0].Messages), 10)
@@ -279,15 +249,7 @@ func TestForkDetection_MultipleRoots(t *testing.T) {
 		AddClaudeAssistantWithUUID("2024-01-01T10:00:03Z", "reply two", "d", "c").
 		String()
 
-	path := createTestFile(t, "multi-root.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1 (linear fallback)", len(results))
-	}
+	results := parseTestContent(t, "multi-root.jsonl", content, 1)
 
 	// All 4 messages must be present.
 	assertMessageCount(t, len(results[0].Messages), 4)
@@ -308,15 +270,7 @@ func TestForkDetection_DisconnectedParent(t *testing.T) {
 		AddClaudeAssistantWithUUID("2024-01-01T10:00:03Z", "orphan reply", "d", "c").
 		String()
 
-	path := createTestFile(t, "disconnected.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1 (linear fallback)", len(results))
-	}
+	results := parseTestContent(t, "disconnected.jsonl", content, 1)
 
 	// All 4 messages must be present.
 	assertMessageCount(t, len(results[0].Messages), 4)
@@ -339,20 +293,11 @@ func TestSessionBoundsIncludeNonMessageEvents(t *testing.T) {
 		AddRaw(queueLine).
 		String()
 
-	path := createTestFile(t, "queue-ts.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
+	results := parseTestContent(t, "queue-ts.jsonl", content, 1)
 
 	sess := results[0].Session
 	wantEnd := "2024-01-01T11:00:00Z"
-	got := sess.EndedAt.Format("2006-01-02T15:04:05Z")
-	if got != wantEnd {
+	if got := formatTime(sess.EndedAt); got != wantEnd {
 		t.Errorf("EndedAt = %q, want %q", got, wantEnd)
 	}
 }
@@ -369,19 +314,11 @@ func TestSessionBoundsStartedAtFromLeadingEvent(t *testing.T) {
 		AddClaudeAssistant("2024-01-01T10:00:01Z", "hi").
 		String()
 
-	path := createTestFile(t, "early-queue.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
+	results := parseTestContent(t, "early-queue.jsonl", content, 1)
 
 	sess := results[0].Session
 	wantStart := "2024-01-01T09:00:00Z"
-	got := sess.StartedAt.Format("2006-01-02T15:04:05Z")
-	if got != wantStart {
+	if got := formatTime(sess.StartedAt); got != wantStart {
 		t.Errorf("StartedAt = %q, want %q", got, wantStart)
 	}
 }
@@ -412,19 +349,10 @@ func TestSessionBoundsDAGMainWidenedNotFork(t *testing.T) {
 		AddRaw(queueLine).
 		String()
 
-	path := createTestFile(t, "dag-queue.jsonl", content)
-	results, err := ParseClaudeSession(path, "proj", "local")
-	if err != nil {
-		t.Fatalf("ParseClaudeSession: %v", err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("got %d results, want 2", len(results))
-	}
+	results := parseTestContent(t, "dag-queue.jsonl", content, 2)
 
 	// Main session EndedAt should be widened to queue timestamp.
-	mainEnd := results[0].Session.EndedAt.Format(
-		"2006-01-02T15:04:05Z",
-	)
+	mainEnd := formatTime(results[0].Session.EndedAt)
 	if mainEnd != "2024-01-01T12:00:00Z" {
 		t.Errorf(
 			"main EndedAt = %q, want 2024-01-01T12:00:00Z",
@@ -433,9 +361,7 @@ func TestSessionBoundsDAGMainWidenedNotFork(t *testing.T) {
 	}
 
 	// Fork session EndedAt should NOT be widened.
-	forkEnd := results[1].Session.EndedAt.Format(
-		"2006-01-02T15:04:05Z",
-	)
+	forkEnd := formatTime(results[1].Session.EndedAt)
 	if forkEnd != "2024-01-01T10:01:01Z" {
 		t.Errorf(
 			"fork EndedAt = %q, want 2024-01-01T10:01:01Z",
