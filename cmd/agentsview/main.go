@@ -210,8 +210,13 @@ func mustLoadConfig(args []string) config.Config {
 	return cfg
 }
 
+// maxLogSize is the threshold at which the debug log file is
+// truncated on startup to prevent unbounded growth.
+const maxLogSize = 10 * 1024 * 1024 // 10 MB
+
 func setupLogFile(dataDir string) {
 	logPath := filepath.Join(dataDir, "debug.log")
+	truncateLogFile(logPath, maxLogSize)
 	f, err := os.OpenFile(
 		logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644,
 	)
@@ -220,6 +225,17 @@ func setupLogFile(dataDir string) {
 		return
 	}
 	log.SetOutput(io.MultiWriter(os.Stderr, f))
+}
+
+// truncateLogFile truncates the log file if it exceeds limit
+// bytes. Errors are silently ignored since logging is
+// best-effort.
+func truncateLogFile(path string, limit int64) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= limit {
+		return
+	}
+	_ = os.Truncate(path, 0)
 }
 
 func mustOpenDB(cfg config.Config) *db.DB {
