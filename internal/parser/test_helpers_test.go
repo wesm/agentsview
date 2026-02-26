@@ -136,27 +136,25 @@ func assertLogEmpty(t *testing.T, buf *bytes.Buffer) {
 	}
 }
 
+func assertToolCallField(t *testing.T, i int, field, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Errorf("tool_calls[%d].%s = %q, want %q", i, field, got, want)
+	}
+}
+
 func assertToolCall(t *testing.T, i int, got, want ParsedToolCall) {
 	t.Helper()
-	if got.ToolName != want.ToolName {
-		t.Errorf("tool_calls[%d].ToolName = %q, want %q",
-			i, got.ToolName, want.ToolName)
+	assertToolCallField(t, i, "ToolName", got.ToolName, want.ToolName)
+	assertToolCallField(t, i, "Category", got.Category, want.Category)
+	if want.ToolUseID != "" {
+		assertToolCallField(t, i, "ToolUseID", got.ToolUseID, want.ToolUseID)
 	}
-	if got.Category != want.Category {
-		t.Errorf("tool_calls[%d].Category = %q, want %q",
-			i, got.Category, want.Category)
+	if want.InputJSON != "" {
+		assertToolCallField(t, i, "InputJSON", got.InputJSON, want.InputJSON)
 	}
-	if want.ToolUseID != "" && got.ToolUseID != want.ToolUseID {
-		t.Errorf("tool_calls[%d].ToolUseID = %q, want %q",
-			i, got.ToolUseID, want.ToolUseID)
-	}
-	if want.InputJSON != "" && got.InputJSON != want.InputJSON {
-		t.Errorf("tool_calls[%d].InputJSON = %q, want %q",
-			i, got.InputJSON, want.InputJSON)
-	}
-	if want.SkillName != "" && got.SkillName != want.SkillName {
-		t.Errorf("tool_calls[%d].SkillName = %q, want %q",
-			i, got.SkillName, want.SkillName)
+	if want.SkillName != "" {
+		assertToolCallField(t, i, "SkillName", got.SkillName, want.SkillName)
 	}
 }
 
