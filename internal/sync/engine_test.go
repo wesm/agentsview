@@ -136,6 +136,63 @@ func TestFilterEmptyMessages(t *testing.T) {
 	}
 }
 
+func TestPostFilterCounts(t *testing.T) {
+	tests := []struct {
+		name      string
+		msgs      []db.Message
+		wantTotal int
+		wantUser  int
+	}{
+		{
+			"mixed roles",
+			[]db.Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi"},
+				{Role: "user", Content: "thanks"},
+			},
+			3, 2,
+		},
+		{
+			"no user messages",
+			[]db.Message{
+				{Role: "assistant", Content: "hi"},
+			},
+			1, 0,
+		},
+		{
+			"empty slice",
+			nil,
+			0, 0,
+		},
+		{
+			"all user messages",
+			[]db.Message{
+				{Role: "user", Content: "a"},
+				{Role: "user", Content: "b"},
+			},
+			2, 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			total, user := postFilterCounts(tt.msgs)
+			if total != tt.wantTotal {
+				t.Errorf(
+					"total = %d, want %d",
+					total, tt.wantTotal,
+				)
+			}
+			if user != tt.wantUser {
+				t.Errorf(
+					"user = %d, want %d",
+					user, tt.wantUser,
+				)
+			}
+		})
+	}
+}
+
 func TestPairToolResults(t *testing.T) {
 	tests := []struct {
 		name string
