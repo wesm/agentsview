@@ -1234,6 +1234,40 @@ func TestUploadSession(t *testing.T) {
 	}
 }
 
+func TestUploadSession_InfersRelationshipType(t *testing.T) {
+	te := setup(t)
+
+	// Build a session whose first entry has a different sessionId,
+	// making it a child session. The filename starts with "agent-"
+	// so it should be inferred as a subagent.
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithSessionID(
+			tsEarly, "Run task", "parent-session",
+		).
+		AddClaudeAssistant(tsEarlyS5, "Done.").
+		String()
+
+	w := te.upload(t, "agent-task42.jsonl", content,
+		"project=myproj&machine=remote")
+	assertStatus(t, w, http.StatusOK)
+
+	sess, err := te.db.GetSession(
+		context.Background(), "agent-task42",
+	)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session not found in DB")
+	}
+	if sess.RelationshipType != "subagent" {
+		t.Errorf(
+			"RelationshipType = %q, want %q",
+			sess.RelationshipType, "subagent",
+		)
+	}
+}
+
 func TestUploadSession_Errors(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -1,6 +1,9 @@
 package parser
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // AgentType identifies the AI agent that produced a session.
 type AgentType string
@@ -90,4 +93,23 @@ type ParsedMessage struct {
 type ParseResult struct {
 	Session  ParsedSession
 	Messages []ParsedMessage
+}
+
+// InferRelationshipTypes sets RelationshipType on results that have
+// a ParentSessionID but no explicit type. Sessions with an "agent-"
+// prefix are subagents; others are continuations.
+func InferRelationshipTypes(results []ParseResult) {
+	for i := range results {
+		if results[i].Session.ParentSessionID == "" {
+			continue
+		}
+		if results[i].Session.RelationshipType != RelNone {
+			continue
+		}
+		if strings.HasPrefix(results[i].Session.ID, "agent-") {
+			results[i].Session.RelationshipType = RelSubagent
+		} else {
+			results[i].Session.RelationshipType = RelContinuation
+		}
+	}
 }

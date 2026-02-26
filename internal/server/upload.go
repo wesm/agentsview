@@ -191,6 +191,8 @@ func (s *Server) handleUploadSession(
 		return
 	}
 
+	parser.InferRelationshipTypes(results)
+
 	for _, pr := range results {
 		if err := s.saveSessionToDB(pr.Session, pr.Messages); err != nil {
 			log.Printf("Error saving session to DB: %v", err)

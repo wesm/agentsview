@@ -782,19 +782,7 @@ func (e *Engine) processClaude(
 		}
 	}
 
-	for i := range results {
-		if results[i].Session.ParentSessionID == "" {
-			continue
-		}
-		if results[i].Session.RelationshipType != parser.RelNone {
-			continue
-		}
-		if strings.HasPrefix(results[i].Session.ID, "agent-") {
-			results[i].Session.RelationshipType = parser.RelSubagent
-		} else {
-			results[i].Session.RelationshipType = parser.RelContinuation
-		}
-	}
+	parser.InferRelationshipTypes(results)
 
 	return processResult{results: results}
 }
