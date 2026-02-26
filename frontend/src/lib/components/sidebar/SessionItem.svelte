@@ -94,6 +94,7 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+    max-width: 72px;
   }
 
   .agent-dot {
@@ -130,6 +131,9 @@
     text-transform: capitalize;
     letter-spacing: 0.01em;
     line-height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .session-info {
