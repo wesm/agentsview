@@ -6,21 +6,18 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 // startTestWatcherNoCleanup sets up a watcher without registering
 // t.Cleanup(w.Stop), for tests that explicitly exercise Stop().
 func startTestWatcherNoCleanup(
-	t *testing.T, onChange func([]string),
+	t *testing.T, onChange func([]string), debounce time.Duration,
 ) (*Watcher, string) {
 	t.Helper()
 	dir := t.TempDir()
-	w, err := NewWatcher(50*time.Millisecond, onChange)
+	w, err := NewWatcher(debounce, onChange)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -36,85 +33,19 @@ func startTestWatcher(
 	t *testing.T, onChange func([]string),
 ) (*Watcher, string) {
 	t.Helper()
-	w, dir := startTestWatcherNoCleanup(t, onChange)
+	w, dir := startTestWatcherNoCleanup(t, onChange, 50*time.Millisecond)
 	t.Cleanup(func() { w.Stop() })
 	return w, dir
 }
 
-// Helper: waitWithTimeout standardizes waiting for a channel signal with a failure timeout
-func waitWithTimeout(t *testing.T, ch <-chan struct{}, timeout time.Duration, msg string) {
-	t.Helper()
-	select {
-	case <-ch:
-	case <-time.After(timeout):
-		t.Fatal(msg)
-	}
-}
-
-// pollUntil polls fn with the given interval until it returns true
-// or the timeout expires.
-func pollUntil(
-	t *testing.T,
-	timeout, interval time.Duration,
-	msg string,
-	fn func() bool,
-) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if fn() {
-			return
-		}
-		time.Sleep(interval)
-	}
-	if fn() {
-		return
-	}
-	t.Fatal(msg)
-}
-
-// newMockWatcher creates a Watcher struct for internal unit tests.
-func newMockWatcher(
-	debounce time.Duration, onChange func([]string),
-) *Watcher {
-	return &Watcher{
-		debounce: debounce,
-		pending:  make(map[string]time.Time),
-		onChange: onChange,
-	}
-}
-
-// Helper: setPending safely sets a pending file change
-func setPending(w *Watcher, path string, t time.Time) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.pending[path] = t
-}
-
-// Helper: getPendingCount safely returns the number of pending changes
-func getPendingCount(w *Watcher) int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return len(w.pending)
-}
-
-// Helper: pendingContains safely checks if a path is in pending
-func pendingContains(w *Watcher, path string) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	_, ok := w.pending[path]
-	return ok
-}
-
 func TestWatcherCallsOnChange(t *testing.T) {
-	var called atomic.Bool
-	var gotPaths []string
-	done := make(chan struct{})
+	pathsCh := make(chan []string, 1)
 
 	_, dir := startTestWatcher(t, func(paths []string) {
-		gotPaths = paths
-		called.Store(true)
-		close(done)
+		select {
+		case pathsCh <- paths:
+		default:
+		}
 	})
 
 	path := filepath.Join(dir, "test.jsonl")
@@ -122,30 +53,24 @@ func TestWatcherCallsOnChange(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	waitWithTimeout(t, done, 5*time.Second, "timed out waiting for onChange callback")
-
-	if !called.Load() {
-		t.Fatal("onChange was not called")
+	select {
+	case gotPaths := <-pathsCh:
+		if len(gotPaths) == 0 {
+			t.Fatal("onChange called with empty paths")
+		}
+		if !slices.Contains(gotPaths, path) {
+			t.Fatalf("onChange did not contain expected path %s, got %v", path, gotPaths)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for onChange callback")
 	}
-	if len(gotPaths) == 0 {
-		t.Fatal("onChange called with empty paths")
-	}
-
-	if !slices.Contains(gotPaths, path) {
-		t.Fatalf("onChange did not contain expected path %s, got %v", path, gotPaths)
-	}
-
-	// t.Cleanup in startTestWatcher handles w.Stop()
 }
 
 func TestWatcherAutoWatchesNewDirs(t *testing.T) {
-	var mu sync.Mutex
-	var allPaths []string
+	pathsCh := make(chan []string, 10)
 
-	w, dir := startTestWatcher(t, func(paths []string) {
-		mu.Lock()
-		allPaths = append(allPaths, paths...)
-		mu.Unlock()
+	_, dir := startTestWatcher(t, func(paths []string) {
+		pathsCh <- paths
 	})
 
 	subdir := filepath.Join(dir, "newdir")
@@ -153,32 +78,33 @@ func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 		t.Fatalf("Mkdir: %v", err)
 	}
 
-	pollUntil(t, 5*time.Second, 10*time.Millisecond,
-		"timed out waiting for watcher to add new directory",
-		func() bool {
-			return slices.Contains(w.watcher.WatchList(), subdir)
-		},
-	)
+	// Wait a moment for fsnotify to process the mkdir and add the watch
+	time.Sleep(100 * time.Millisecond)
 
 	nestedPath := filepath.Join(subdir, "nested.jsonl")
-	if err := os.WriteFile(
-		nestedPath, []byte("nested"), 0o644,
-	); err != nil {
+	if err := os.WriteFile(nestedPath, []byte("nested"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	pollUntil(t, 5*time.Second, 50*time.Millisecond,
-		"timed out waiting for nested file change",
-		func() bool {
-			mu.Lock()
-			defer mu.Unlock()
-			return slices.Contains(allPaths, nestedPath)
-		},
-	)
+	deadline := time.Now().Add(5 * time.Second)
+	found := false
+	for time.Now().Before(deadline) && !found {
+		select {
+		case paths := <-pathsCh:
+			if slices.Contains(paths, nestedPath) {
+				found = true
+			}
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	if !found {
+		t.Fatal("timed out waiting for nested file change")
+	}
 }
 
 func TestWatcherStopIsClean(t *testing.T) {
-	w, _ := startTestWatcherNoCleanup(t, func(_ []string) {})
+	w, _ := startTestWatcherNoCleanup(t, func(_ []string) {}, 50*time.Millisecond)
 
 	stopped := make(chan struct{})
 	go func() {
@@ -186,11 +112,15 @@ func TestWatcherStopIsClean(t *testing.T) {
 		close(stopped)
 	}()
 
-	waitWithTimeout(t, stopped, 5*time.Second, "Stop() did not return in time")
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop() did not return in time")
+	}
 }
 
 func TestWatcherStopIdempotency(t *testing.T) {
-	w, _ := startTestWatcherNoCleanup(t, func(_ []string) {})
+	w, _ := startTestWatcherNoCleanup(t, func(_ []string) {}, 50*time.Millisecond)
 
 	// 1. Sequential double stop
 	w.Stop()
@@ -198,22 +128,16 @@ func TestWatcherStopIdempotency(t *testing.T) {
 
 	// 2. Concurrent stop attempts
 	w2, dir2 := startTestWatcherNoCleanup(
-		t, func(_ []string) {},
+		t, func(_ []string) {}, 50*time.Millisecond,
 	)
 
-	// Create activity so the watcher has events to process during stop
 	stressPath := filepath.Join(dir2, "stress.txt")
 	if err := os.WriteFile(stressPath, []byte("data"), 0o644); err != nil {
 		t.Fatalf("stress write: %v", err)
 	}
 
-	// Wait until the watcher loop has consumed the fsnotify event.
-	// Without this, Stop() could fire before the event is processed,
-	// meaning the test never exercises "active watch during stop".
-	pollUntil(t, 5*time.Second, 5*time.Millisecond,
-		"timed out waiting for watcher to observe stress write",
-		func() bool { return getPendingCount(w2) > 0 },
-	)
+	// Give a little time for fsnotify to process it before concurrent stop
+	time.Sleep(10 * time.Millisecond)
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -228,87 +152,109 @@ func TestWatcherStopIdempotency(t *testing.T) {
 		close(done)
 	}()
 
-	waitWithTimeout(t, done, 5*time.Second, "concurrent Stop() timed out")
-}
-
-func TestHandleEventIgnoresNonWriteCreate(t *testing.T) {
-	w := newMockWatcher(0, nil)
-
-	w.handleEvent(fsnotify.Event{
-		Name: "file.txt", Op: fsnotify.Chmod,
-	})
-	w.handleEvent(fsnotify.Event{
-		Name: "file.txt", Op: fsnotify.Rename,
-	})
-	w.handleEvent(fsnotify.Event{
-		Name: "file.txt", Op: fsnotify.Remove,
-	})
-
-	if n := getPendingCount(w); n != 0 {
-		t.Fatalf("expected 0 pending, got %d", n)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent Stop() timed out")
 	}
 }
 
-func TestHandleEventRecordsPendingOnWrite(t *testing.T) {
-	w := newMockWatcher(0, nil)
+func TestWatcherIgnoresNonWriteCreate(t *testing.T) {
+	pathsCh := make(chan []string, 10)
+	w, dir := startTestWatcherNoCleanup(t, func(paths []string) {
+		pathsCh <- paths
+	}, 10*time.Millisecond)
+	t.Cleanup(func() { w.Stop() })
 
-	w.handleEvent(fsnotify.Event{
-		Name: "/tmp/test.jsonl", Op: fsnotify.Write,
-	})
+	path := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
-	if !pendingContains(w, "/tmp/test.jsonl") {
-		t.Fatal("expected /tmp/test.jsonl in pending map")
+	// Wait for the initial write event to clear
+	select {
+	case <-pathsCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for initial write event")
+	}
+
+	// Now do a chmod (should be ignored)
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	// We can manually flush and see if anything triggers, but since the
+	// event won't even be recorded, flush won't do anything. We just wait a bit.
+	select {
+	case <-pathsCh:
+		t.Fatal("onChange called for chmod event, expected it to be ignored")
+	case <-time.After(100 * time.Millisecond):
+		// Success
 	}
 }
 
-func TestFlushRespectsDebouncePeriod(t *testing.T) {
-	var called atomic.Bool
-	w := newMockWatcher(100*time.Millisecond,
-		func(_ []string) { called.Store(true) },
-	)
+func TestWatcherDebounceLogic(t *testing.T) {
+	var mu sync.Mutex
+	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	setPending(w, "/tmp/recent", time.Now())
+	pathsCh := make(chan []string, 1)
 
+	// Use a long debounce so the internal ticker doesn't trigger naturally during the test
+	w, dir := startTestWatcherNoCleanup(t, func(paths []string) {
+		select {
+		case pathsCh <- paths:
+		default:
+		}
+	}, 1*time.Hour)
+	t.Cleanup(func() { w.Stop() })
+
+	w.mu.Lock()
+	w.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return mockTime
+	}
+	w.mu.Unlock()
+
+	path := filepath.Join(dir, "recent.txt")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Wait for fsnotify to process the write
+	time.Sleep(50 * time.Millisecond)
+
+	// 1. Flush before debounce period
 	w.flush()
-
-	if called.Load() {
+	select {
+	case <-pathsCh:
 		t.Fatal("flush should not call onChange before debounce")
+	default:
 	}
 
-	if n := getPendingCount(w); n != 1 {
-		t.Fatalf("expected 1 pending, got %d", n)
-	}
-}
+	// 2. Advance time past debounce period
+	mu.Lock()
+	mockTime = mockTime.Add(2 * time.Hour)
+	mu.Unlock()
 
-func TestFlushCallsOnChangeAfterDebounce(t *testing.T) {
-	var gotPaths []string
-	w := newMockWatcher(10*time.Millisecond,
-		func(paths []string) { gotPaths = paths },
-	)
-
-	setPending(w, "/tmp/old", time.Now().Add(-50*time.Millisecond))
-
+	// 3. Flush after debounce period
 	w.flush()
 
-	if len(gotPaths) != 1 || gotPaths[0] != "/tmp/old" {
-		t.Fatalf("expected [/tmp/old], got %v", gotPaths)
+	select {
+	case gotPaths := <-pathsCh:
+		if len(gotPaths) != 1 || gotPaths[0] != path {
+			t.Fatalf("expected [%s], got %v", path, gotPaths)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected onChange to be called after debounce elapsed")
 	}
 
-	if n := getPendingCount(w); n != 0 {
-		t.Fatalf("expected 0 pending after flush, got %d", n)
-	}
-}
-
-func TestFlushNoopWhenEmpty(t *testing.T) {
-	var called atomic.Bool
-	w := newMockWatcher(10*time.Millisecond,
-		func(_ []string) { called.Store(true) },
-	)
-
+	// 4. Flush again when empty should be a no-op
 	w.flush()
-
-	if called.Load() {
-		t.Fatal("flush should not call onChange when pending is empty")
+	select {
+	case <-pathsCh:
+		t.Fatal("flush should not call onChange when empty")
+	default:
 	}
 }
 

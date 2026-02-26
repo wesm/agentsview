@@ -23,6 +23,7 @@ type Watcher struct {
 	stop     chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
+	now      func() time.Time
 }
 
 // NewWatcher creates a file watcher that calls onChange when
@@ -46,6 +47,7 @@ func NewWatcher(
 		pending:  make(map[string]time.Time),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
+		now:      time.Now,
 	}
 	return w, nil
 }
@@ -125,7 +127,7 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	}
 
 	w.mu.Lock()
-	w.pending[event.Name] = time.Now()
+	w.pending[event.Name] = w.now()
 	w.mu.Unlock()
 }
 
@@ -145,7 +147,7 @@ func (w *Watcher) flush() {
 		return
 	}
 
-	now := time.Now()
+	now := w.now()
 	var ready []string
 	for path, t := range w.pending {
 		if now.Sub(t) >= w.debounce {
