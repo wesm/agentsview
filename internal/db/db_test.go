@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -68,16 +69,18 @@ func requireSessions(
 	if len(page.Sessions) != len(wantIDs) {
 		t.Fatalf("got %d sessions, want %d. got: %v, want: %v", len(page.Sessions), len(wantIDs), collectIDs(page.Sessions), wantIDs)
 	}
-	
-	gotMap := make(map[string]bool)
-	for _, s := range page.Sessions {
-		gotMap[s.ID] = true
-	}
-	
-	for _, id := range wantIDs {
-		if !gotMap[id] {
-			t.Errorf("missing expected session %q", id)
-		}
+
+	gotIDs := collectIDs(page.Sessions)
+	wantSorted := make([]string, len(wantIDs))
+	copy(wantSorted, wantIDs)
+	slices.Sort(wantSorted)
+
+	gotSorted := make([]string, len(gotIDs))
+	copy(gotSorted, gotIDs)
+	slices.Sort(gotSorted)
+
+	if diff := cmp.Diff(wantSorted, gotSorted); diff != "" {
+		t.Errorf("sessions mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -971,19 +974,21 @@ func TestFindPruneCandidates(t *testing.T) {
 			got, err := d.FindPruneCandidates(tt.filter)
 			requireNoError(t, err, "FindPruneCandidates")
 			if len(got) != len(tt.want) {
-				t.Fatalf("got %d candidates, want %d. got: %v",
-					len(got), len(tt.want), collectIDs(got))
+				t.Fatalf("got %d candidates, want %d. got: %v, want: %v",
+					len(got), len(tt.want), collectIDs(got), tt.want)
 			}
-			
-			gotMap := make(map[string]bool)
-			for _, s := range got {
-				gotMap[s.ID] = true
-			}
-			
-			for _, id := range tt.want {
-				if !gotMap[id] {
-					t.Errorf("missing expected session %q", id)
-				}
+
+			gotIDs := collectIDs(got)
+			wantSorted := make([]string, len(tt.want))
+			copy(wantSorted, tt.want)
+			slices.Sort(wantSorted)
+
+			gotSorted := make([]string, len(gotIDs))
+			copy(gotSorted, gotIDs)
+			slices.Sort(gotSorted)
+
+			if diff := cmp.Diff(wantSorted, gotSorted); diff != "" {
+				t.Errorf("candidates mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
