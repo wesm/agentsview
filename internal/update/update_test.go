@@ -144,56 +144,63 @@ func TestExtractTarGz(t *testing.T) {
 }
 
 func TestInstallBinaryTo(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
+	tests := []struct {
+		name         string
+		existingDest string
+		newBinary    string
+		want         string
+	}{
+		{
+			name:         "Install to empty destination",
+			existingDest: "",
+			newBinary:    "new-binary",
+			want:         "new-binary",
+		},
+		{
+			name:         "Install over existing",
+			existingDest: "old-binary",
+			newBinary:    "newer-binary",
+			want:         "newer-binary",
+		},
+	}
 
-	srcPath := filepath.Join(srcDir, "agentsview")
-	dstPath := filepath.Join(dstDir, "agentsview")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srcDir := t.TempDir()
+			dstDir := t.TempDir()
 
-	t.Run("Install to empty destination", func(t *testing.T) {
-		if err := os.WriteFile(
-			srcPath, []byte("new-binary"), 0o755,
-		); err != nil {
-			t.Fatal(err)
-		}
+			srcPath := filepath.Join(srcDir, "agentsview")
+			dstPath := filepath.Join(dstDir, "agentsview")
 
-		if err := installBinaryTo(srcPath, dstPath); err != nil {
-			t.Fatalf("installBinaryTo: %v", err)
-		}
+			if tt.existingDest != "" {
+				if err := os.WriteFile(dstPath, []byte(tt.existingDest), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-		got, err := os.ReadFile(dstPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != "new-binary" {
-			t.Errorf("got %q, want %q", got, "new-binary")
-		}
-	})
+			if err := os.WriteFile(srcPath, []byte(tt.newBinary), 0o755); err != nil {
+				t.Fatal(err)
+			}
 
-	t.Run("Install over existing", func(t *testing.T) {
-		if err := os.WriteFile(
-			srcPath, []byte("newer-binary"), 0o755,
-		); err != nil {
-			t.Fatal(err)
-		}
-		if err := installBinaryTo(srcPath, dstPath); err != nil {
-			t.Fatalf("installBinaryTo (replace): %v", err)
-		}
+			if err := installBinaryTo(srcPath, dstPath); err != nil {
+				t.Fatalf("installBinaryTo: %v", err)
+			}
 
-		got, err := os.ReadFile(dstPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != "newer-binary" {
-			t.Errorf("got %q, want %q", got, "newer-binary")
-		}
-	})
+			got, err := os.ReadFile(dstPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
 
-	t.Run("Backup cleanup", func(t *testing.T) {
-		if _, err := os.Stat(dstPath + ".old"); !os.IsNotExist(err) {
-			t.Error("backup .old file should be removed")
-		}
-	})
+			if tt.existingDest != "" {
+				if _, err := os.Stat(dstPath + ".old"); !os.IsNotExist(err) {
+					t.Error("backup .old file should be removed")
+				}
+			}
+		})
+	}
 }
 
 func TestFormatSize(t *testing.T) {
