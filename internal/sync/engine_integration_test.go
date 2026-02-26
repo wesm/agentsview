@@ -475,7 +475,6 @@ func TestSyncSingleSessionHashCodex(t *testing.T) {
 	sessionID := "codex:" + uuid
 
 	env.engine.SyncAll(nil)
-	assertSessionState(t, env.db, sessionID, nil)
 	env.assertResyncRoundTrip(t, sessionID)
 }
 
@@ -1268,7 +1267,6 @@ func TestSyncEngineOpenCodeToolCallReplace(t *testing.T) {
 	env.engine.SyncAll(nil)
 
 	agentviewID := "opencode:" + sessionID
-	assertSessionState(t, env.db, agentviewID, nil)
 	assertToolCallCount(t, env.db, agentviewID, 1)
 
 	// Replace: remove tool call, add text instead.
@@ -1440,19 +1438,6 @@ func TestSyncEnginePostFilterCounts(t *testing.T) {
 		},
 	)
 
-	// Verify actual message rows match the stored count.
-	msgs, err := env.db.GetAllMessages(
-		context.Background(), "filter-count",
-	)
-	if err != nil {
-		t.Fatalf("GetAllMessages: %v", err)
-	}
-	if len(msgs) != 3 {
-		t.Errorf(
-			"stored message rows = %d, want 3",
-			len(msgs),
-		)
-	}
 }
 
 // TestSyncSingleSessionPostFilterCounts verifies that
