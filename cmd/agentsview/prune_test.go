@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,17 +187,14 @@ func TestWriteSummary(t *testing.T) {
 	writeSummary(&buf, sessions)
 	out := buf.String()
 
-	if !strings.Contains(out, "Found 3 sessions") {
-		t.Errorf("missing session count: %s", out)
-	}
-	if !strings.Contains(out, "3.0 KB") {
-		t.Errorf("missing total size: %s", out)
-	}
-	if !strings.Contains(out, "projA") {
-		t.Errorf("missing projA: %s", out)
-	}
-	if !strings.Contains(out, "projB") {
-		t.Errorf("missing projB: %s", out)
+	want := `Found 3 sessions (3.0 KB on disk)
+
+By project:
+  projA                                    2
+  projB                                    1
+`
+	if out != want {
+		t.Errorf("writeSummary() mismatch\nwant:\n%s\ngot:\n%s", want, out)
 	}
 }
 
@@ -214,7 +212,8 @@ func TestFormatBytes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
+		name := fmt.Sprintf("%d_bytes", tt.input)
+		t.Run(name, func(t *testing.T) {
 			got := formatBytes(tt.input)
 			if got != tt.want {
 				t.Errorf(
@@ -278,135 +277,78 @@ func TestPrunerMaxMessagesCountsUserOnly(t *testing.T) {
 	}
 }
 
-func TestPrunerDryRun(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-
-	dbtest.SeedSession(t, d, "s1", "test", func(s *db.Session) {
-		s.EndedAt = dbtest.Ptr("2024-01-01T00:00:00Z")
-		s.MessageCount = 0
-	})
-
-	pruner, buf := newTestPruner(t, d, "")
-	cfg := PruneConfig{
-		Filter: db.PruneFilter{Project: "test"},
-		DryRun: true,
+func TestPruner_PruneScenarios(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		cfg        PruneConfig
+		wantOutput []string
+		wantKept   bool
+	}{
+		{
+			name:       "dry run",
+			cfg:        PruneConfig{Filter: db.PruneFilter{Project: "test"}, DryRun: true},
+			wantOutput: []string{"Dry run", "Found 1 sessions"},
+			wantKept:   true,
+		},
+		{
+			name:       "no matches",
+			cfg:        PruneConfig{Filter: db.PruneFilter{Project: "nonexistent"}},
+			wantOutput: []string{"No sessions match"},
+			wantKept:   true,
+		},
+		{
+			name:       "abort",
+			input:      "n\n",
+			cfg:        PruneConfig{Filter: db.PruneFilter{Project: "test"}},
+			wantOutput: []string{"Aborted"},
+			wantKept:   true,
+		},
+		{
+			name:       "confirm delete",
+			input:      "y\n",
+			cfg:        PruneConfig{Filter: db.PruneFilter{Project: "test"}},
+			wantOutput: []string{"Deleted 1 sessions"},
+			wantKept:   false,
+		},
+		{
+			name:       "yes flag skips prompt",
+			cfg:        PruneConfig{Filter: db.PruneFilter{Project: "test"}, Yes: true},
+			wantOutput: []string{"Deleted 1 sessions"},
+			wantKept:   false,
+		},
 	}
 
-	if err := pruner.Prune(cfg); err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := dbtest.OpenTestDB(t)
+			dbtest.SeedSession(t, d, "s1", "test", func(s *db.Session) {
+				s.EndedAt = dbtest.Ptr("2024-01-01T00:00:00Z")
+				s.MessageCount = 0
+			})
 
-	out := buf.String()
-	if !strings.Contains(out, "Dry run") {
-		t.Errorf("expected dry run message: %s", out)
-	}
-	if !strings.Contains(out, "Found 1 sessions") {
-		t.Errorf("expected summary: %s", out)
-	}
-}
+			pruner, buf := newTestPruner(t, d, tt.input)
+			if err := pruner.Prune(tt.cfg); err != nil {
+				t.Fatalf("Prune: %v", err)
+			}
 
-func TestPrunerNoMatches(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
+			out := buf.String()
+			for _, want := range tt.wantOutput {
+				if !strings.Contains(out, want) {
+					t.Errorf("expected output containing %q, got: %s", want, out)
+				}
+			}
+			if tt.cfg.Yes && strings.Contains(out, "[y/N]") {
+				t.Error("should not prompt when --yes is set")
+			}
 
-	pruner, buf := newTestPruner(t, d, "")
-	cfg := PruneConfig{
-		Filter: db.PruneFilter{Project: "nonexistent"},
-	}
-
-	if err := pruner.Prune(cfg); err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "No sessions match") {
-		t.Errorf("expected no-match message: %s", buf.String())
-	}
-}
-
-func TestPrunerAbort(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-
-	dbtest.SeedSession(t, d, "s1", "test", func(s *db.Session) {
-		s.EndedAt = dbtest.Ptr("2024-01-01T00:00:00Z")
-		s.MessageCount = 0
-	})
-
-	pruner, buf := newTestPruner(t, d, "n\n")
-	cfg := PruneConfig{
-		Filter: db.PruneFilter{Project: "test"},
-	}
-
-	if err := pruner.Prune(cfg); err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "Aborted") {
-		t.Errorf("expected abort message: %s", buf.String())
-	}
-
-	// Session should still exist.
-	s, err := d.GetSession(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("GetSession: %v", err)
-	}
-	if s == nil {
-		t.Error("session was deleted despite abort")
-	}
-}
-
-func TestPrunerConfirmDelete(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-
-	dbtest.SeedSession(t, d, "s1", "test", func(s *db.Session) {
-		s.EndedAt = dbtest.Ptr("2024-01-01T00:00:00Z")
-		s.MessageCount = 0
-	})
-
-	pruner, buf := newTestPruner(t, d, "y\n")
-	cfg := PruneConfig{
-		Filter: db.PruneFilter{Project: "test"},
-	}
-
-	if err := pruner.Prune(cfg); err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "Deleted 1 sessions") {
-		t.Errorf("expected deletion message: %s", buf.String())
-	}
-
-	s, err := d.GetSession(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("GetSession: %v", err)
-	}
-	if s != nil {
-		t.Error("session still exists after confirmed delete")
-	}
-}
-
-func TestPrunerYesFlag(t *testing.T) {
-	d := dbtest.OpenTestDB(t)
-
-	dbtest.SeedSession(t, d, "s1", "test", func(s *db.Session) {
-		s.EndedAt = dbtest.Ptr("2024-01-01T00:00:00Z")
-		s.MessageCount = 0
-	})
-
-	pruner, buf := newTestPruner(t, d, "")
-	cfg := PruneConfig{
-		Filter: db.PruneFilter{Project: "test"},
-		Yes:    true,
-	}
-
-	if err := pruner.Prune(cfg); err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
-
-	out := buf.String()
-	if strings.Contains(out, "[y/N]") {
-		t.Error("should not prompt when --yes is set")
-	}
-	if !strings.Contains(out, "Deleted 1 sessions") {
-		t.Errorf("expected deletion message: %s", out)
+			s, _ := d.GetSession(context.Background(), "s1")
+			if tt.wantKept && s == nil {
+				t.Error("session was deleted unexpectedly")
+			} else if !tt.wantKept && s != nil {
+				t.Error("session still exists")
+			}
+		})
 	}
 }
 

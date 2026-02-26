@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/wesm/agentsview/internal/config"
@@ -159,19 +160,26 @@ func confirm(r io.Reader, w io.Writer, msg string) bool {
 func writeSummary(w io.Writer, sessions []db.Session) {
 	var totalSize int64
 	byProject := map[string]int{}
+	var projects []string
 	for _, s := range sessions {
+		if byProject[s.Project] == 0 {
+			projects = append(projects, s.Project)
+		}
 		byProject[s.Project]++
 		if s.FileSize != nil {
 			totalSize += *s.FileSize
 		}
 	}
 
+	sort.Strings(projects)
+
 	fmt.Fprintf(w,
 		"Found %d sessions (%s on disk)\n",
 		len(sessions), formatBytes(totalSize),
 	)
 	fmt.Fprintln(w, "\nBy project:")
-	for proj, count := range byProject {
+	for _, proj := range projects {
+		count := byProject[proj]
 		fmt.Fprintf(w, "  %-40s %d\n", proj, count)
 	}
 }
