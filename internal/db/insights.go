@@ -142,17 +142,29 @@ func (db *DB) CopyInsightsFrom(sourcePath string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	w := db.getWriter()
-	if _, err := w.Exec(
-		"ATTACH DATABASE ? AS old_db", sourcePath,
+	// Pin a single connection for the ATTACH/INSERT/DETACH
+	// sequence. database/sql's pool doesn't guarantee the
+	// same underlying connection across separate Exec calls,
+	// and ATTACH is connection-scoped.
+	ctx := context.Background()
+	conn, err := db.getWriter().Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(
+		ctx, "ATTACH DATABASE ? AS old_db", sourcePath,
 	); err != nil {
 		return fmt.Errorf("attaching source db: %w", err)
 	}
 	defer func() {
-		_, _ = w.Exec("DETACH DATABASE old_db")
+		_, _ = conn.ExecContext(
+			ctx, "DETACH DATABASE old_db",
+		)
 	}()
 
-	_, err := w.Exec(`
+	_, err = conn.ExecContext(ctx, `
 		INSERT OR IGNORE INTO insights
 			(type, date_from, date_to, project,
 			 agent, model, prompt, content, created_at)
