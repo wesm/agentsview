@@ -4,6 +4,7 @@
   import { sessions } from "../../stores/sessions.svelte.js";
   import { renderMarkdown } from "../../utils/markdown.js";
   import type { InsightType, AgentName } from "../../api/types.js";
+  import ProjectTypeahead from "../layout/ProjectTypeahead.svelte";
 
   type UIMode =
     | "daily_activity"
@@ -85,9 +86,8 @@
     return `${y}-${m}-${day}`;
   }
 
-  function handleProjectChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    insights.setProject(select.value);
+  function handleProjectChange(value: string) {
+    insights.setProject(value);
   }
 
   function handleAgentChange(e: Event) {
@@ -208,16 +208,11 @@
       {/if}
 
       <div class="controls-row">
-        <select
-          class="ctrl project-ctrl"
+        <ProjectTypeahead
+          projects={sessions.projects}
           value={insights.project}
-          onchange={handleProjectChange}
-        >
-          <option value="">All Projects</option>
-          {#each sessions.projects as project}
-            <option value={project.name}>{project.name}</option>
-          {/each}
-        </select>
+          onselect={handleProjectChange}
+        />
         <select
           class="ctrl agent-ctrl"
           value={insights.agent}
