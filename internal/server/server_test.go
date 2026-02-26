@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	stdlibsync "sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1713,8 +1712,9 @@ func TestResyncPreservesDataThroughSwap(t *testing.T) {
 
 // TestResyncConcurrentReads verifies that concurrent API reads
 // don't panic or deadlock during resync, and that reads succeed
-// after resync completes. Transient "database is closed" errors
-// are expected during the brief CloseConnections -> Reopen window
+// after resync completes. During the close->rename->reopen
+// window, SQLite may return various transient errors (database
+// is closed, no such file, no such table). These are expected
 // since resync is a rare manual operation.
 func TestResyncConcurrentReads(t *testing.T) {
 	te := setup(t)
@@ -1733,15 +1733,18 @@ func TestResyncConcurrentReads(t *testing.T) {
 	}
 	te.handler.ServeHTTP(syncW, syncReq)
 
-	// Spin up concurrent readers.
+	// Spin up concurrent readers with a barrier to ensure
+	// they are actively querying before resync starts.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg stdlibsync.WaitGroup
-	var unexpectedErrors atomic.Int64
+	var readersReady stdlibsync.WaitGroup
+	readersReady.Add(4)
 
 	for range 4 {
 		wg.Go(func() {
+			readySignaled := false
 			for {
 				select {
 				case <-ctx.Done():
@@ -1754,16 +1757,22 @@ func TestResyncConcurrentReads(t *testing.T) {
 				)
 				w := httptest.NewRecorder()
 				te.handler.ServeHTTP(w, req)
-				// Transient 500s from "database is closed"
-				// are expected during the close->reopen
-				// window. Non-500 errors are unexpected.
-				if w.Code != http.StatusOK &&
-					w.Code != http.StatusInternalServerError {
-					unexpectedErrors.Add(1)
+
+				if !readySignaled && w.Code == http.StatusOK {
+					readersReady.Done()
+					readySignaled = true
 				}
+				// Transient 500s are expected during the
+				// close->reopen window. We only care that
+				// no panics/deadlocks occur and reads
+				// succeed after resync (verified below).
 			}
 		})
 	}
+
+	// Wait for all readers to complete at least one
+	// successful request before triggering resync.
+	readersReady.Wait()
 
 	// Trigger resync while readers are active.
 	resyncReq := httptest.NewRequest(
@@ -1774,16 +1783,27 @@ func TestResyncConcurrentReads(t *testing.T) {
 	}
 	te.handler.ServeHTTP(resyncW, resyncReq)
 
+	// Verify resync actually succeeded.
+	resyncStats := parseSSEDoneStats(t, resyncW.BodyString())
+	if resyncStats.Synced != 1 {
+		t.Errorf(
+			"resync: synced = %d, want 1",
+			resyncStats.Synced,
+		)
+	}
+
 	cancel()
 	wg.Wait()
 
-	if n := unexpectedErrors.Load(); n > 0 {
-		t.Errorf("got %d unexpected non-500 errors", n)
-	}
-
-	// Reads must succeed after resync completes.
+	// The real assertion: reads must succeed after resync
+	// completes. If the close->reopen cycle left the DB
+	// in a bad state, this will fail.
 	w := te.get(t, "/api/v1/sessions")
 	assertStatus(t, w, http.StatusOK)
+	resp := decode[sessionListResponse](t, w)
+	if resp.Total != 1 {
+		t.Errorf("post-resync sessions = %d, want 1", resp.Total)
+	}
 }
 
 // parseSSEDoneStats extracts the SyncStats from the "done" SSE

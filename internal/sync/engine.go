@@ -405,6 +405,13 @@ func (e *Engine) ResyncAll(
 		stats.Warnings = append(stats.Warnings,
 			"close before swap failed: "+err.Error(),
 		)
+		removeTempDB(tempPath)
+		// Connections may be partially closed; reopen to
+		// restore service before returning.
+		if rerr := origDB.Reopen(); rerr != nil {
+			log.Printf("resync: recovery reopen: %v", rerr)
+		}
+		return stats
 	}
 
 	// Remove WAL/SHM while connections are closed.

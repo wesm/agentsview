@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -2439,9 +2440,11 @@ func TestConcurrentReadsWhileReopen(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	errs := make(chan error, 10)
+	var wg sync.WaitGroup
+	var readErrors atomic.Int64
+
 	for range 4 {
-		go func() {
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -2450,11 +2453,11 @@ func TestConcurrentReadsWhileReopen(t *testing.T) {
 				}
 				_, err := d.GetSession(ctx, "s1")
 				if err != nil && ctx.Err() == nil {
-					errs <- err
+					readErrors.Add(1)
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	// Reopen while readers are active.
@@ -2465,9 +2468,10 @@ func TestConcurrentReadsWhileReopen(t *testing.T) {
 	}
 
 	cancel()
-	close(errs)
-	for err := range errs {
-		t.Errorf("concurrent read error: %v", err)
+	wg.Wait()
+
+	if n := readErrors.Load(); n > 0 {
+		t.Errorf("got %d concurrent read errors", n)
 	}
 }
 

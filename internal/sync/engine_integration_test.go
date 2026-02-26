@@ -1941,3 +1941,151 @@ func TestResyncAllAbortsWithForkAndFailures(t *testing.T) {
 	assertSessionMessageCount(t, env.db, "forked", 10)
 	assertSessionMessageCount(t, env.db, "forked-i", 2)
 }
+
+// TestResyncAllPostReopenAvailability verifies that reads and
+// writes work through the DB handle after ResyncAll completes
+// the close-rename-reopen cycle.
+func TestResyncAllPostReopenAvailability(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "availability check").
+		AddClaudeAssistant(tsEarlyS5, "still here").
+		String()
+
+	env.writeClaudeSession(
+		t, "avail-proj", "avail.jsonl", content,
+	)
+
+	// Initial sync.
+	runSyncAndAssert(t, env.engine, sync.SyncStats{
+		TotalSessions: 1, Synced: 1,
+	})
+
+	// Resync triggers the full close-rename-reopen cycle.
+	stats := env.engine.ResyncAll(nil)
+	if stats.Synced != 1 {
+		t.Fatalf("resync: synced = %d, want 1", stats.Synced)
+	}
+	for _, w := range stats.Warnings {
+		t.Errorf("unexpected warning: %s", w)
+	}
+
+	// Verify reads work on the reopened DB.
+	s, err := env.db.GetSession(
+		context.Background(), "avail",
+	)
+	if err != nil {
+		t.Fatalf("GetSession after resync: %v", err)
+	}
+	if s == nil {
+		t.Fatal("session missing after resync")
+	}
+
+	msgs := fetchMessages(t, env.db, "avail")
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+
+	// Verify writes work on the reopened DB.
+	err = env.db.UpsertSession(db.Session{
+		ID:           "post-resync-write",
+		Project:      "avail-proj",
+		Machine:      "local",
+		Agent:        "claude",
+		MessageCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("UpsertSession after resync: %v", err)
+	}
+	s2, err := env.db.GetSession(
+		context.Background(), "post-resync-write",
+	)
+	if err != nil {
+		t.Fatalf("GetSession post-write: %v", err)
+	}
+	if s2 == nil {
+		t.Fatal("session written after resync not found")
+	}
+
+	// Verify a subsequent SyncAll still works (engine state
+	// is consistent with the reopened DB).
+	stats2 := env.engine.SyncAll(nil)
+	if stats2.Synced != 0 && stats2.Skipped != 1 {
+		t.Errorf(
+			"post-resync SyncAll: synced=%d skipped=%d",
+			stats2.Synced, stats2.Skipped,
+		)
+	}
+}
+
+// TestResyncAllConcurrentReads verifies that concurrent reads
+// through the DB handle don't panic or deadlock while ResyncAll
+// runs the close-rename-reopen cycle.
+func TestResyncAllConcurrentReads(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "concurrent engine").
+		AddClaudeAssistant(tsEarlyS5, "response").
+		String()
+
+	env.writeClaudeSession(
+		t, "conc-proj", "conc.jsonl", content,
+	)
+
+	env.engine.SyncAll(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg gosync.WaitGroup
+
+	// Start readers before resync.
+	readersReady := make(chan struct{})
+	var readyCount gosync.WaitGroup
+	readyCount.Add(4)
+
+	for range 4 {
+		wg.Go(func() {
+			readyCount.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				// Ignore errors; the test verifies no
+				// panics/deadlocks and post-resync health.
+				env.db.GetSession(ctx, "conc")
+			}
+		})
+	}
+
+	// Wait for all readers to start.
+	go func() {
+		readyCount.Wait()
+		close(readersReady)
+	}()
+	<-readersReady
+
+	// Run resync while readers are active.
+	stats := env.engine.ResyncAll(nil)
+	cancel()
+	wg.Wait()
+
+	if stats.Synced != 1 {
+		t.Fatalf("resync: synced = %d, want 1", stats.Synced)
+	}
+
+	// Post-resync reads must succeed.
+	s, err := env.db.GetSession(
+		context.Background(), "conc",
+	)
+	if err != nil {
+		t.Fatalf("GetSession after resync: %v", err)
+	}
+	if s == nil {
+		t.Fatal("session missing after resync")
+	}
+}
