@@ -17,6 +17,8 @@ type seedStats struct {
 	TotalSessions  int
 	TotalMessages  int
 	ActiveProjects int
+	TotalToolCalls int
+	Agents         int
 }
 
 // seedAnalyticsEnv populates the test env with sessions and
@@ -39,6 +41,8 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 		TotalSessions:  len(entries),
 		TotalMessages:  0,
 		ActiveProjects: 2, // alpha and beta
+		TotalToolCalls: 0,
+		Agents:         2, // claude, codex
 	}
 
 	for _, s := range entries {
@@ -64,6 +68,7 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 							Category:  "Read",
 						},
 					}
+					stats.TotalToolCalls++
 				}
 			},
 		)
@@ -71,15 +76,20 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 	return stats
 }
 
-// buildURL constructs an analytics API URL.
-func buildURL(path string, params map[string]string) string {
-	u, _ := url.Parse(basePath + path)
+// buildPathURL constructs an API URL for a given full path and parameters.
+func buildPathURL(fullPath string, params map[string]string) string {
+	u, _ := url.Parse(fullPath)
 	q := u.Query()
 	for k, v := range params {
 		q.Set(k, v)
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// buildURL constructs an analytics API URL.
+func buildURL(path string, params map[string]string) string {
+	return buildPathURL(basePath+path, params)
 }
 
 // buildURLWithRange constructs an analytics API URL with default from/to params.
@@ -114,12 +124,6 @@ func TestAnalyticsSummary(t *testing.T) {
 		if resp.ActiveProjects != stats.ActiveProjects {
 			t.Errorf("ActiveProjects = %d, want %d", resp.ActiveProjects, stats.ActiveProjects)
 		}
-	})
-
-	t.Run("DefaultDateRange", func(t *testing.T) {
-		w := te.get(t, buildURL("summary", nil))
-		assertStatus(t, w, http.StatusOK)
-		// Should not error — defaults to last 30 days
 	})
 
 	t.Run("NonUTCTimezone", func(t *testing.T) {
@@ -200,43 +204,63 @@ func TestAnalyticsErrorRedaction(t *testing.T) {
 	}
 }
 
+func TestAnalyticsEndpoints_DefaultParams(t *testing.T) {
+	te := setup(t)
+	seedAnalyticsEnv(t, te)
+
+	endpoints := []string{
+		"summary",
+		"activity",
+		"heatmap",
+		"projects",
+		"hour-of-week",
+		"sessions",
+		"velocity",
+		"tools",
+		"top-sessions",
+	}
+
+	for _, ep := range endpoints {
+		t.Run(ep, func(t *testing.T) {
+			w := te.get(t, buildURL(ep, nil))
+			assertStatus(t, w, http.StatusOK)
+		})
+	}
+}
+
 func TestSessionsDateValidation(t *testing.T) {
 	te := setup(t)
 
-	// We use raw URL parsing here because it accesses /api/v1/sessions instead of /api/v1/analytics/
-	// So we won't use buildURL for this one, or we can use a generic request builder if we extract it.
-	// But it's fine to keep query params simple or use net/url directly.
-
 	tests := []struct {
 		name   string
-		query  string
+		params map[string]string
 		status int
 	}{
 		{
 			"InvalidDateFormat",
-			"?date=not-a-date",
+			map[string]string{"date": "not-a-date"},
 			http.StatusBadRequest,
 		},
 		{
 			"InvalidDateFromFormat",
-			"?date_from=2024/06/01",
+			map[string]string{"date_from": "2024/06/01"},
 			http.StatusBadRequest,
 		},
 		{
 			"DateFromAfterDateTo",
-			"?date_from=2024-07-01&date_to=2024-06-01",
+			map[string]string{"date_from": "2024-07-01", "date_to": "2024-06-01"},
 			http.StatusBadRequest,
 		},
 		{
 			"ValidDateRange",
-			"?date_from=2024-06-01&date_to=2024-06-03",
+			map[string]string{"date_from": "2024-06-01", "date_to": "2024-06-03"},
 			http.StatusOK,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := te.get(t, "/api/v1/sessions"+tt.query)
+			w := te.get(t, buildPathURL("/api/v1/sessions", tt.params))
 			assertStatus(t, w, tt.status)
 		})
 	}
@@ -248,44 +272,44 @@ func TestActiveSinceValidation(t *testing.T) {
 	tests := []struct {
 		name   string
 		path   string
-		query  string
+		params map[string]string
 		status int
 	}{
 		{
 			"Sessions_InvalidActiveSince",
 			"/api/v1/sessions",
-			"?active_since=garbage",
+			map[string]string{"active_since": "garbage"},
 			http.StatusBadRequest,
 		},
 		{
 			"Sessions_ValidActiveSince",
 			"/api/v1/sessions",
-			"?active_since=2024-06-01T10:00:00Z",
+			map[string]string{"active_since": "2024-06-01T10:00:00Z"},
 			http.StatusOK,
 		},
 		{
 			"Sessions_ValidActiveSinceNano",
 			"/api/v1/sessions",
-			"?active_since=2024-06-01T10:00:00.123456789Z",
+			map[string]string{"active_since": "2024-06-01T10:00:00.123456789Z"},
 			http.StatusOK,
 		},
 		{
 			"Analytics_InvalidActiveSince",
 			basePath + "summary",
-			"?from=2024-06-01&to=2024-06-03&active_since=not-a-timestamp",
+			map[string]string{"from": "2024-06-01", "to": "2024-06-03", "active_since": "not-a-timestamp"},
 			http.StatusBadRequest,
 		},
 		{
 			"Analytics_ValidActiveSince",
 			basePath + "summary",
-			"?from=2024-06-01&to=2024-06-03&active_since=2024-06-01T00:00:00Z",
+			map[string]string{"from": "2024-06-01", "to": "2024-06-03", "active_since": "2024-06-01T00:00:00Z"},
 			http.StatusOK,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := te.get(t, tt.path+tt.query)
+			w := te.get(t, buildPathURL(tt.path, tt.params))
 			assertStatus(t, w, tt.status)
 		})
 	}
@@ -420,11 +444,6 @@ func TestAnalyticsHourOfWeek(t *testing.T) {
 			t.Errorf("len(Cells) = %d, want 168", len(resp.Cells))
 		}
 	})
-
-	t.Run("DefaultParams", func(t *testing.T) {
-		w := te.get(t, buildURL("hour-of-week", nil))
-		assertStatus(t, w, http.StatusOK)
-	})
 }
 
 func TestAnalyticsSessionShape(t *testing.T) {
@@ -440,50 +459,40 @@ func TestAnalyticsSessionShape(t *testing.T) {
 			t.Errorf("Count = %d, want %d", resp.Count, stats.TotalSessions)
 		}
 	})
-
-	t.Run("DefaultParams", func(t *testing.T) {
-		w := te.get(t, buildURL("sessions", nil))
-		assertStatus(t, w, http.StatusOK)
-	})
 }
 
 func TestAnalyticsVelocity(t *testing.T) {
 	te := setup(t)
-	seedAnalyticsEnv(t, te)
+	stats := seedAnalyticsEnv(t, te)
 
 	t.Run("OK", func(t *testing.T) {
 		w := te.get(t, buildURLWithRange("velocity", map[string]string{"timezone": "UTC"}))
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.VelocityResponse](t, w)
-		if len(resp.ByAgent) == 0 {
-			t.Error("expected non-empty ByAgent")
+		if len(resp.ByAgent) != stats.Agents {
+			t.Errorf("len(ByAgent) = %d, want %d", len(resp.ByAgent), stats.Agents)
 		}
-	})
-
-	t.Run("DefaultParams", func(t *testing.T) {
-		w := te.get(t, buildURL("velocity", nil))
-		assertStatus(t, w, http.StatusOK)
 	})
 }
 
 func TestAnalyticsTools(t *testing.T) {
 	te := setup(t)
-	seedAnalyticsEnv(t, te)
+	stats := seedAnalyticsEnv(t, te)
 
 	t.Run("OK", func(t *testing.T) {
 		w := te.get(t, buildURLWithRange("tools", map[string]string{"timezone": "UTC"}))
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.ToolsAnalyticsResponse](t, w)
-		if resp.TotalCalls == 0 {
-			t.Error("expected non-zero TotalCalls")
+		if resp.TotalCalls != stats.TotalToolCalls {
+			t.Errorf("TotalCalls = %d, want %d", resp.TotalCalls, stats.TotalToolCalls)
 		}
 		if len(resp.ByCategory) == 0 {
 			t.Error("expected non-empty ByCategory")
 		}
-		if len(resp.ByAgent) == 0 {
-			t.Error("expected non-empty ByAgent")
+		if len(resp.ByAgent) != stats.Agents {
+			t.Errorf("len(ByAgent) = %d, want %d", len(resp.ByAgent), stats.Agents)
 		}
 	})
 
@@ -500,11 +509,6 @@ func TestAnalyticsTools(t *testing.T) {
 	t.Run("InvalidTimezone", func(t *testing.T) {
 		w := te.get(t, buildURL("tools", map[string]string{"timezone": "Fake/Zone"}))
 		assertStatus(t, w, http.StatusBadRequest)
-	})
-
-	t.Run("DefaultDateRange", func(t *testing.T) {
-		w := te.get(t, buildURL("tools", nil))
-		assertStatus(t, w, http.StatusOK)
 	})
 }
 
@@ -563,9 +567,4 @@ func TestAnalyticsTopSessions(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("DefaultDateRange", func(t *testing.T) {
-		w := te.get(t, buildURL("top-sessions", nil))
-		assertStatus(t, w, http.StatusOK)
-	})
 }
