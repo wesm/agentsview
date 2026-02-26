@@ -415,10 +415,14 @@ func parseSSE(body string) []SSEEvent {
 				currentEvent.Data = data
 				hasData = true
 			}
-		} else if line == "" && (currentEvent.Event != "" || hasData) {
-			events = append(events, currentEvent)
-			currentEvent = SSEEvent{}
-			hasData = false
+		} else if line == "" {
+			if currentEvent.Event != "" || hasData {
+				events = append(events, currentEvent)
+				currentEvent = SSEEvent{}
+				hasData = false
+			}
+		} else if hasData {
+			currentEvent.Data += "\n" + line
 		}
 	}
 	if currentEvent.Event != "" || hasData {
