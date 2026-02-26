@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/wesm/agentsview/internal/dbtest"
@@ -33,16 +34,8 @@ func TestSkippedFiles_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSkippedFiles: %v", err)
 	}
-	if len(loaded) != 3 {
-		t.Fatalf("got %d entries, want 3", len(loaded))
-	}
-	for path, mtime := range entries {
-		if loaded[path] != mtime {
-			t.Errorf(
-				"loaded[%q] = %d, want %d",
-				path, loaded[path], mtime,
-			)
-		}
+	if !maps.Equal(loaded, entries) {
+		t.Errorf("loaded map %v, want %v", loaded, entries)
 	}
 }
 
@@ -73,10 +66,7 @@ func TestSkippedFiles_ReplaceOverwrites(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(loaded))
 	}
 	if loaded["/c.jsonl"] != 300 {
-		t.Errorf(
-			"loaded[/c.jsonl] = %d, want 300",
-			loaded["/c.jsonl"],
-		)
+		t.Errorf("loaded[/c.jsonl] = %d, want 300", loaded["/c.jsonl"])
 	}
 }
 
@@ -106,10 +96,7 @@ func TestSkippedFiles_DeleteSingle(t *testing.T) {
 		t.Error("/a.jsonl should have been deleted")
 	}
 	if loaded["/b.jsonl"] != 200 {
-		t.Errorf(
-			"loaded[/b.jsonl] = %d, want 200",
-			loaded["/b.jsonl"],
-		)
+		t.Errorf("loaded[/b.jsonl] = %d, want 200", loaded["/b.jsonl"])
 	}
 }
 
@@ -131,9 +118,7 @@ func TestSkippedFiles_EmptyReplace(t *testing.T) {
 	}
 
 	// Replace with empty map clears the table.
-	if err := d.ReplaceSkippedFiles(
-		map[string]int64{},
-	); err != nil {
+	if err := d.ReplaceSkippedFiles(map[string]int64{}); err != nil {
 		t.Fatalf("ReplaceSkippedFiles empty: %v", err)
 	}
 
