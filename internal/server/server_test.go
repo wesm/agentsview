@@ -129,6 +129,24 @@ func (te *testEnv) writeSessionFile(
 	return te.writeProjectFile(t, project, filename, b.String())
 }
 
+func waitForPort(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	var lastDialErr error
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout(
+			"tcp", addr, 50*time.Millisecond,
+		)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		lastDialErr = err
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("server not ready: last dial error: %v", lastDialErr)
+}
+
 // listenAndServe starts the server on a real port and returns the
 // base URL. The server is shut down when the test finishes.
 func (te *testEnv) listenAndServe(t *testing.T) string {
@@ -144,34 +162,13 @@ func (te *testEnv) listenAndServe(t *testing.T) string {
 	}()
 
 	// Wait for the port to accept connections.
-	deadline := time.Now().Add(2 * time.Second)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	ready := false
-	var lastDialErr error
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout(
-			"tcp", addr, 50*time.Millisecond,
-		)
-		if err == nil {
-			conn.Close()
-			ready = true
-			break
-		}
-		lastDialErr = err
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !ready {
+	if err := waitForPort(port, 2*time.Second); err != nil {
 		select {
 		case <-done:
-			t.Fatalf(
-				"server failed to start: %v", serveErr,
-			)
+			t.Fatalf("server failed to start: %v", serveErr)
 		default:
 		}
-		t.Fatalf(
-			"server not ready after 2s: last dial error: %v",
-			lastDialErr,
-		)
+		t.Fatalf("server not ready after 2s: %v", err)
 	}
 
 	t.Cleanup(func() {
@@ -246,14 +243,21 @@ func (te *testEnv) seedMessages(
 	}
 }
 
+func (te *testEnv) getWithContext(
+	t *testing.T, ctx context.Context, path string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("GET", path, nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	return w
+}
+
 func (te *testEnv) get(
 	t *testing.T, path string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest("GET", path, nil)
-	w := httptest.NewRecorder()
-	te.handler.ServeHTTP(w, req)
-	return w
+	return te.getWithContext(t, context.Background(), path)
 }
 
 func (te *testEnv) post(
@@ -390,6 +394,32 @@ func expiredContext(
 	)
 }
 
+type SSEEvent struct {
+	Event string
+	Data  string
+}
+
+func parseSSE(body string) []SSEEvent {
+	var events []SSEEvent
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	var currentEvent SSEEvent
+	for scanner.Scan() {
+		line := scanner.Text()
+		if ev, ok := strings.CutPrefix(line, "event: "); ok {
+			currentEvent.Event = ev
+		} else if data, ok := strings.CutPrefix(line, "data: "); ok {
+			currentEvent.Data = data
+		} else if line == "" && currentEvent.Event != "" {
+			events = append(events, currentEvent)
+			currentEvent = SSEEvent{}
+		}
+	}
+	if currentEvent.Event != "" {
+		events = append(events, currentEvent)
+	}
+	return events
+}
+
 func (te *testEnv) waitForSSEEvent(t *testing.T, w *flushRecorder, expectedEvent string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -398,8 +428,11 @@ func (te *testEnv) waitForSSEEvent(t *testing.T, w *flushRecorder, expectedEvent
 
 	for time.Now().Before(deadline) {
 		<-ticker.C
-		if strings.Contains(w.BodyString(), "event: "+expectedEvent) {
-			return
+		events := parseSSE(w.BodyString())
+		for _, e := range events {
+			if e.Event == expectedEvent {
+				return
+			}
 		}
 	}
 	t.Fatalf("timed out waiting for event: %s, got: %s", expectedEvent, w.BodyString())
@@ -931,11 +964,7 @@ func TestSearch_CanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	req := httptest.NewRequest(
-		"GET", "/api/v1/search?q=searchable", nil,
-	).WithContext(ctx)
-	w := httptest.NewRecorder()
-	te.handler.ServeHTTP(w, req)
+	w := te.getWithContext(t, ctx, "/api/v1/search?q=searchable")
 
 	// A canceled request should just return without writing a response
 	// (implicit 200 with empty body in httptest, but importantly NO content).
@@ -959,11 +988,7 @@ func TestSearch_DeadlineExceeded(t *testing.T) {
 	ctx, cancel := expiredContext(t)
 	defer cancel()
 
-	req := httptest.NewRequest(
-		"GET", "/api/v1/search?q=searchable", nil,
-	).WithContext(ctx)
-	w := httptest.NewRecorder()
-	te.handler.ServeHTTP(w, req)
+	w := te.getWithContext(t, ctx, "/api/v1/search?q=searchable")
 
 	assertTimeoutRace(t, w)
 }
@@ -1494,21 +1519,6 @@ func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 	<-done
 }
 
-// parseSSEEvents extracts event types from an SSE stream body.
-func parseSSEEvents(body string) []string {
-	var events []string
-	scanner := bufio.NewScanner(strings.NewReader(body))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if ev, ok := strings.CutPrefix(
-			line, "event: ",
-		); ok {
-			events = append(events, ev)
-		}
-	}
-	return events
-}
-
 func TestTriggerSync_SSEEvents(t *testing.T) {
 	te := setup(t)
 
@@ -1523,14 +1533,14 @@ func TestTriggerSync_SSEEvents(t *testing.T) {
 	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	te.handler.ServeHTTP(w, req)
 
-	events := parseSSEEvents(w.BodyString())
+	events := parseSSE(w.BodyString())
 	hasDone := false
 	hasProgress := false
 	for _, e := range events {
-		if e == "done" {
+		if e.Event == "done" {
 			hasDone = true
 		}
-		if e == "progress" {
+		if e.Event == "progress" {
 			hasProgress = true
 		}
 	}
@@ -1594,26 +1604,14 @@ func parseSSEDoneStats(
 	t *testing.T, body string,
 ) syncResultResponse {
 	t.Helper()
-	scanner := bufio.NewScanner(strings.NewReader(body))
-	var lastEvent string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if ev, ok := strings.CutPrefix(line, "event: "); ok {
-			lastEvent = ev
-			continue
-		}
-		if lastEvent == "done" {
-			if data, ok := strings.CutPrefix(
-				line, "data: ",
-			); ok {
-				var stats syncResultResponse
-				if err := json.Unmarshal(
-					[]byte(data), &stats,
-				); err != nil {
-					t.Fatalf("parsing done data: %v", err)
-				}
-				return stats
+	events := parseSSE(body)
+	for _, e := range events {
+		if e.Event == "done" {
+			var stats syncResultResponse
+			if err := json.Unmarshal([]byte(e.Data), &stats); err != nil {
+				t.Fatalf("parsing done data: %v", err)
 			}
+			return stats
 		}
 	}
 	t.Fatal("no done event in SSE stream")
@@ -1622,8 +1620,7 @@ func parseSSEDoneStats(
 
 func TestListSessions_Limits(t *testing.T) {
 	te := setup(t)
-	// db.MaxSessionLimit is 500
-	for i := range 505 {
+	for i := range db.MaxSessionLimit + 5 {
 		te.seedSession(t, fmt.Sprintf("s%d", i), "my-app", 1)
 	}
 
@@ -1632,11 +1629,11 @@ func TestListSessions_Limits(t *testing.T) {
 		limitVal  string
 		wantCount int
 	}{
-		{"DefaultLimit", "", 200}, // db.DefaultSessionLimit
+		{"DefaultLimit", "", db.DefaultSessionLimit},
 		{"ExplicitLimit", "limit=10", 10},
-		{"LargeLimit", "limit=1000", 500}, // db.MaxSessionLimit
-		{"ExactMax", "limit=500", 500},
-		{"JustOver", "limit=501", 500},
+		{"LargeLimit", "limit=1000", db.MaxSessionLimit},
+		{"ExactMax", fmt.Sprintf("limit=%d", db.MaxSessionLimit), db.MaxSessionLimit},
+		{"JustOver", fmt.Sprintf("limit=%d", db.MaxSessionLimit+1), db.MaxSessionLimit},
 	}
 
 	for _, tt := range tests {
@@ -1659,20 +1656,19 @@ func TestListSessions_Limits(t *testing.T) {
 
 func TestGetMessages_Limits(t *testing.T) {
 	te := setup(t)
-	// db.MaxMessageLimit is 1000.
-	te.seedSession(t, "s1", "my-app", 1005)
-	te.seedMessages(t, "s1", 1005)
+	te.seedSession(t, "s1", "my-app", db.MaxMessageLimit+5)
+	te.seedMessages(t, "s1", db.MaxMessageLimit+5)
 
 	tests := []struct {
 		name      string
 		limitVal  string
 		wantCount int
 	}{
-		{"DefaultLimit", "", 100}, // db.DefaultMessageLimit
+		{"DefaultLimit", "", db.DefaultMessageLimit},
 		{"ExplicitLimit", "limit=10", 10},
-		{"LargeLimit", "limit=2000", 1000}, // db.MaxMessageLimit
-		{"ExactMax", "limit=1000", 1000},
-		{"JustOver", "limit=1001", 1000},
+		{"LargeLimit", "limit=2000", db.MaxMessageLimit},
+		{"ExactMax", fmt.Sprintf("limit=%d", db.MaxMessageLimit), db.MaxMessageLimit},
+		{"JustOver", fmt.Sprintf("limit=%d", db.MaxMessageLimit+1), db.MaxMessageLimit},
 	}
 
 	for _, tt := range tests {
