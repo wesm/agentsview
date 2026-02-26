@@ -1692,4 +1692,17 @@ func TestResyncAllReplacesMessageContent(t *testing.T) {
 			msgs[1].Content,
 		)
 	}
+
+	// FTS search should work after resync (index was dropped
+	// and rebuilt).
+	page, err := env.db.Search(
+		context.Background(),
+		db.SearchFilter{Query: "explanation"},
+	)
+	if err != nil {
+		t.Fatalf("search after resync: %v", err)
+	}
+	if len(page.Results) == 0 {
+		t.Error("FTS search returned no results after resync")
+	}
 }

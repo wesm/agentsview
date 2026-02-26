@@ -351,6 +351,9 @@ func (e *Engine) ResyncAll(
 	// 5. Recreate FTS table and rebuild index from content.
 	if err := e.db.RebuildFTS(); err != nil {
 		log.Printf("resync: rebuild fts: %v", err)
+		stats.Warnings = append(stats.Warnings,
+			"search index rebuild failed: "+err.Error(),
+		)
 	}
 
 	return stats

@@ -31,9 +31,10 @@ type SyncResult struct {
 
 // SyncStats summarizes a full sync run.
 type SyncStats struct {
-	TotalSessions int `json:"total_sessions"`
-	Synced        int `json:"synced"`
-	Skipped       int `json:"skipped"`
+	TotalSessions int      `json:"total_sessions"`
+	Synced        int      `json:"synced"`
+	Skipped       int      `json:"skipped"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 // RecordSkip increments the skipped session counter.
