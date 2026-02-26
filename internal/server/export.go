@@ -198,7 +198,7 @@ func createGistWithURL(
 		return nil, fmt.Errorf("marshaling gist payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST",
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		apiURL,
 		strings.NewReader(string(payload)))
 	if err != nil {
@@ -242,7 +242,7 @@ func validateGithubTokenWithURL(
 	ctx context.Context,
 	apiURL, token string,
 ) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("creating validation request: %w", err)
 	}
