@@ -39,6 +39,24 @@ func assertSessionState(t *testing.T, database *db.DB, sessionID string, check f
 	}
 }
 
+func assertSessionMessageCount(t *testing.T, database *db.DB, sessionID string, want int) {
+	t.Helper()
+	assertSessionState(t, database, sessionID, func(sess *db.Session) {
+		if sess.MessageCount != want {
+			t.Errorf("session %q message_count = %d, want %d", sessionID, sess.MessageCount, want)
+		}
+	})
+}
+
+func assertSessionProject(t *testing.T, database *db.DB, sessionID string, want string) {
+	t.Helper()
+	assertSessionState(t, database, sessionID, func(sess *db.Session) {
+		if sess.Project != want {
+			t.Errorf("session %q project = %q, want %q", sessionID, sess.Project, want)
+		}
+	})
+}
+
 func runSyncAndAssert(t *testing.T, engine *sync.Engine, wantSynced, wantSkipped int) sync.SyncStats {
 	t.Helper()
 	stats := engine.SyncAll(nil)

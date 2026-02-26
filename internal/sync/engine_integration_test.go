@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	gosync "sync"
 	"testing"
 	"time"
@@ -25,22 +26,60 @@ type testEnv struct {
 	engine      *sync.Engine
 }
 
-func setupTestEnv(t *testing.T) *testEnv {
+type testEnvOpts struct {
+	claudeDirs []string
+	codexDirs  []string
+}
+
+type TestEnvOption func(*testEnvOpts)
+
+func WithClaudeDirs(dirs []string) TestEnvOption {
+	return func(o *testEnvOpts) {
+		o.claudeDirs = dirs
+	}
+}
+
+func WithCodexDirs(dirs []string) TestEnvOption {
+	return func(o *testEnvOpts) {
+		o.codexDirs = dirs
+	}
+}
+
+func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 
+	options := testEnvOpts{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	env := &testEnv{
-		claudeDir:   t.TempDir(),
-		codexDir:    t.TempDir(),
 		geminiDir:   t.TempDir(),
 		opencodeDir: t.TempDir(),
 		db:          dbtest.OpenTestDB(t),
 	}
 
+	claudeDirs := options.claudeDirs
+	if len(claudeDirs) == 0 {
+		env.claudeDir = t.TempDir()
+		claudeDirs = []string{env.claudeDir}
+	} else {
+		env.claudeDir = claudeDirs[0]
+	}
+
+	codexDirs := options.codexDirs
+	if len(codexDirs) == 0 {
+		env.codexDir = t.TempDir()
+		codexDirs = []string{env.codexDir}
+	} else {
+		env.codexDir = codexDirs[0]
+	}
+
 	env.engine = sync.NewEngine(
-		env.db, []string{env.claudeDir}, []string{env.codexDir}, nil,
+		env.db, claudeDirs, codexDirs, nil,
 		[]string{env.geminiDir}, []string{env.opencodeDir}, "local",
 	)
 	return env
@@ -68,6 +107,16 @@ func (e *testEnv) writeClaudeSession(
 		t, e.claudeDir,
 		filepath.Join(projName, filename), content,
 	)
+}
+
+// writeClaudeSessionForProject creates a JSONL session file under the
+// Claude projects directory using a standard un-sanitized directory path.
+func (e *testEnv) writeClaudeSessionForProject(
+	t *testing.T, dirPath, filename, content string,
+) string {
+	t.Helper()
+	projName := strings.ReplaceAll(dirPath, "/", "-")
+	return e.writeClaudeSession(t, projName, filename, content)
 }
 
 // writeCodexSession creates a JSONL session file under the
@@ -99,8 +148,8 @@ func TestSyncEngineIntegration(t *testing.T) {
 		AddClaudeAssistant(tsEarlyS5, "Hi there!").
 		String()
 
-	env.writeClaudeSession(
-		t, "-Users-alice-code-my-app",
+	env.writeClaudeSessionForProject(
+		t, "/Users/alice/code/my-app",
 		"test-session.jsonl", content,
 	)
 
@@ -164,27 +213,19 @@ func TestSyncEngineWorktreesShareProject(t *testing.T) {
 		AddClaudeAssistant(tsEarlyS5, "ok").
 		String()
 
-	env.writeClaudeSession(
-		t, "-Users-me-code-agentsview",
+	env.writeClaudeSessionForProject(
+		t, "/Users/me/code/agentsview",
 		"main-repo.jsonl", mainContent,
 	)
-	env.writeClaudeSession(
-		t, "-Users-me-code-agentsview-worktree-tool-call-arguments",
+	env.writeClaudeSessionForProject(
+		t, "/Users/me/code/agentsview-worktree-tool-call-arguments",
 		"worktree-repo.jsonl", worktreeContent,
 	)
 
 	runSyncAndAssert(t, env.engine, 2, 0)
 
-	assertSessionState(t, env.db, "main-repo", func(sess *db.Session) {
-		if sess.Project != "agentsview" {
-			t.Errorf("main session project = %q, want agentsview", sess.Project)
-		}
-	})
-	assertSessionState(t, env.db, "worktree-repo", func(sess *db.Session) {
-		if sess.Project != "agentsview" {
-			t.Errorf("worktree session project = %q, want agentsview", sess.Project)
-		}
-	})
+	assertSessionProject(t, env.db, "main-repo", "agentsview")
+	assertSessionProject(t, env.db, "worktree-repo", "agentsview")
 
 	projects, err := env.db.GetProjects(context.Background())
 	if err != nil {
@@ -204,33 +245,29 @@ func TestSyncEngineWorktreesShareProject(t *testing.T) {
 func TestSyncEngineWorktreeProjectWhenPathMissing(t *testing.T) {
 	env := setupTestEnv(t)
 
-	mainContent := `{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"/Users/wesm/code/agentsview","gitBranch":"main","message":{"content":"hello"}}` + "\n" +
-		`{"type":"assistant","timestamp":"2024-01-01T10:00:05Z","message":{"content":"ok"}}` + "\n"
+	mainContent := testjsonl.NewSessionBuilder().
+		AddRaw(`{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"/Users/wesm/code/agentsview","gitBranch":"main","message":{"content":"hello"}}`).
+		AddClaudeAssistant(tsEarlyS5, "ok").
+		String()
 
-	worktreeContent := `{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"/Users/wesm/code/agentsview-worktree-tool-call-arguments","gitBranch":"worktree-tool-call-arguments","message":{"content":"hello"}}` + "\n" +
-		`{"type":"assistant","timestamp":"2024-01-01T10:00:05Z","message":{"content":"ok"}}` + "\n"
+	worktreeContent := testjsonl.NewSessionBuilder().
+		AddRaw(`{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"/Users/wesm/code/agentsview-worktree-tool-call-arguments","gitBranch":"worktree-tool-call-arguments","message":{"content":"hello"}}`).
+		AddClaudeAssistant(tsEarlyS5, "ok").
+		String()
 
-	env.writeClaudeSession(
-		t, "-Users-me-code-agentsview",
+	env.writeClaudeSessionForProject(
+		t, "/Users/me/code/agentsview",
 		"offline-main.jsonl", mainContent,
 	)
-	env.writeClaudeSession(
-		t, "-Users-me-code-agentsview-worktree-tool-call-arguments",
+	env.writeClaudeSessionForProject(
+		t, "/Users/me/code/agentsview-worktree-tool-call-arguments",
 		"offline-worktree.jsonl", worktreeContent,
 	)
 
 	runSyncAndAssert(t, env.engine, 2, 0)
 
-	assertSessionState(t, env.db, "offline-main", func(sess *db.Session) {
-		if sess.Project != "agentsview" {
-			t.Errorf("main session project = %q, want agentsview", sess.Project)
-		}
-	})
-	assertSessionState(t, env.db, "offline-worktree", func(sess *db.Session) {
-		if sess.Project != "agentsview" {
-			t.Errorf("worktree session project = %q, want agentsview", sess.Project)
-		}
-	})
+	assertSessionProject(t, env.db, "offline-main", "agentsview")
+	assertSessionProject(t, env.db, "offline-worktree", "agentsview")
 }
 
 func TestSyncEngineCodex(t *testing.T) {
@@ -364,12 +401,7 @@ func TestSyncEngineFileAppend(t *testing.T) {
 	// First sync
 	runSyncAndAssert(t, env.engine, 1, 0)
 
-	assertSessionState(t, env.db, "append-test", func(sess *db.Session) {
-		if sess.MessageCount != 1 {
-			t.Fatalf("initial message_count = %d, want 1",
-				sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "append-test", 1)
 
 	// Append a new message (changes size and hash)
 	appended := initial + testjsonl.NewSessionBuilder().
@@ -381,12 +413,7 @@ func TestSyncEngineFileAppend(t *testing.T) {
 	// Re-sync — different size → re-synced
 	runSyncAndAssert(t, env.engine, 1, 0)
 
-	assertSessionState(t, env.db, "append-test", func(sess *db.Session) {
-		if sess.MessageCount != 2 {
-			t.Errorf("updated message_count = %d, want 2",
-				sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "append-test", 2)
 }
 
 // TestSyncSingleSessionReplacesContent verifies that an
@@ -542,12 +569,7 @@ func TestSyncEngineTombstoneClearOnMtimeChange(t *testing.T) {
 	// Re-sync — content changed (different size) → re-synced
 	runSyncAndAssert(t, env.engine, 1, 0)
 
-	assertSessionState(t, env.db, "tombstone-clear", func(sess *db.Session) {
-		if sess.MessageCount != 2 {
-			t.Errorf("message_count = %d, want 2",
-				sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "tombstone-clear", 2)
 }
 
 func TestSyncSingleSessionProjectFallback(t *testing.T) {
@@ -565,21 +587,13 @@ func TestSyncSingleSessionProjectFallback(t *testing.T) {
 	// 2. Initial sync - should get "default-proj"
 	env.engine.SyncAll(nil)
 
-	assertSessionState(t, env.db, "fallback-test", func(sess *db.Session) {
-		if sess.Project != "default_proj" {
-			t.Fatalf("initial project = %q, want %q", sess.Project, "default_proj")
-		}
-	})
+	assertSessionProject(t, env.db, "fallback-test", "default_proj")
 
 	// 3. Manually update project to "custom_proj"
 	// This simulates a user override we want to preserve
 	env.updateSessionProject(t, "fallback-test", "custom_proj")
 
-	assertSessionState(t, env.db, "fallback-test", func(sess *db.Session) {
-		if sess.Project != "custom_proj" {
-			t.Fatalf("manual update failed, project = %q", sess.Project)
-		}
-	})
+	assertSessionProject(t, env.db, "fallback-test", "custom_proj")
 
 	// 4. SyncSingleSession should NOT revert to "default_proj"
 	err := env.engine.SyncSingleSession("fallback-test")
@@ -587,11 +601,7 @@ func TestSyncSingleSessionProjectFallback(t *testing.T) {
 		t.Fatalf("SyncSingleSession: %v", err)
 	}
 
-	assertSessionState(t, env.db, "fallback-test", func(sess *db.Session) {
-		if sess.Project != "custom_proj" {
-			t.Errorf("regression: project reverted to %q, want %q", sess.Project, "custom_proj")
-		}
-	})
+	assertSessionProject(t, env.db, "fallback-test", "custom_proj")
 
 	// Case A: Empty project -> should fall back to directory
 	env.updateSessionProject(t, "fallback-test", "")
@@ -601,11 +611,7 @@ func TestSyncSingleSessionProjectFallback(t *testing.T) {
 		t.Fatalf("SyncSingleSession (empty): %v", err)
 	}
 
-	assertSessionState(t, env.db, "fallback-test", func(sess *db.Session) {
-		if sess.Project != "default_proj" {
-			t.Errorf("empty project fallback: got %q, want %q", sess.Project, "default_proj")
-		}
-	})
+	assertSessionProject(t, env.db, "fallback-test", "default_proj")
 
 	// Case B: Bad project -> should fall back to directory
 	env.updateSessionProject(t, "fallback-test", "_Users_alice_bad")
@@ -615,11 +621,7 @@ func TestSyncSingleSessionProjectFallback(t *testing.T) {
 		t.Fatalf("SyncSingleSession (bad): %v", err)
 	}
 
-	assertSessionState(t, env.db, "fallback-test", func(sess *db.Session) {
-		if sess.Project != "default_proj" {
-			t.Errorf("bad project fallback: got %q, want %q", sess.Project, "default_proj")
-		}
-	})
+	assertSessionProject(t, env.db, "fallback-test", "default_proj")
 }
 
 func TestSyncEngineNoTrailingNewline(t *testing.T) {
@@ -636,11 +638,7 @@ func TestSyncEngineNoTrailingNewline(t *testing.T) {
 	// Sync should succeed
 	runSyncAndAssert(t, env.engine, 1, 0)
 
-	assertSessionState(t, env.db, "no-newline", func(sess *db.Session) {
-		if sess.MessageCount != 1 {
-			t.Errorf("message_count = %d, want 1", sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "no-newline", 1)
 }
 
 func TestSyncPathsClaude(t *testing.T) {
@@ -657,17 +655,7 @@ func TestSyncPathsClaude(t *testing.T) {
 	// Initial full sync
 	runSyncAndAssert(t, env.engine, 1, 0)
 
-	assertSessionState(
-		t, env.db, "paths-test",
-		func(sess *db.Session) {
-			if sess.MessageCount != 1 {
-				t.Fatalf(
-					"initial message_count = %d, want 1",
-					sess.MessageCount,
-				)
-			}
-		},
-	)
+	assertSessionMessageCount(t, env.db, "paths-test", 1)
 
 	// Append a message (changes size and hash)
 	appended := content + testjsonl.NewSessionBuilder().
@@ -678,17 +666,7 @@ func TestSyncPathsClaude(t *testing.T) {
 	// SyncPaths with just the changed file
 	env.engine.SyncPaths([]string{path})
 
-	assertSessionState(
-		t, env.db, "paths-test",
-		func(sess *db.Session) {
-			if sess.MessageCount != 2 {
-				t.Errorf(
-					"message_count = %d, want 2",
-					sess.MessageCount,
-				)
-			}
-		},
-	)
+	assertSessionMessageCount(t, env.db, "paths-test", 2)
 }
 
 func TestSyncPathsOnlyProcessesChanged(t *testing.T) {
@@ -721,29 +699,9 @@ func TestSyncPathsOnlyProcessesChanged(t *testing.T) {
 	env.engine.SyncPaths([]string{path1})
 
 	// session-1 should have 2 messages
-	assertSessionState(
-		t, env.db, "session-1",
-		func(sess *db.Session) {
-			if sess.MessageCount != 2 {
-				t.Errorf(
-					"session-1 message_count = %d, want 2",
-					sess.MessageCount,
-				)
-			}
-		},
-	)
+	assertSessionMessageCount(t, env.db, "session-1", 2)
 	// session-2 should still have 1 message (untouched)
-	assertSessionState(
-		t, env.db, "session-2",
-		func(sess *db.Session) {
-			if sess.MessageCount != 1 {
-				t.Errorf(
-					"session-2 message_count = %d, want 1",
-					sess.MessageCount,
-				)
-			}
-		},
-	)
+	assertSessionMessageCount(t, env.db, "session-2", 1)
 }
 
 func TestSyncPathsIgnoresNonSessionFiles(t *testing.T) {
@@ -829,26 +787,15 @@ func TestSyncEngineCodexNoTrailingNewline(t *testing.T) {
 	// Sync should succeed
 	runSyncAndAssert(t, env.engine, 1, 0)
 
-	assertSessionState(t, env.db, "codex:"+uuid, func(sess *db.Session) {
-		if sess.MessageCount != 1 {
-			t.Errorf("message_count = %d, want 1", sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "codex:"+uuid, 1)
 }
 
 func TestSyncPathsTrailingSlashDirs(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
 	// Dirs with trailing slashes should still work after
 	// filepath.Clean normalisation in isUnder.
 	claudeDir := t.TempDir() + "/"
 	codexDir := t.TempDir() + "/"
-	database := dbtest.OpenTestDB(t)
-	engine := sync.NewEngine(
-		database, []string{claudeDir}, []string{codexDir}, nil, nil, nil, "local",
-	)
+	env := setupTestEnv(t, WithClaudeDirs([]string{claudeDir}), WithCodexDirs([]string{codexDir}))
 
 	content := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "Hello").
@@ -859,19 +806,9 @@ func TestSyncPathsTrailingSlashDirs(t *testing.T) {
 	)
 	dbtest.WriteTestFile(t, claudePath, []byte(content))
 
-	engine.SyncPaths([]string{claudePath})
+	env.engine.SyncPaths([]string{claudePath})
 
-	assertSessionState(
-		t, database, "trailing",
-		func(sess *db.Session) {
-			if sess.MessageCount != 1 {
-				t.Errorf(
-					"message_count = %d, want 1",
-					sess.MessageCount,
-				)
-			}
-		},
-	)
+	assertSessionMessageCount(t, env.db, "trailing", 1)
 }
 
 func TestSyncPathsGemini(t *testing.T) {
@@ -1644,19 +1581,9 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 }
 
 func TestSyncEngineMultiClaudeDir(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
 	claudeDir1 := t.TempDir()
 	claudeDir2 := t.TempDir()
-	database := dbtest.OpenTestDB(t)
-
-	engine := sync.NewEngine(
-		database,
-		[]string{claudeDir1, claudeDir2},
-		nil, nil, nil, nil, "local",
-	)
+	env := setupTestEnv(t, WithClaudeDirs([]string{claudeDir1, claudeDir2}))
 
 	content1 := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsEarly, "Hello from dir1").
@@ -1672,37 +1599,25 @@ func TestSyncEngineMultiClaudeDir(t *testing.T) {
 	path2 := filepath.Join(claudeDir2, "proj2", "sess2.jsonl")
 	dbtest.WriteTestFile(t, path2, []byte(content2))
 
-	stats := engine.SyncAll(nil)
+	stats := env.engine.SyncAll(nil)
 	if stats.TotalSessions != 2 {
 		t.Errorf("total = %d, want 2", stats.TotalSessions)
 	}
 
-	assertSessionState(t, database, "sess1", func(sess *db.Session) {
-		if sess.MessageCount != 1 {
-			t.Errorf("sess1 message_count = %d, want 1", sess.MessageCount)
-		}
-	})
-	assertSessionState(t, database, "sess2", func(sess *db.Session) {
-		if sess.MessageCount != 1 {
-			t.Errorf("sess2 message_count = %d, want 1", sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "sess1", 1)
+	assertSessionMessageCount(t, env.db, "sess2", 1)
 
 	// SyncPaths should work across directories
 	appended := content1 + testjsonl.NewSessionBuilder().
 		AddClaudeAssistant(tsEarlyS5, "Reply").
 		String()
 	os.WriteFile(path1, []byte(appended), 0o644)
-	engine.SyncPaths([]string{path1})
+	env.engine.SyncPaths([]string{path1})
 
-	assertSessionState(t, database, "sess1", func(sess *db.Session) {
-		if sess.MessageCount != 2 {
-			t.Errorf("sess1 after append message_count = %d, want 2", sess.MessageCount)
-		}
-	})
+	assertSessionMessageCount(t, env.db, "sess1", 2)
 
 	// FindSourceFile should search across directories
-	src := engine.FindSourceFile("sess2")
+	src := env.engine.FindSourceFile("sess2")
 	if src == "" {
 		t.Error("FindSourceFile failed for sess2 in second directory")
 	}
