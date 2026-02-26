@@ -154,10 +154,7 @@ func TestSyncEngineIntegration(t *testing.T) {
 	)
 
 	// First sync should parse
-	stats := runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
-	if stats.TotalSessions != 1 {
-		t.Errorf("total = %d, want 1", stats.TotalSessions)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1, Synced: 1, Skipped: 0})
 
 	// Verify session was stored
 	assertSessionProject(t, env.db, "test-session", "my_app")
