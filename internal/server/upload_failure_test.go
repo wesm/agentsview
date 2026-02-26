@@ -12,17 +12,16 @@ func TestUploadSession_SaveFailure(t *testing.T) {
 
 	// Create a file where the project directory should be
 	// to force os.MkdirAll to fail
-	projectPath := filepath.Join(te.dataDir, "uploads", "failproj")
+	projectName := "failproj"
+	projectPath := filepath.Join(te.dataDir, "uploads", projectName)
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0o755); err != nil {
 		t.Fatalf("creating uploads dir: %v", err)
 	}
-	f, err := os.Create(projectPath)
-	if err != nil {
+	if err := os.WriteFile(projectPath, nil, 0o644); err != nil {
 		t.Fatalf("creating conflict file: %v", err)
 	}
-	f.Close()
 
-	w := te.upload(t, "test.jsonl", "{}", "project=failproj")
+	w := te.upload(t, "test.jsonl", "{}", "project="+projectName)
 	assertStatus(t, w, http.StatusInternalServerError)
 	assertErrorResponse(t, w, "failed to save upload")
 }
