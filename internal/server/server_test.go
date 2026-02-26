@@ -403,18 +403,25 @@ func parseSSE(body string) []SSEEvent {
 	var events []SSEEvent
 	scanner := bufio.NewScanner(strings.NewReader(body))
 	var currentEvent SSEEvent
+	hasData := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if ev, ok := strings.CutPrefix(line, "event: "); ok {
 			currentEvent.Event = ev
 		} else if data, ok := strings.CutPrefix(line, "data: "); ok {
-			currentEvent.Data = data
-		} else if line == "" && (currentEvent.Event != "" || currentEvent.Data != "") {
+			if hasData {
+				currentEvent.Data += "\n" + data
+			} else {
+				currentEvent.Data = data
+				hasData = true
+			}
+		} else if line == "" && (currentEvent.Event != "" || hasData) {
 			events = append(events, currentEvent)
 			currentEvent = SSEEvent{}
+			hasData = false
 		}
 	}
-	if currentEvent.Event != "" || currentEvent.Data != "" {
+	if currentEvent.Event != "" || hasData {
 		events = append(events, currentEvent)
 	}
 	return events
