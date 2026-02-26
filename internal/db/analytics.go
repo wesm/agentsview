@@ -93,7 +93,10 @@ func (f AnalyticsFilter) utcRange() (string, string) {
 func (f AnalyticsFilter) buildWhere(
 	dateCol string,
 ) (string, []any) {
-	preds := []string{"message_count > 0"}
+	preds := []string{
+		"message_count > 0",
+		"relationship_type NOT IN ('subagent', 'fork')",
+	}
 	var args []any
 
 	utcFrom, utcTo := f.utcRange()

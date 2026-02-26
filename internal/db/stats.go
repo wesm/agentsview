@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Stats holds database statistics from the trigger-maintained table.
+// Stats holds database-wide statistics.
 type Stats struct {
 	SessionCount int `json:"session_count"`
 	MessageCount int `json:"message_count"`
@@ -13,15 +13,24 @@ type Stats struct {
 	MachineCount int `json:"machine_count"`
 }
 
-// GetStats returns O(1) statistics from the stats table,
-// supplemented with project/machine counts from indexes.
+// rootSessionFilter is the WHERE clause shared by session list
+// and stats to exclude sub-agent, fork, and empty sessions.
+const rootSessionFilter = `message_count > 0
+	AND relationship_type NOT IN ('subagent', 'fork')`
+
+// GetStats returns database statistics, counting only root
+// sessions with messages (matching the session list filter).
 func (db *DB) GetStats(ctx context.Context) (Stats, error) {
 	const query = `
 		SELECT
-			(SELECT value FROM stats WHERE key = 'session_count'),
-			(SELECT value FROM stats WHERE key = 'message_count'),
-			(SELECT COUNT(DISTINCT project) FROM sessions),
-			(SELECT COUNT(DISTINCT machine) FROM sessions)`
+			(SELECT COUNT(*) FROM sessions
+			 WHERE ` + rootSessionFilter + `),
+			(SELECT value FROM stats
+			 WHERE key = 'message_count'),
+			(SELECT COUNT(DISTINCT project) FROM sessions
+			 WHERE ` + rootSessionFilter + `),
+			(SELECT COUNT(DISTINCT machine) FROM sessions
+			 WHERE ` + rootSessionFilter + `)`
 
 	var s Stats
 	err := db.getReader().QueryRowContext(ctx, query).Scan(
