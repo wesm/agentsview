@@ -1440,7 +1440,7 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 	// Corrupt stored counts and clear mtime so
 	// SyncSingleSession re-parses via writeSessionFull.
 	err := env.db.Update(func(tx *sql.Tx) error {
-		_, err := tx.Exec(
+		res, err := tx.Exec(
 			"UPDATE sessions"+
 				" SET message_count = 999,"+
 				" user_message_count = 999,"+
@@ -1448,7 +1448,16 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 				" WHERE id = ?",
 			"filter-single",
 		)
-		return err
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n != 1 {
+			return fmt.Errorf(
+				"expected 1 row affected, got %d", n,
+			)
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("corrupt counts: %v", err)
