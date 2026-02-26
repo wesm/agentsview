@@ -1,12 +1,14 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
-	dir, _ := setupConfigDir(t)
+	dir := setupTestEnv(t)
 
 	// First load: should generate a secret
 	cfg1, err := LoadMinimal()
@@ -23,7 +25,15 @@ func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
 	}
 
 	// Verify file existence and content
-	fileCfg := readConfigFile(t, dir)
+	data, err := os.ReadFile(filepath.Join(dir, configFileName))
+	if err != nil {
+		t.Fatalf("reading config file: %v", err)
+	}
+	var fileCfg Config
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		t.Fatalf("parsing config file: %v", err)
+	}
+
 	if fileCfg.CursorSecret != cfg1.CursorSecret {
 		t.Errorf(
 			"file secret = %q, want %q",
@@ -45,10 +55,13 @@ func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
 }
 
 func TestCursorSecret_RegeneratedIfMissing(t *testing.T) {
-	dir, configPath := setupConfigDir(t)
+	dir := setupTestEnv(t)
+	configPath := filepath.Join(dir, configFileName)
 
 	initialContent := `{"cursor_secret": ""}`
-	writeConfigRaw(t, dir, initialContent)
+	if err := os.WriteFile(configPath, []byte(initialContent), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	cfg, err := LoadMinimal()
 	if err != nil {
@@ -69,9 +82,11 @@ func TestCursorSecret_RegeneratedIfMissing(t *testing.T) {
 }
 
 func TestCursorSecret_LoadErrorOnInvalidConfig(t *testing.T) {
-	dir, _ := setupConfigDir(t)
+	dir := setupTestEnv(t)
 
-	writeConfigRaw(t, dir, "{invalid-json")
+	if err := os.WriteFile(filepath.Join(dir, configFileName), []byte("{invalid-json"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, err := LoadMinimal()
 	if err == nil {
@@ -80,9 +95,11 @@ func TestCursorSecret_LoadErrorOnInvalidConfig(t *testing.T) {
 }
 
 func TestCursorSecret_PreservesOtherFields(t *testing.T) {
-	dir, _ := setupConfigDir(t)
+	dir := setupTestEnv(t)
 
-	writeConfigRaw(t, dir, `{"github_token": "my-token"}`)
+	if err := os.WriteFile(filepath.Join(dir, configFileName), []byte(`{"github_token": "my-token"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	cfg, err := LoadMinimal()
 	if err != nil {
@@ -100,7 +117,15 @@ func TestCursorSecret_PreservesOtherFields(t *testing.T) {
 	}
 
 	// Verify file content has both
-	fileCfg := readConfigFile(t, dir)
+	data, err := os.ReadFile(filepath.Join(dir, configFileName))
+	if err != nil {
+		t.Fatalf("reading config file: %v", err)
+	}
+	var fileCfg Config
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		t.Fatalf("parsing config file: %v", err)
+	}
+
 	if fileCfg.CursorSecret == "" {
 		t.Error("cursor_secret missing in file")
 	}

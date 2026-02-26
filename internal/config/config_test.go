@@ -10,6 +10,8 @@ import (
 	"testing"
 )
 
+const configFileName = "config.json"
+
 func skipIfNotUnix(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -30,57 +32,17 @@ func writeConfig(t *testing.T, dir string, data any) {
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, configFileName), b, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 }
 
-// setupConfigDir creates a temp data dir, sets the env var,
-// and returns (dir, configPath).
-func setupConfigDir(t *testing.T) (string, string) {
+func setupTestEnv(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+
 	t.Setenv("AGENT_VIEWER_DATA_DIR", dir)
-	return dir, filepath.Join(dir, "config.json")
-}
-
-// writeConfigRaw writes raw string content to config.json.
-// Use writeConfig for structured data; use this for exact
-// string control or intentionally invalid JSON.
-func writeConfigRaw(
-	t *testing.T, dir string, content string,
-) {
-	t.Helper()
-	path := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(
-		path, []byte(content), 0o600,
-	); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-}
-
-// readConfigFile reads and unmarshals config.json into a Config.
-func readConfigFile(t *testing.T, dir string) Config {
-	t.Helper()
-	data, err := os.ReadFile(
-		filepath.Join(dir, "config.json"),
-	)
-	if err != nil {
-		t.Fatalf("reading config file: %v", err)
-	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("parsing config file: %v", err)
-	}
-	return cfg
-}
-
-// configWithTmpDir returns a Config with DataDir set to a fresh
-// temp directory.
-func configWithTmpDir(t *testing.T) (Config, string) {
-	t.Helper()
-	dir := t.TempDir()
-	return Config{DataDir: dir}, dir
+	return dir
 }
 
 func loadConfigFromFlags(t *testing.T, args ...string) (Config, error) {
@@ -94,7 +56,7 @@ func loadConfigFromFlags(t *testing.T, args ...string) (Config, error) {
 }
 
 func TestLoadEnv_OverridesDataDir(t *testing.T) {
-	custom, _ := setupConfigDir(t)
+	custom := setupTestEnv(t)
 
 	cfg, err := Default()
 	if err != nil {
@@ -154,10 +116,11 @@ func TestLoad_NilFlagSet(t *testing.T) {
 }
 
 func TestSaveGithubToken_RejectsCorruptConfig(t *testing.T) {
-	cfg, tmp := configWithTmpDir(t)
+	tmp := setupTestEnv(t)
+	cfg := Config{DataDir: tmp}
 
 	// Write invalid JSON to config file
-	path := filepath.Join(tmp, "config.json")
+	path := filepath.Join(tmp, configFileName)
 	if err := os.WriteFile(
 		path, []byte("not json"), 0o600,
 	); err != nil {
@@ -173,10 +136,11 @@ func TestSaveGithubToken_RejectsCorruptConfig(t *testing.T) {
 func TestSaveGithubToken_ReturnsErrorOnReadFailure(t *testing.T) {
 	skipIfNotUnix(t)
 
-	cfg, tmp := configWithTmpDir(t)
+	tmp := setupTestEnv(t)
+	cfg := Config{DataDir: tmp}
 
 	// Create a config file that is not readable
-	path := filepath.Join(tmp, "config.json")
+	path := filepath.Join(tmp, configFileName)
 	if err := os.WriteFile(
 		path, []byte(`{"k":"v"}`), 0o000,
 	); err != nil {
@@ -193,7 +157,8 @@ func TestSaveGithubToken_ReturnsErrorOnReadFailure(t *testing.T) {
 }
 
 func TestSaveGithubToken_PreservesExistingKeys(t *testing.T) {
-	cfg, tmp := configWithTmpDir(t)
+	tmp := setupTestEnv(t)
+	cfg := Config{DataDir: tmp}
 
 	existing := map[string]any{"custom_key": "value"}
 	writeConfig(t, tmp, existing)
@@ -202,7 +167,7 @@ func TestSaveGithubToken_PreservesExistingKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(tmp, "config.json"))
+	got, err := os.ReadFile(filepath.Join(tmp, configFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +190,7 @@ func TestSaveGithubToken_PreservesExistingKeys(t *testing.T) {
 }
 
 func TestLoadFile_ReadsDirArrays(t *testing.T) {
-	dir, _ := setupConfigDir(t)
+	dir := setupTestEnv(t)
 	writeConfig(t, dir, map[string]any{
 		"claude_project_dirs": []string{"/path/one", "/path/two"},
 		"codex_sessions_dirs": []string{"/codex/a"},
@@ -247,57 +212,48 @@ func TestLoadFile_ReadsDirArrays(t *testing.T) {
 	}
 }
 
-func TestResolveDirs_DefaultOnly(t *testing.T) {
-	dir, _ := setupConfigDir(t)
-	// Empty config file — no dir arrays
-	writeConfig(t, dir, map[string]any{})
-
-	cfg, err := LoadMinimal()
-	if err != nil {
-		t.Fatal(err)
+func TestResolveDirs(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        map[string]any
+		envValue      string
+		expectDefault bool
+		wantDirs      []string
+	}{
+		{"DefaultOnly", map[string]any{}, "", true, nil},
+		{"ConfigOverrides", map[string]any{"claude_project_dirs": []string{"/a", "/b"}}, "", false, []string{"/a", "/b"}},
+		{"EnvOverrides", map[string]any{"claude_project_dirs": []string{"/a"}}, "/env/override", false, []string{"/env/override"}},
 	}
 
-	dirs := cfg.ResolveClaudeDirs()
-	if len(dirs) != 1 {
-		t.Fatalf("len = %d, want 1", len(dirs))
-	}
-	if dirs[0] != cfg.ClaudeProjectDir {
-		t.Errorf("got %q, want %q", dirs[0], cfg.ClaudeProjectDir)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := setupTestEnv(t)
+			writeConfig(t, dir, tt.config)
+			if tt.envValue != "" {
+				t.Setenv("CLAUDE_PROJECTS_DIR", tt.envValue)
+			}
 
-func TestResolveDirs_ConfigFileOverridesDefault(t *testing.T) {
-	dir, _ := setupConfigDir(t)
-	writeConfig(t, dir, map[string]any{
-		"claude_project_dirs": []string{"/a", "/b"},
-	})
+			cfg, err := LoadMinimal()
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	cfg, err := LoadMinimal()
-	if err != nil {
-		t.Fatal(err)
-	}
+			dirs := cfg.ResolveClaudeDirs()
 
-	dirs := cfg.ResolveClaudeDirs()
-	if len(dirs) != 2 || dirs[0] != "/a" || dirs[1] != "/b" {
-		t.Errorf("got %v, want [/a /b]", dirs)
-	}
-}
+			want := tt.wantDirs
+			if tt.expectDefault {
+				want = []string{cfg.ClaudeProjectDir}
+			}
 
-func TestResolveDirs_EnvVarOverridesConfigFile(t *testing.T) {
-	dir, _ := setupConfigDir(t)
-	writeConfig(t, dir, map[string]any{
-		"claude_project_dirs": []string{"/a", "/b"},
-	})
-	t.Setenv("CLAUDE_PROJECTS_DIR", "/env/override")
-
-	cfg, err := LoadMinimal()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dirs := cfg.ResolveClaudeDirs()
-	if len(dirs) != 1 || dirs[0] != "/env/override" {
-		t.Errorf("got %v, want [/env/override]", dirs)
+			if len(dirs) != len(want) {
+				t.Fatalf("got %d dirs, want %d", len(dirs), len(want))
+			}
+			for i, v := range dirs {
+				if v != want[i] {
+					t.Errorf("dirs[%d] = %q, want %q", i, v, want[i])
+				}
+			}
+		})
 	}
 }
 
