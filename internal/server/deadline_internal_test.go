@@ -24,23 +24,24 @@ func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		handler func(http.ResponseWriter, *http.Request)
+		name        string
+		handler     func(http.ResponseWriter, *http.Request)
+		requiresFTS bool
 	}{
-		{"ListSessions", s.handleListSessions},
-		{"GetSession", s.handleGetSession},
-		{"GetMessages", s.handleGetMessages},
-		{"GetMinimap", s.handleGetMinimap},
-		{"GetStats", s.handleGetStats},
-		{"ListProjects", s.handleListProjects},
-		{"ListMachines", s.handleListMachines},
-		{"Search", s.handleSearch},
+		{"ListSessions", s.handleListSessions, false},
+		{"GetSession", s.handleGetSession, false},
+		{"GetMessages", s.handleGetMessages, false},
+		{"GetMinimap", s.handleGetMinimap, false},
+		{"GetStats", s.handleGetStats, false},
+		{"ListProjects", s.handleListProjects, false},
+		{"ListMachines", s.handleListMachines, false},
+		{"Search", s.handleSearch, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "Search" && !s.db.HasFTS() {
-				t.Skip("skipping search test: no FTS support")
+			if tt.requiresFTS && !s.db.HasFTS() {
+				t.Skip("skipping test: no FTS support")
 			}
 			ctx, cancel := expiredCtx(t)
 			defer cancel()
