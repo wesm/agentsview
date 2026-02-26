@@ -498,6 +498,28 @@ func TestListSessions_ProjectFilter(t *testing.T) {
 	}
 }
 
+func TestListSessions_ExcludeProjectFilter(t *testing.T) {
+	te := setup(t)
+	te.seedSession(t, "s1", "my-app", 5)
+	te.seedSession(t, "s2", "unknown", 3)
+	te.seedSession(t, "s3", "unknown", 7)
+
+	w := te.get(t,
+		"/api/v1/sessions?exclude_project=unknown",
+	)
+	assertStatus(t, w, http.StatusOK)
+
+	resp := decode[sessionListResponse](t, w)
+	if len(resp.Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d",
+			len(resp.Sessions))
+	}
+	if resp.Sessions[0].ID != "s1" {
+		t.Errorf("expected session s1, got %s",
+			resp.Sessions[0].ID)
+	}
+}
+
 func TestGetSession_Found(t *testing.T) {
 	te := setup(t)
 	te.seedSession(t, "s1", "my-app", 5)

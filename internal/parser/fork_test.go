@@ -356,3 +356,90 @@ func TestSessionBoundsIncludeNonMessageEvents(t *testing.T) {
 		t.Errorf("EndedAt = %q, want %q", got, wantEnd)
 	}
 }
+
+func TestSessionBoundsStartedAtFromLeadingEvent(t *testing.T) {
+	// A leading non-message event has an earlier timestamp
+	// than the first user message. StartedAt should reflect it.
+	earlyLine := `{"type":"queue-operation","operation":"enqueue",` +
+		`"timestamp":"2024-01-01T09:00:00Z","content":"{}"}`
+
+	content := testjsonl.NewSessionBuilder().
+		AddRaw(earlyLine).
+		AddClaudeUser("2024-01-01T10:00:00Z", "hello").
+		AddClaudeAssistant("2024-01-01T10:00:01Z", "hi").
+		String()
+
+	path := createTestFile(t, "early-queue.jsonl", content)
+	results, err := ParseClaudeSession(path, "proj", "local")
+	if err != nil {
+		t.Fatalf("ParseClaudeSession: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+
+	sess := results[0].Session
+	wantStart := "2024-01-01T09:00:00Z"
+	got := sess.StartedAt.Format("2006-01-02T15:04:05Z")
+	if got != wantStart {
+		t.Errorf("StartedAt = %q, want %q", got, wantStart)
+	}
+}
+
+func TestSessionBoundsDAGMainWidenedNotFork(t *testing.T) {
+	// DAG session with a trailing queue-operation after all
+	// messages. Main session's EndedAt should be widened;
+	// fork session should use only its own message bounds.
+	queueLine := `{"type":"queue-operation","operation":"enqueue",` +
+		`"timestamp":"2024-01-01T12:00:00Z","content":"{}"}`
+
+	// Main: a->b->c->d->e->f->g->h->k->l (5 user turns)
+	// Fork from b: i->j
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithUUID("2024-01-01T10:00:00Z", "hello", "a", "").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:01Z", "hi", "b", "a").
+		AddClaudeUserWithUUID("2024-01-01T10:00:02Z", "q1", "c", "b").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:03Z", "a1", "d", "c").
+		AddClaudeUserWithUUID("2024-01-01T10:00:04Z", "q2", "e", "d").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:05Z", "a2", "f", "e").
+		AddClaudeUserWithUUID("2024-01-01T10:00:06Z", "q3", "g", "f").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:07Z", "a3", "h", "g").
+		AddClaudeUserWithUUID("2024-01-01T10:00:08Z", "q4", "k", "h").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:09Z", "a4", "l", "k").
+		// Fork from b
+		AddClaudeUserWithUUID("2024-01-01T10:01:00Z", "fork", "i", "b").
+		AddClaudeAssistantWithUUID("2024-01-01T10:01:01Z", "fork-a", "j", "i").
+		AddRaw(queueLine).
+		String()
+
+	path := createTestFile(t, "dag-queue.jsonl", content)
+	results, err := ParseClaudeSession(path, "proj", "local")
+	if err != nil {
+		t.Fatalf("ParseClaudeSession: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+
+	// Main session EndedAt should be widened to queue timestamp.
+	mainEnd := results[0].Session.EndedAt.Format(
+		"2006-01-02T15:04:05Z",
+	)
+	if mainEnd != "2024-01-01T12:00:00Z" {
+		t.Errorf(
+			"main EndedAt = %q, want 2024-01-01T12:00:00Z",
+			mainEnd,
+		)
+	}
+
+	// Fork session EndedAt should NOT be widened.
+	forkEnd := results[1].Session.EndedAt.Format(
+		"2006-01-02T15:04:05Z",
+	)
+	if forkEnd != "2024-01-01T10:01:01Z" {
+		t.Errorf(
+			"fork EndedAt = %q, want 2024-01-01T10:01:01Z",
+			forkEnd,
+		)
+	}
+}
