@@ -143,7 +143,7 @@ func TestExtractTextContent(t *testing.T) {
 		{
 			"thinking block",
 			`[{"type":"thinking","thinking":"Let me think..."}]`,
-			"[Thinking]\nLet me think...", true, false, nil,
+			"[Thinking]\nLet me think...\n[/Thinking]", true, false, nil,
 		},
 		{
 			"tool_use block",

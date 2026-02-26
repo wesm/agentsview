@@ -491,7 +491,8 @@ func buildOpenCodeMessage(
 			text := extractOpenCodeText(p.data)
 			if text != "" {
 				hasThinking = true
-				texts = append(texts, "[Thinking]\n"+text)
+				texts = append(texts,
+					"[Thinking]\n"+text+"\n[/Thinking]")
 			}
 		}
 		// skip step-start, step-finish, patch, etc.

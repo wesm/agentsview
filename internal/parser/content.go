@@ -39,7 +39,8 @@ func ExtractTextContent(
 			thinking := block.Get("thinking").Str
 			if thinking != "" {
 				hasThinking = true
-				parts = append(parts, "[Thinking]\n"+thinking)
+				parts = append(parts,
+					"[Thinking]\n"+thinking+"\n[/Thinking]")
 			}
 		case "tool_use":
 			hasToolUse = true

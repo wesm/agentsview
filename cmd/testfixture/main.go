@@ -174,7 +174,8 @@ func generateMixedContentMessages(
 		},
 		{
 			role: "assistant",
-			content: "[Thinking]\nGemini-style reasoning\n\n" +
+			content: "[Thinking]\nGemini-style reasoning\n" +
+				"[/Thinking]\n\n" +
 				"This is the visible response after thinking.",
 			hasThinking: true,
 		},

@@ -17,7 +17,7 @@ export interface ContentSegment {
  * internal/server/export.go:403-412
  */
 const THINKING_RE =
-  /\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n|$)/g;
+  /\[Thinking\]\n?([\s\S]*?)(?:\n?\[\/Thinking\]|(?=\n\[(?!\/Thinking\])|\n\n|$))/g;
 
 const TOOL_NAMES =
   "Tool|Read|Write|Edit|Bash|Glob|Grep|TaskCreate|TaskUpdate|TaskGet|TaskList|Task|Skill|" +

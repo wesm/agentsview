@@ -187,6 +187,39 @@ describe("parseContent - thinking blocks", () => {
     expect(textSegs).toHaveLength(1);
     expect(textSegs[0]!.content).toBe("The answer is 42.");
   });
+
+  it("uses [/Thinking] end marker to delimit content", () => {
+    const text =
+      "[Thinking]\nmy thoughts\n[/Thinking]\n\nResponse text";
+    const segments = parseContent(text, false);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({
+      type: "thinking",
+      content: "my thoughts",
+    });
+    expect(segments[1]).toMatchObject({
+      type: "text",
+      content: "Response text",
+    });
+  });
+
+  it("handles end marker with no blank line before text", () => {
+    const text =
+      "[Thinking]\nthoughts\n[/Thinking]\n" +
+      "[Thinking]\nmore\n[/Thinking]\n\nResponse";
+    const segments = parseContent(text, false);
+    const thinking = segments.filter(
+      (s) => s.type === "thinking",
+    );
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0]!.content).toContain("thoughts");
+    expect(thinking[0]!.content).toContain("more");
+    const textSegs = segments.filter(
+      (s) => s.type === "text",
+    );
+    expect(textSegs).toHaveLength(1);
+    expect(textSegs[0]!.content).toBe("Response");
+  });
 });
 
 describe("isToolOnly", () => {
