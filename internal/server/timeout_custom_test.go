@@ -52,7 +52,7 @@ func TestWithTimeout(t *testing.T) {
 			s := newTestServerMinimal(t, tt.timeout)
 			wrapped := s.withTimeout(tt.handler)
 
-			req := httptest.NewRequest("GET", "/", nil)
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			w := httptest.NewRecorder()
 			wrapped.ServeHTTP(w, req)
 

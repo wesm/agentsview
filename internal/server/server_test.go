@@ -247,7 +247,7 @@ func (te *testEnv) getWithContext(
 	t *testing.T, ctx context.Context, path string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest("GET", path, nil).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	return w

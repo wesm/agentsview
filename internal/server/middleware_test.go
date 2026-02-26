@@ -66,7 +66,7 @@ func TestContentTypeWrapper(t *testing.T) {
 				triggerStatus:  tt.triggerStatus,
 			}
 
-			req := httptest.NewRequest("GET", "/", nil)
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			tt.handler(wrapper, req)
 
 			assertRecorderStatus(t, w, tt.wantStatus)
