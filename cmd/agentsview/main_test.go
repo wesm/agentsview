@@ -165,8 +165,12 @@ func TestTruncateLogFileSymlink(t *testing.T) {
 
 	// Write a target file larger than the limit.
 	big := bytes.Repeat([]byte("x"), 1024)
-	os.WriteFile(target, big, 0o644)
-	os.Symlink(target, link)
+	if err := os.WriteFile(target, big, 0o644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks not supported:", err)
+	}
 
 	// Truncate via symlink: should be a no-op.
 	truncateLogFile(link, 512)
