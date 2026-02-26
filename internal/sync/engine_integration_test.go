@@ -2115,3 +2115,51 @@ func TestResyncAllConcurrentReads(t *testing.T) {
 		t.Fatal("session missing after resync")
 	}
 }
+
+// TestResyncAllAbortsOnEmptyDiscovery verifies that resync does
+// not replace a populated DB with an empty one when discovery
+// returns zero files (e.g. session directories are temporarily
+// inaccessible or misconfigured).
+func TestResyncAllAbortsOnEmptyDiscovery(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Seed existing data via initial sync.
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "keep me").
+		AddClaudeAssistant(tsEarlyS5, "ok").
+		String()
+	env.writeClaudeSession(t, "proj", "keep.jsonl", content)
+	env.engine.SyncAll(nil)
+	assertSessionMessageCount(t, env.db, "keep", 2)
+
+	// Remove all session files to simulate empty discovery.
+	entries, err := os.ReadDir(
+		filepath.Join(env.claudeDir, "proj"),
+	)
+	if err != nil {
+		t.Fatalf("reading dir: %v", err)
+	}
+	for _, e := range entries {
+		p := filepath.Join(env.claudeDir, "proj", e.Name())
+		os.Remove(p)
+	}
+
+	stats := env.engine.ResyncAll(nil)
+
+	// Swap must be aborted.
+	hasAbortWarning := false
+	for _, w := range stats.Warnings {
+		if strings.Contains(w, "resync aborted") {
+			hasAbortWarning = true
+		}
+	}
+	if !hasAbortWarning {
+		t.Error(
+			"expected abort when discovery returns zero files " +
+				"but old DB has sessions",
+		)
+	}
+
+	// Original data must be preserved.
+	assertSessionMessageCount(t, env.db, "keep", 2)
+}

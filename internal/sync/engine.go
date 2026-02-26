@@ -330,6 +330,9 @@ func (e *Engine) ResyncAll(
 	origPath := origDB.Path()
 	tempPath := origPath + resyncTempSuffix
 
+	// Snapshot old session count to detect empty-discovery.
+	oldStats, _ := origDB.GetStats(context.Background())
+
 	// Clean up stale temp DB from a prior crash.
 	removeTempDB(tempPath)
 
@@ -359,13 +362,18 @@ func (e *Engine) ResyncAll(
 	e.db = origDB // restore immediately
 
 	// Abort swap when the fresh DB would be worse than the
-	// original: either nothing synced at all, or more files
-	// failed than succeeded (e.g. permission errors, disk
-	// issues). A few permanent parse failures are tolerated
-	// since those files were broken in the old DB too.
-	// Both Failed and FilesOK count files, so the comparison
-	// is unit-consistent.
-	abortSwap := (stats.Synced == 0 && stats.TotalSessions > 0) ||
+	// original:
+	// - nothing synced at all (empty discovery, or all skipped)
+	//   when old DB had data
+	// - more files failed than succeeded (permission errors,
+	//   disk issues)
+	// A few permanent parse failures are tolerated since those
+	// files were broken in the old DB too.
+	emptyDiscovery := stats.TotalSessions == 0 &&
+		stats.filesOK == 0 &&
+		oldStats.SessionCount > 0
+	abortSwap := emptyDiscovery ||
+		(stats.Synced == 0 && stats.TotalSessions > 0) ||
 		(stats.Failed > 0 && stats.Failed > stats.filesOK)
 	if abortSwap {
 		log.Printf(
