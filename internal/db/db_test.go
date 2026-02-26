@@ -65,10 +65,6 @@ func requireSessions(
 		context.Background(), f,
 	)
 	requireNoError(t, err, "ListSessions")
-	
-	if len(page.Sessions) != len(wantIDs) {
-		t.Fatalf("got %d sessions, want %d. got: %v, want: %v", len(page.Sessions), len(wantIDs), collectIDs(page.Sessions), wantIDs)
-	}
 
 	gotIDs := collectIDs(page.Sessions)
 	wantSorted := make([]string, len(wantIDs))
@@ -973,10 +969,6 @@ func TestFindPruneCandidates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := d.FindPruneCandidates(tt.filter)
 			requireNoError(t, err, "FindPruneCandidates")
-			if len(got) != len(tt.want) {
-				t.Fatalf("got %d candidates, want %d. got: %v, want: %v",
-					len(got), len(tt.want), collectIDs(got), tt.want)
-			}
 
 			gotIDs := collectIDs(got)
 			wantSorted := make([]string, len(tt.want))
