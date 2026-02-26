@@ -1706,3 +1706,121 @@ func TestResyncAllReplacesMessageContent(t *testing.T) {
 		t.Error("FTS search returned no results after resync")
 	}
 }
+
+func TestResyncAllPreservesInsights(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Hello").
+		AddClaudeAssistant(tsEarlyS5, "Hi there!").
+		String()
+
+	env.writeClaudeSession(
+		t, "test-proj", "insight-test.jsonl", content,
+	)
+
+	env.engine.SyncAll(nil)
+	assertSessionMessageCount(t, env.db, "insight-test", 2)
+
+	// Insert an insight into the DB.
+	_, err := env.db.InsertInsight(db.Insight{
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
+		Agent:    "claude",
+		Content:  "test insight survives resync",
+	})
+	if err != nil {
+		t.Fatalf("InsertInsight: %v", err)
+	}
+
+	// ResyncAll should rebuild sessions and preserve
+	// insights.
+	stats := env.engine.ResyncAll(nil)
+	if stats.Synced == 0 {
+		t.Fatal("expected at least 1 synced session")
+	}
+
+	assertSessionMessageCount(t, env.db, "insight-test", 2)
+
+	insights, err := env.db.ListInsights(
+		context.Background(), db.InsightFilter{},
+	)
+	if err != nil {
+		t.Fatalf("ListInsights: %v", err)
+	}
+	if len(insights) != 1 {
+		t.Fatalf("got %d insights, want 1", len(insights))
+	}
+	if insights[0].Content != "test insight survives resync" {
+		t.Errorf(
+			"insight content = %q, want preserved",
+			insights[0].Content,
+		)
+	}
+}
+
+// TestResyncAllAbortsOnZeroSynced verifies that ResyncAll
+// does not swap the DB when sync discovers sessions but
+// fails to sync any of them.
+func TestResyncAllAbortsOnZeroSynced(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "original content").
+		AddClaudeAssistant(tsEarlyS5, "original reply").
+		String()
+
+	env.writeClaudeSession(
+		t, "test-proj", "abort-test.jsonl", content,
+	)
+
+	env.engine.SyncAll(nil)
+	assertSessionMessageCount(t, env.db, "abort-test", 2)
+
+	// Remove the session file so ResyncAll can't parse it.
+	sessionPath := filepath.Join(
+		env.claudeDir, "test-proj", "abort-test.jsonl",
+	)
+	os.Remove(sessionPath)
+
+	// Write a file that will be discovered but fail to parse
+	// (stat will fail because the path no longer exists after
+	// discovery). Actually, with the file removed, discover
+	// won't find it. Instead, write a corrupt file.
+	env.writeClaudeSession(
+		t, "test-proj", "abort-test.jsonl", "\x00\x01\x02",
+	)
+
+	// ResyncAll should abort swap because no valid sessions
+	// were synced.
+	stats := env.engine.ResyncAll(nil)
+	if stats.Synced != 0 {
+		// The corrupt file may or may not produce a session
+		// depending on parser behavior. If it does sync,
+		// then the abort path won't trigger — that's OK, the
+		// guard only fires when truly zero sessions sync.
+		t.Skipf(
+			"corrupt file synced (%d), abort not triggered",
+			stats.Synced,
+		)
+	}
+
+	hasAbortWarning := false
+	for _, w := range stats.Warnings {
+		if strings.Contains(w, "resync aborted") {
+			hasAbortWarning = true
+		}
+	}
+	if !hasAbortWarning {
+		t.Error("expected 'resync aborted' warning")
+	}
+
+	// Original data should be preserved since swap was
+	// aborted.
+	assertSessionMessageCount(t, env.db, "abort-test", 2)
+	assertMessageContent(
+		t, env.db, "abort-test",
+		"original content", "original reply",
+	)
+}

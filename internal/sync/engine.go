@@ -354,6 +354,26 @@ func (e *Engine) ResyncAll(
 	stats := e.syncAllLocked(onProgress)
 	e.db = origDB // restore immediately
 
+	// Abort if sync discovered files but synced none — the
+	// new DB would be empty which is strictly worse than the
+	// old DB. Keep the original and report the failure.
+	if stats.Synced == 0 && stats.TotalSessions > 0 {
+		log.Printf(
+			"resync: aborting swap, 0/%d sessions synced",
+			stats.TotalSessions,
+		)
+		newDB.Close()
+		removeTempDB(tempPath)
+		stats.Warnings = append(stats.Warnings,
+			"resync aborted: no sessions synced",
+		)
+
+		e.mu.Lock()
+		e.lastSyncStats = stats
+		e.mu.Unlock()
+		return stats
+	}
+
 	// 4. Copy insights from old DB into new DB.
 	tInsights := time.Now()
 	if err := newDB.CopyInsightsFrom(origPath); err != nil {

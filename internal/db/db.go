@@ -350,11 +350,10 @@ func (db *DB) Reopen() error {
 	return db.reopenLocked()
 }
 
-// reopenLocked performs the reopen while db.mu is already held.
+// reopenLocked performs the reopen while db.mu is already
+// held. New connections are opened before closing old ones
+// so the struct never points at closed handles on failure.
 func (db *DB) reopenLocked() error {
-	_ = db.writer.Close()
-	_ = db.reader.Close()
-
 	writer, err := sql.Open(
 		"sqlite3", makeDSN(db.path, false),
 	)
@@ -372,8 +371,11 @@ func (db *DB) reopenLocked() error {
 	}
 	reader.SetMaxOpenConns(4)
 
+	oldWriter, oldReader := db.writer, db.reader
 	db.writer = writer
 	db.reader = reader
+	_ = oldWriter.Close()
+	_ = oldReader.Close()
 	return nil
 }
 
