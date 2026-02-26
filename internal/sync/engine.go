@@ -892,10 +892,6 @@ func (e *Engine) writeBatch(
 	batch []pendingWrite, forceReplace bool,
 ) {
 	for _, pw := range batch {
-		if forceReplace {
-			e.writeSessionFull(pw)
-			continue
-		}
 		msgs := toDBMessages(pw)
 		s := toDBSession(pw)
 		s.MessageCount, s.UserMessageCount =
@@ -904,7 +900,11 @@ func (e *Engine) writeBatch(
 			log.Printf("upsert session %s: %v", s.ID, err)
 			continue
 		}
-		e.writeMessages(pw.sess.ID, msgs)
+		if forceReplace {
+			e.replaceIfChanged(pw.sess.ID, msgs)
+		} else {
+			e.writeMessages(pw.sess.ID, msgs)
+		}
 	}
 }
 
@@ -946,6 +946,30 @@ func (e *Engine) writeMessages(
 	if err := e.db.InsertMessages(msgs); err != nil {
 		log.Printf(
 			"append messages for %s: %v",
+			sessionID, err,
+		)
+	}
+}
+
+// replaceIfChanged compares newly parsed messages against the
+// DB using a cheap count+length check. Only does a full FTS5
+// delete+reinsert when content has actually changed.
+func (e *Engine) replaceIfChanged(
+	sessionID string, msgs []db.Message,
+) {
+	dbCount, dbLen := e.db.MessageContentStats(sessionID)
+	newLen := 0
+	for _, m := range msgs {
+		newLen += len(m.Content)
+	}
+	if dbCount == len(msgs) && dbLen == newLen {
+		return
+	}
+	if err := e.db.ReplaceSessionMessages(
+		sessionID, msgs,
+	); err != nil {
+		log.Printf(
+			"replace messages for %s: %v",
 			sessionID, err,
 		)
 	}
