@@ -264,7 +264,7 @@ func (te *testEnv) post(
 	t *testing.T, path string, body string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest("POST", path,
+	req := httptest.NewRequest(http.MethodPost, path,
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -276,7 +276,7 @@ func (te *testEnv) del(
 	t *testing.T, path string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest("DELETE", path, nil)
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	return w
@@ -300,7 +300,7 @@ func (te *testEnv) upload(
 		t.Fatalf("closing multipart writer: %v", err)
 	}
 
-	req := httptest.NewRequest("POST",
+	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/sessions/upload?"+query, &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w := httptest.NewRecorder()
@@ -1106,7 +1106,7 @@ func TestCORSPreflight(t *testing.T) {
 	te := setup(t)
 
 	req := httptest.NewRequest(
-		"OPTIONS", "/api/v1/sessions", nil,
+		http.MethodOptions, "/api/v1/sessions", nil,
 	)
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
@@ -1380,7 +1380,7 @@ func TestTriggerSync_NonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
 	nf := &noFlushWriter{rec}
 
-	req := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	req.Header.Set("Content-Type", "application/json")
 	te.handler.ServeHTTP(nf, req)
 	assertStatus(t, rec, http.StatusOK)
@@ -1422,7 +1422,7 @@ func TestTriggerSync_SSE(t *testing.T) {
 			AddClaudeUser(tsZero, "msg"),
 	)
 
-	req := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	te.handler.ServeHTTP(w, req)
 
@@ -1540,7 +1540,7 @@ func TestTriggerSync_SSEEvents(t *testing.T) {
 		)
 	}
 
-	req := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	te.handler.ServeHTTP(w, req)
 
@@ -1572,7 +1572,7 @@ func TestResyncEndpoint(t *testing.T) {
 	)
 
 	// Initial sync — session gets processed normally.
-	syncReq := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	syncW := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	te.handler.ServeHTTP(syncW, syncReq)
 
@@ -1583,7 +1583,7 @@ func TestResyncEndpoint(t *testing.T) {
 	}
 
 	// Second normal sync — file is unchanged so it's skipped.
-	sync2Req := httptest.NewRequest("POST", "/api/v1/sync", nil)
+	sync2Req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	sync2W := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	te.handler.ServeHTTP(sync2W, sync2Req)
 
@@ -1595,7 +1595,7 @@ func TestResyncEndpoint(t *testing.T) {
 
 	// Resync — should re-process the same unchanged file.
 	resyncReq := httptest.NewRequest(
-		"POST", "/api/v1/resync", nil,
+		http.MethodPost, "/api/v1/resync", nil,
 	)
 	resyncW := &flushRecorder{
 		ResponseRecorder: httptest.NewRecorder(),
