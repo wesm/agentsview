@@ -62,39 +62,46 @@ func TestExtractProjectFromCwd_GitWorktreeFallbackWithoutCommondir(t *testing.T)
 	}
 }
 
-func TestExtractProjectFromCwdWithBranch_OfflineWorktreePath(t *testing.T) {
-	cwd := "/Users/wesm/code/agentsview-worktree-tool-call-arguments"
-	got := ExtractProjectFromCwdWithBranch(
-		cwd, "worktree-tool-call-arguments",
-	)
-	if got != "agentsview" {
-		t.Fatalf("ExtractProjectFromCwdWithBranch = %q, want %q", got, "agentsview")
+func TestExtractProjectFromCwdWithBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		cwd    string
+		branch string
+		want   string
+	}{
+		{
+			name:   "OfflineWorktreePath",
+			cwd:    filepath.FromSlash("/Users/wesm/code/agentsview-worktree-tool-call-arguments"),
+			branch: "worktree-tool-call-arguments",
+			want:   "agentsview",
+		},
+		{
+			name:   "BranchWithSlash",
+			cwd:    filepath.FromSlash("/Users/wesm/code/agentsview-feature-worktree-support"),
+			branch: "feature/worktree-support",
+			want:   "agentsview",
+		},
+		{
+			name:   "MismatchNoTrim",
+			cwd:    filepath.FromSlash("/Users/wesm/code/agentsview-hotfix"),
+			branch: "feature/other",
+			want:   "agentsview_hotfix",
+		},
+		{
+			name:   "DefaultBranchNoTrim",
+			cwd:    filepath.FromSlash("/Users/wesm/code/project-main"),
+			branch: "main",
+			want:   "project_main",
+		},
 	}
-}
 
-func TestExtractProjectFromCwdWithBranch_BranchWithSlash(t *testing.T) {
-	cwd := "/Users/wesm/code/agentsview-feature-worktree-support"
-	got := ExtractProjectFromCwdWithBranch(
-		cwd, "feature/worktree-support",
-	)
-	if got != "agentsview" {
-		t.Fatalf("ExtractProjectFromCwdWithBranch = %q, want %q", got, "agentsview")
-	}
-}
-
-func TestExtractProjectFromCwdWithBranch_MismatchNoTrim(t *testing.T) {
-	cwd := "/Users/wesm/code/agentsview-hotfix"
-	got := ExtractProjectFromCwdWithBranch(cwd, "feature/other")
-	if got != "agentsview_hotfix" {
-		t.Fatalf("ExtractProjectFromCwdWithBranch = %q, want %q", got, "agentsview_hotfix")
-	}
-}
-
-func TestExtractProjectFromCwdWithBranch_DefaultBranchNoTrim(t *testing.T) {
-	cwd := "/Users/wesm/code/project-main"
-	got := ExtractProjectFromCwdWithBranch(cwd, "main")
-	if got != "project_main" {
-		t.Fatalf("ExtractProjectFromCwdWithBranch = %q, want %q", got, "project_main")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractProjectFromCwdWithBranch(tt.cwd, tt.branch)
+			if got != tt.want {
+				t.Fatalf("ExtractProjectFromCwdWithBranch(%q, %q) = %q, want %q", tt.cwd, tt.branch, got, tt.want)
+			}
+		})
 	}
 }
 
