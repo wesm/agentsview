@@ -1,11 +1,13 @@
 package server_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestMiddleware_Timeout(t *testing.T) {
+	t.Parallel()
 	te := setup(t)
 	// Seed some data so handlers don't fail with 404 before checking context
 	te.seedSession(t, "s1", "my-app", 10)
@@ -16,17 +18,18 @@ func TestMiddleware_Timeout(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"ListSessions", "GET", "/api/v1/sessions"},
-		{"GetSession", "GET", "/api/v1/sessions/s1"},
-		{"GetMessages", "GET", "/api/v1/sessions/s1/messages"},
-		{"GetMinimap", "GET", "/api/v1/sessions/s1/minimap"},
-		{"GetStats", "GET", "/api/v1/stats"},
-		{"ListProjects", "GET", "/api/v1/projects"},
-		{"ListMachines", "GET", "/api/v1/machines"},
+		{"ListSessions", http.MethodGet, "/api/v1/sessions"},
+		{"GetSession", http.MethodGet, "/api/v1/sessions/s1"},
+		{"GetMessages", http.MethodGet, "/api/v1/sessions/s1/messages"},
+		{"GetMinimap", http.MethodGet, "/api/v1/sessions/s1/minimap"},
+		{"GetStats", http.MethodGet, "/api/v1/stats"},
+		{"ListProjects", http.MethodGet, "/api/v1/projects"},
+		{"ListMachines", http.MethodGet, "/api/v1/machines"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ctx, cancel := expiredContext(t)
 			defer cancel()
 
