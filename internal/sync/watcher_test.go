@@ -38,6 +38,19 @@ func startTestWatcher(
 	return w, dir
 }
 
+// pollUntil dynamically polls a condition to avoid hardcoded sleeps.
+func pollUntil(t *testing.T, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("pollUntil: condition not met within deadline")
+}
+
 func TestWatcherCallsOnChange(t *testing.T) {
 	pathsCh := make(chan []string, 1)
 
@@ -69,7 +82,7 @@ func TestWatcherCallsOnChange(t *testing.T) {
 func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 	pathsCh := make(chan []string, 10)
 
-	_, dir := startTestWatcher(t, func(paths []string) {
+	w, dir := startTestWatcher(t, func(paths []string) {
 		pathsCh <- paths
 	})
 
@@ -78,8 +91,13 @@ func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 		t.Fatalf("Mkdir: %v", err)
 	}
 
-	// Wait a moment for fsnotify to process the mkdir and add the watch
-	time.Sleep(100 * time.Millisecond)
+	// Wait for fsnotify to process the mkdir and add the watch
+	pollUntil(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		_, ok := w.pending[subdir]
+		return ok
+	})
 
 	nestedPath := filepath.Join(subdir, "nested.jsonl")
 	if err := os.WriteFile(nestedPath, []byte("nested"), 0o644); err != nil {
@@ -136,8 +154,13 @@ func TestWatcherStopIdempotency(t *testing.T) {
 		t.Fatalf("stress write: %v", err)
 	}
 
-	// Give a little time for fsnotify to process it before concurrent stop
-	time.Sleep(10 * time.Millisecond)
+	// Wait for fsnotify to process it before concurrent stop
+	pollUntil(t, func() bool {
+		w2.mu.Lock()
+		defer w2.mu.Unlock()
+		_, ok := w2.pending[stressPath]
+		return ok
+	})
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -222,7 +245,12 @@ func TestWatcherDebounceLogic(t *testing.T) {
 	}
 
 	// Wait for fsnotify to process the write
-	time.Sleep(50 * time.Millisecond)
+	pollUntil(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		_, ok := w.pending[path]
+		return ok
+	})
 
 	// 1. Flush before debounce period
 	w.flush()
