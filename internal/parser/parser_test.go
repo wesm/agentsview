@@ -265,9 +265,9 @@ func TestExtractToolResults(t *testing.T) {
 
 func TestFormatToolUseVariants(t *testing.T) {
 	tests := []struct {
-		name string
-		json string
-		want string
+		toolName string
+		json     string
+		want     string
 	}{
 		{
 			"Read",
@@ -382,7 +382,11 @@ func TestFormatToolUseVariants(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		testName := tt.toolName
+		if testName == "" {
+			testName = "empty_string"
+		}
+		t.Run(testName, func(t *testing.T) {
 			block := gjson.Parse(tt.json)
 			got := formatToolUse(block)
 			if got != tt.want {
