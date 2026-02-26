@@ -67,11 +67,14 @@ class SessionsStore {
 
   private get apiParams() {
     const f = this.filters;
+    // Don't exclude "unknown" when explicitly viewing it.
+    const exclude =
+      f.hideUnknownProject && f.project !== "unknown"
+        ? "unknown"
+        : undefined;
     return {
       project: f.project || undefined,
-      exclude_project: f.hideUnknownProject
-        ? "unknown"
-        : undefined,
+      exclude_project: exclude,
       agent: f.agent || undefined,
       date: f.date || undefined,
       date_from: f.dateFrom || undefined,

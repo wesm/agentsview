@@ -455,6 +455,17 @@ describe("SessionsStore", () => {
       expect(sessions.hasActiveFilters).toBe(true);
     });
 
+    it("should suppress exclude_project when project is unknown", async () => {
+      sessions.filters.hideUnknownProject = true;
+      sessions.filters.project = "unknown";
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        project: "unknown",
+        exclude_project: undefined,
+      });
+    });
+
     it("should be cleared by clearSessionFilters", async () => {
       sessions.filters.hideUnknownProject = true;
       sessions.clearSessionFilters();
