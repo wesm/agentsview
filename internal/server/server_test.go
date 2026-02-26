@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	stdlibsync "sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1607,6 +1608,182 @@ func TestResyncEndpoint(t *testing.T) {
 		t.Fatalf("resync: synced = %d, want 1 (reprocessed)",
 			resyncStats.Synced)
 	}
+}
+
+// TestResyncPreservesDataThroughSwap verifies the full resync
+// flow end-to-end: initial sync, resync (which rebuilds the DB
+// from scratch and swaps files), then verifies sessions and
+// messages are accessible via the API. This exercises the
+// close-rename-reopen sequence that is critical on Windows.
+func TestResyncPreservesDataThroughSwap(t *testing.T) {
+	te := setup(t)
+
+	// Write two session files in different projects.
+	te.writeSessionFile(t, "proj-a", "a.jsonl",
+		testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsZero, "hello from proj-a").
+			AddClaudeAssistant(tsZeroS5, "response a"),
+	)
+	te.writeSessionFile(t, "proj-b", "b.jsonl",
+		testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsEarly, "hello from proj-b").
+			AddClaudeAssistant(tsEarlyS5, "response b"),
+	)
+
+	// Initial sync.
+	syncReq := httptest.NewRequest(
+		http.MethodPost, "/api/v1/sync", nil,
+	)
+	syncW := &flushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+	te.handler.ServeHTTP(syncW, syncReq)
+	syncStats := parseSSEDoneStats(t, syncW.BodyString())
+	if syncStats.Synced != 2 {
+		t.Fatalf(
+			"initial sync: synced = %d, want 2",
+			syncStats.Synced,
+		)
+	}
+
+	// Verify sessions are accessible before resync.
+	w := te.get(t, "/api/v1/sessions")
+	assertStatus(t, w, http.StatusOK)
+	before := decode[sessionListResponse](t, w)
+	if before.Total != 2 {
+		t.Fatalf(
+			"before resync: total = %d, want 2",
+			before.Total,
+		)
+	}
+
+	// Resync — rebuilds the database from scratch and swaps.
+	resyncReq := httptest.NewRequest(
+		http.MethodPost, "/api/v1/resync", nil,
+	)
+	resyncW := &flushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+	te.handler.ServeHTTP(resyncW, resyncReq)
+	resyncStats := parseSSEDoneStats(t, resyncW.BodyString())
+	if resyncStats.Synced != 2 {
+		t.Fatalf(
+			"resync: synced = %d, want 2",
+			resyncStats.Synced,
+		)
+	}
+
+	// Verify sessions survived the DB swap.
+	w = te.get(t, "/api/v1/sessions")
+	assertStatus(t, w, http.StatusOK)
+	after := decode[sessionListResponse](t, w)
+	if after.Total != 2 {
+		t.Fatalf(
+			"after resync: total = %d, want 2",
+			after.Total,
+		)
+	}
+
+	// Verify messages are accessible for each session.
+	for _, s := range after.Sessions {
+		msgW := te.get(t, fmt.Sprintf(
+			"/api/v1/sessions/%s/messages", s.ID,
+		))
+		assertStatus(t, msgW, http.StatusOK)
+		msgs := decode[messageListResponse](t, msgW)
+		if msgs.Count < 2 {
+			t.Errorf(
+				"session %s: messages = %d, want >= 2",
+				s.ID, msgs.Count,
+			)
+		}
+	}
+
+	// Verify projects endpoint works (exercises reader pool).
+	projW := te.get(t, "/api/v1/projects")
+	assertStatus(t, projW, http.StatusOK)
+	projects := decode[projectListResponse](t, projW)
+	if len(projects.Projects) != 2 {
+		t.Errorf(
+			"projects = %d, want 2",
+			len(projects.Projects),
+		)
+	}
+}
+
+// TestResyncConcurrentReads verifies that concurrent API reads
+// don't panic or deadlock during resync, and that reads succeed
+// after resync completes. Transient "database is closed" errors
+// are expected during the brief CloseConnections -> Reopen window
+// since resync is a rare manual operation.
+func TestResyncConcurrentReads(t *testing.T) {
+	te := setup(t)
+
+	te.writeSessionFile(t, "conc-proj", "c.jsonl",
+		testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsZero, "concurrent test"),
+	)
+
+	// Initial sync.
+	syncReq := httptest.NewRequest(
+		http.MethodPost, "/api/v1/sync", nil,
+	)
+	syncW := &flushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+	te.handler.ServeHTTP(syncW, syncReq)
+
+	// Spin up concurrent readers.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg stdlibsync.WaitGroup
+	var unexpectedErrors atomic.Int64
+
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				req := httptest.NewRequest(
+					http.MethodGet, "/api/v1/sessions",
+					nil,
+				)
+				w := httptest.NewRecorder()
+				te.handler.ServeHTTP(w, req)
+				// Transient 500s from "database is closed"
+				// are expected during the close->reopen
+				// window. Non-500 errors are unexpected.
+				if w.Code != http.StatusOK &&
+					w.Code != http.StatusInternalServerError {
+					unexpectedErrors.Add(1)
+				}
+			}
+		})
+	}
+
+	// Trigger resync while readers are active.
+	resyncReq := httptest.NewRequest(
+		http.MethodPost, "/api/v1/resync", nil,
+	)
+	resyncW := &flushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+	te.handler.ServeHTTP(resyncW, resyncReq)
+
+	cancel()
+	wg.Wait()
+
+	if n := unexpectedErrors.Load(); n > 0 {
+		t.Errorf("got %d unexpected non-500 errors", n)
+	}
+
+	// Reads must succeed after resync completes.
+	w := te.get(t, "/api/v1/sessions")
+	assertStatus(t, w, http.StatusOK)
 }
 
 // parseSSEDoneStats extracts the SyncStats from the "done" SSE
