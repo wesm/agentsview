@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2024-01-01T10:00:00Z","message":{"content":"Fix the login bug"},"cwd":"/Users/alice/code/my-app"}
+{"type":"assistant","timestamp":"2024-01-01T10:00:05Z","message":{"content":[{"type":"text","text":"Looking at the auth module..."},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"src/auth.ts"}}]}}
+{"type":"user","timestamp":"2024-01-01T10:05:00Z","message":{"content":"That looks right"}}
+{"type":"assistant","timestamp":"2024-01-01T10:05:05Z","message":{"content":[{"type":"text","text":"Applied the fix."}]}}

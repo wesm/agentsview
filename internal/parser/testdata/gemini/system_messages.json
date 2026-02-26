@@ -1,0 +1,26 @@
+{
+  "lastUpdated": "2024-01-01T10:00:05Z",
+  "messages": [
+    {
+      "content": "Starting session",
+      "id": "i1",
+      "timestamp": "2024-01-01T10:00:00Z",
+      "type": "info"
+    },
+    {
+      "content": "Some error",
+      "id": "e1",
+      "timestamp": "2024-01-01T10:00:01Z",
+      "type": "error"
+    },
+    {
+      "content": "Some warning",
+      "id": "w1",
+      "timestamp": "2024-01-01T10:00:05Z",
+      "type": "warning"
+    }
+  ],
+  "projectHash": "abc123def456",
+  "sessionId": "sess-uuid-3",
+  "startTime": "2024-01-01T10:00:00Z"
+}

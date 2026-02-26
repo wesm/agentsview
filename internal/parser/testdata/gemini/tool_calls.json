@@ -1,0 +1,38 @@
+{
+  "lastUpdated": "2024-01-01T10:00:05Z",
+  "messages": [
+    {
+      "content": "Read this file",
+      "id": "u1",
+      "timestamp": "2024-01-01T10:00:00Z",
+      "type": "user"
+    },
+    {
+      "content": "Let me read it.",
+      "id": "a1",
+      "model": "gemini-2.5-pro",
+      "thoughts": [
+        {
+          "description": "I need to read the file first.",
+          "subject": "Planning",
+          "timestamp": "2024-01-01T10:00:01Z"
+        }
+      ],
+      "timestamp": "2024-01-01T10:00:05Z",
+      "toolCalls": [
+        {
+          "args": {
+            "file_path": "main.go"
+          },
+          "displayName": "ReadFile",
+          "name": "read_file",
+          "status": "success"
+        }
+      ],
+      "type": "gemini"
+    }
+  ],
+  "projectHash": "abc123def456",
+  "sessionId": "sess-uuid-2",
+  "startTime": "2024-01-01T10:00:00Z"
+}

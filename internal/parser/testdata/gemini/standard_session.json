@@ -1,0 +1,32 @@
+{
+  "lastUpdated": "2024-01-01T10:05:05Z",
+  "messages": [
+    {
+      "content": "Fix the login bug",
+      "id": "u1",
+      "timestamp": "2024-01-01T10:00:00Z",
+      "type": "user"
+    },
+    {
+      "content": "Looking at the auth module...",
+      "id": "a1",
+      "timestamp": "2024-01-01T10:00:05Z",
+      "type": "gemini"
+    },
+    {
+      "content": "That looks right",
+      "id": "u2",
+      "timestamp": "2024-01-01T10:05:00Z",
+      "type": "user"
+    },
+    {
+      "content": "Applied the fix.",
+      "id": "a2",
+      "timestamp": "2024-01-01T10:05:05Z",
+      "type": "gemini"
+    }
+  ],
+  "projectHash": "abc123def456",
+  "sessionId": "sess-uuid-1",
+  "startTime": "2024-01-01T10:00:00Z"
+}

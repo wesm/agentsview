@@ -1,0 +1,3 @@
+{"payload":{"cwd":"/Users/alice/code/my-api","id":"abc-123","originator":"user"},"timestamp":"2024-01-01T10:00:00Z","type":"session_meta"}
+{"payload":{"content":[{"text":"Add rate limiting","type":"input_text"}],"role":"user"},"timestamp":"2024-01-01T10:00:01Z","type":"response_item"}
+{"payload":{"content":[{"text":"I'll add rate limiting to the API.","type":"output_text"}],"role":"assistant"},"timestamp":"2024-01-01T10:00:05Z","type":"response_item"}
