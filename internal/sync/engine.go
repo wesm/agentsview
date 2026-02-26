@@ -354,19 +354,24 @@ func (e *Engine) ResyncAll(
 	stats := e.syncAllLocked(onProgress)
 	e.db = origDB // restore immediately
 
-	// Abort if sync discovered files but synced none — the
-	// new DB would be empty which is strictly worse than the
-	// old DB. Keep the original and report the failure.
-	if stats.Synced == 0 && stats.TotalSessions > 0 {
+	// Abort swap when the fresh DB would be worse than the
+	// original: either nothing synced at all, or more files
+	// failed than succeeded (e.g. permission errors, disk
+	// issues). A few permanent parse failures are tolerated
+	// since those files were broken in the old DB too.
+	abortSwap := (stats.Synced == 0 && stats.TotalSessions > 0) ||
+		(stats.Failed > 0 && stats.Failed > stats.Synced)
+	if abortSwap {
 		log.Printf(
-			"resync: aborting swap, 0/%d sessions synced",
-			stats.TotalSessions,
+			"resync: aborting swap, %d synced / %d failed / %d total",
+			stats.Synced, stats.Failed, stats.TotalSessions,
 		)
 		newDB.Close()
 		removeTempDB(tempPath)
-		stats.Warnings = append(stats.Warnings,
-			"resync aborted: no sessions synced",
-		)
+		stats.Warnings = append(stats.Warnings, fmt.Sprintf(
+			"resync aborted: %d synced, %d failed",
+			stats.Synced, stats.Failed,
+		))
 
 		e.mu.Lock()
 		e.lastSyncStats = stats
@@ -653,6 +658,7 @@ func (e *Engine) collectAndBatch(
 		r := <-results
 
 		if r.err != nil {
+			stats.RecordFailed()
 			if r.mtime != 0 {
 				e.cacheSkip(r.path, r.mtime)
 			}

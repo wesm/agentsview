@@ -1760,10 +1760,10 @@ func TestResyncAllPreservesInsights(t *testing.T) {
 	}
 }
 
-// TestResyncAllAbortsOnZeroSynced verifies that ResyncAll
-// does not swap the DB when sync discovers sessions but
-// fails to sync any of them.
-func TestResyncAllAbortsOnZeroSynced(t *testing.T) {
+// TestResyncAllAbortsOnFailures verifies that ResyncAll
+// does not swap the DB when sync has more failures than
+// successes.
+func TestResyncAllAbortsOnFailures(t *testing.T) {
 	env := setupTestEnv(t)
 
 	content := testjsonl.NewSessionBuilder().
@@ -1778,32 +1778,26 @@ func TestResyncAllAbortsOnZeroSynced(t *testing.T) {
 	env.engine.SyncAll(nil)
 	assertSessionMessageCount(t, env.db, "abort-test", 2)
 
-	// Remove the session file so ResyncAll can't parse it.
+	// Make the file unreadable so the parser returns a hard
+	// error. This is deterministic: os.Open will fail with
+	// a permission error on every attempt.
 	sessionPath := filepath.Join(
 		env.claudeDir, "test-proj", "abort-test.jsonl",
 	)
-	os.Remove(sessionPath)
+	if err := os.Chmod(sessionPath, 0); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() {
+		os.Chmod(sessionPath, 0o644)
+	})
 
-	// Write a file that will be discovered but fail to parse
-	// (stat will fail because the path no longer exists after
-	// discovery). Actually, with the file removed, discover
-	// won't find it. Instead, write a corrupt file.
-	env.writeClaudeSession(
-		t, "test-proj", "abort-test.jsonl", "\x00\x01\x02",
-	)
-
-	// ResyncAll should abort swap because no valid sessions
-	// were synced.
 	stats := env.engine.ResyncAll(nil)
-	if stats.Synced != 0 {
-		// The corrupt file may or may not produce a session
-		// depending on parser behavior. If it does sync,
-		// then the abort path won't trigger — that's OK, the
-		// guard only fires when truly zero sessions sync.
-		t.Skipf(
-			"corrupt file synced (%d), abort not triggered",
-			stats.Synced,
-		)
+
+	if stats.Failed == 0 {
+		t.Fatalf("expected failures, got 0")
+	}
+	if stats.TotalSessions == 0 {
+		t.Fatal("expected TotalSessions > 0")
 	}
 
 	hasAbortWarning := false

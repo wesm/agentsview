@@ -34,6 +34,7 @@ type SyncStats struct {
 	TotalSessions int      `json:"total_sessions"`
 	Synced        int      `json:"synced"`
 	Skipped       int      `json:"skipped"`
+	Failed        int      `json:"failed"`
 	Warnings      []string `json:"warnings,omitempty"`
 }
 
@@ -45,6 +46,11 @@ func (s *SyncStats) RecordSkip() {
 // RecordSynced adds n to the synced session counter.
 func (s *SyncStats) RecordSynced(n int) {
 	s.Synced += n
+}
+
+// RecordFailed increments the hard-failure counter.
+func (s *SyncStats) RecordFailed() {
+	s.Failed++
 }
 
 // Percent returns the sync progress as a percentage (0–100).
