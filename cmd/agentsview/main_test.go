@@ -50,25 +50,14 @@ func TestMustLoadConfig(t *testing.T) {
 			if cfg.NoBrowser != tt.wantNoBrowser {
 				t.Errorf("NoBrowser = %v, want %v", cfg.NoBrowser, tt.wantNoBrowser)
 			}
+
+			if cfg.DataDir == "" {
+				t.Error("DataDir should be set")
+			}
+			wantDBPath := filepath.Join(cfg.DataDir, "sessions.db")
+			if cfg.DBPath != wantDBPath {
+				t.Errorf("DBPath = %q, want %q", cfg.DBPath, wantDBPath)
+			}
 		})
-	}
-}
-
-func TestMustLoadConfig_SetsDBPath(t *testing.T) {
-	t.Setenv("AGENT_VIEWER_DATA_DIR", t.TempDir())
-	cfg := mustLoadConfig([]string{})
-
-	if cfg.DBPath == "" {
-		t.Error("DBPath should be set")
-	}
-	if cfg.DataDir == "" {
-		t.Error("DataDir should be set")
-	}
-
-	if filepath.Dir(cfg.DBPath) != cfg.DataDir {
-		t.Errorf("DBPath directory %q, want %q", filepath.Dir(cfg.DBPath), cfg.DataDir)
-	}
-	if filepath.Base(cfg.DBPath) != "sessions.db" {
-		t.Errorf("DBPath filename %q, want %q", filepath.Base(cfg.DBPath), "sessions.db")
 	}
 }
