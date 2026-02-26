@@ -44,6 +44,22 @@ Key assumptions reviewers MUST account for:
    launching agentsview. Do not flag env var inheritance to agent
    CLIs as a security issue.
 
+9. SESSION FILE PARSING: Session files (JSONL, JSON) are produced by
+   agent CLIs running on the user's own machine. The parser does not
+   need to defend against adversarial or malicious input. Do not flag:
+   - Missing cycle detection in DAG/tree traversals (UUIDs are unique)
+   - Missing recursion depth limits (fork depth is bounded by human
+     interaction — each fork requires a user backtracking)
+   - Unreachable-node checks in DAG connectivity (degenerate structures
+     already fall back to linear parsing via multi-root and dangling
+     parentUuid checks)
+
+10. WRITE ATOMICITY: Session data is written per-session in individual
+    transactions. Cross-session atomicity (e.g. writing all fork
+    sessions from one file in a single transaction) is not required.
+    A full resync recovers any partial state. Do not flag non-atomic
+    multi-session writes as a data corruption risk.
+
 Do NOT flag issues that only apply to public-facing, multi-tenant,
 or network-exposed services. Focus on bugs, logic errors, data
 corruption risks, and code quality issues.
