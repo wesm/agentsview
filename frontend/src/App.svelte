@@ -202,7 +202,7 @@
                   })}
                 </span>
               {/if}
-              {#if session.agent === "claude" || session.agent === "codex"}
+              {#if session.id}
                 {@const rawId = sessionDisplayId(session.id)}
                 <button
                   class="session-id"
