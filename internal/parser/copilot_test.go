@@ -24,6 +24,29 @@ func writeCopilotJSONL(
 	return path
 }
 
+// parseAndValidateHelper parses the session and fails the test on basic errors.
+func parseAndValidateHelper(t *testing.T, path string, machine string, wantMsgs int) (*ParsedSession, []ParsedMessage) {
+	t.Helper()
+	sess, msgs, err := ParseCopilotSession(path, machine)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if len(msgs) != wantMsgs {
+		t.Fatalf("got %d messages, want %d", len(msgs), wantMsgs)
+	}
+	return sess, msgs
+}
+
+func assertEqual[T comparable](t *testing.T, want, got T, name string) {
+	t.Helper()
+	if want != got {
+		t.Errorf("%s = %v, want %v", name, got, want)
+	}
+}
+
 func TestParseCopilotSession_Basic(t *testing.T) {
 	path := writeCopilotJSONL(t,
 		`{"type":"session.start","data":{"sessionId":"abc-123","context":{"cwd":"/home/alice/code/myproject","branch":"main"}},"timestamp":"2025-01-15T10:00:00Z"}`,
@@ -31,54 +54,18 @@ func TestParseCopilotSession_Basic(t *testing.T) {
 		`{"type":"assistant.message","data":{"content":"I'll fix the login bug."},"timestamp":"2025-01-15T10:00:02Z"}`,
 	)
 
-	sess, msgs, err := ParseCopilotSession(path, "test-machine")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected non-nil session")
-	}
+	sess, msgs := parseAndValidateHelper(t, path, "test-machine", 2)
 
-	if sess.ID != "copilot:abc-123" {
-		t.Errorf("session ID = %q, want %q",
-			sess.ID, "copilot:abc-123")
-	}
-	if sess.Agent != AgentCopilot {
-		t.Errorf("agent = %q, want %q",
-			sess.Agent, AgentCopilot)
-	}
-	if sess.Machine != "test-machine" {
-		t.Errorf("machine = %q, want %q",
-			sess.Machine, "test-machine")
-	}
-	if sess.Project != "myproject" {
-		t.Errorf("project = %q, want %q",
-			sess.Project, "myproject")
-	}
-	if sess.FirstMessage != "Fix the login bug" {
-		t.Errorf("first_message = %q, want %q",
-			sess.FirstMessage, "Fix the login bug")
-	}
-	if sess.MessageCount != 2 {
-		t.Errorf("message_count = %d, want 2",
-			sess.MessageCount)
-	}
+	assertEqual(t, "copilot:abc-123", sess.ID, "session ID")
+	assertEqual(t, AgentCopilot, sess.Agent, "agent")
+	assertEqual(t, "test-machine", sess.Machine, "machine")
+	assertEqual(t, "myproject", sess.Project, "project")
+	assertEqual(t, "Fix the login bug", sess.FirstMessage, "first_message")
+	assertEqual(t, 2, sess.MessageCount, "message_count")
 
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2", len(msgs))
-	}
-	if msgs[0].Role != RoleUser {
-		t.Errorf("msgs[0].Role = %q, want %q",
-			msgs[0].Role, RoleUser)
-	}
-	if msgs[1].Role != RoleAssistant {
-		t.Errorf("msgs[1].Role = %q, want %q",
-			msgs[1].Role, RoleAssistant)
-	}
-	if msgs[0].Content != "Fix the login bug" {
-		t.Errorf("msgs[0].Content = %q, want %q",
-			msgs[0].Content, "Fix the login bug")
-	}
+	assertEqual(t, RoleUser, msgs[0].Role, "msgs[0].Role")
+	assertEqual(t, RoleAssistant, msgs[1].Role, "msgs[1].Role")
+	assertEqual(t, "Fix the login bug", msgs[0].Content, "msgs[0].Content")
 }
 
 func TestParseCopilotSession_ToolCalls(t *testing.T) {
@@ -90,179 +77,60 @@ func TestParseCopilotSession_ToolCalls(t *testing.T) {
 		`{"type":"assistant.message","data":{"content":"The config file contains a key-value pair."},"timestamp":"2025-01-15T10:00:04Z"}`,
 	)
 
-	sess, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected non-nil session")
-	}
-
-	// Messages: user, assistant (tool call), user (tool result),
-	// assistant (text).
-	if len(msgs) != 4 {
-		t.Fatalf("got %d messages, want 4", len(msgs))
-	}
+	_, msgs := parseAndValidateHelper(t, path, "m", 4)
 
 	// Check tool call message.
 	tcMsg := msgs[1]
 	if !tcMsg.HasToolUse {
 		t.Error("expected HasToolUse on tool call message")
 	}
-	if len(tcMsg.ToolCalls) != 1 {
-		t.Fatalf("got %d tool calls, want 1",
-			len(tcMsg.ToolCalls))
-	}
+	assertEqual(t, 1, len(tcMsg.ToolCalls), "len(tcMsg.ToolCalls)")
+
 	tc := tcMsg.ToolCalls[0]
-	if tc.ToolName != "view" {
-		t.Errorf("tool name = %q, want %q",
-			tc.ToolName, "view")
-	}
-	if tc.Category != "Read" {
-		t.Errorf("tool category = %q, want %q",
-			tc.Category, "Read")
-	}
-	if tc.ToolUseID != "tc-1" {
-		t.Errorf("tool use ID = %q, want %q",
-			tc.ToolUseID, "tc-1")
-	}
-	// arguments was a stringified JSON string in the JSONL;
-	// InputJSON should be the unwrapped JSON, not
-	// double-encoded with enclosing quotes.
+	assertEqual(t, "view", tc.ToolName, "tool name")
+	assertEqual(t, "Read", tc.Category, "tool category")
+	assertEqual(t, "tc-1", tc.ToolUseID, "tool use ID")
+
 	wantInput := `{"path":"config.json"}`
-	if tc.InputJSON != wantInput {
-		t.Errorf("InputJSON = %q, want %q",
-			tc.InputJSON, wantInput)
-	}
+	assertEqual(t, wantInput, tc.InputJSON, "InputJSON")
 
 	// Check tool result message.
 	trMsg := msgs[2]
-	if len(trMsg.ToolResults) != 1 {
-		t.Fatalf("got %d tool results, want 1",
-			len(trMsg.ToolResults))
-	}
-	if trMsg.ToolResults[0].ToolUseID != "tc-1" {
-		t.Errorf("tool result ID = %q, want %q",
-			trMsg.ToolResults[0].ToolUseID, "tc-1")
-	}
-	if got := trMsg.ToolResults[0].ContentLength; got != 15 {
-		t.Errorf("tool result ContentLength = %d, want 15",
-			got)
-	}
+	assertEqual(t, 1, len(trMsg.ToolResults), "len(trMsg.ToolResults)")
+	assertEqual(t, "tc-1", trMsg.ToolResults[0].ToolUseID, "tool result ID")
+	assertEqual(t, 15, trMsg.ToolResults[0].ContentLength, "tool result ContentLength")
 
-	// Tool result message should carry the event timestamp.
 	wantTS := parseTimestamp("2025-01-15T10:00:03Z")
-	if trMsg.Timestamp != wantTS {
-		t.Errorf("tool result timestamp = %v, want %v",
-			trMsg.Timestamp, wantTS)
-	}
+	assertEqual(t, wantTS, trMsg.Timestamp, "tool result timestamp")
 }
 
-func TestParseCopilotSession_ObjectToolResult(t *testing.T) {
-	// result is a JSON object, not a string — Str would be
-	// empty, but Raw gives us the length.
-	path := writeCopilotJSONL(t,
-		`{"type":"session.start","data":{"sessionId":"obj-result"},"timestamp":"2025-01-15T10:00:00Z"}`,
-		`{"type":"user.message","data":{"content":"list files"},"timestamp":"2025-01-15T10:00:01Z"}`,
-		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-2","name":"ls","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
-		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-2","success":true,"result":{"files":["a.go","b.go"]}},"timestamp":"2025-01-15T10:00:03Z"}`,
-		`{"type":"assistant.message","data":{"content":"Found 2 files."},"timestamp":"2025-01-15T10:00:04Z"}`,
-	)
-
-	_, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(msgs) != 4 {
-		t.Fatalf("got %d messages, want 4", len(msgs))
+func TestParseCopilotSession_ToolResultTypes(t *testing.T) {
+	tests := []struct {
+		name        string
+		resultJSON  string
+		expectedLen int
+	}{
+		{"Object", `{"files":["a.go","b.go"]}`, 25},
+		{"Array", `["one","two","three"]`, 21},
+		{"EmptyString", `""`, 0},
 	}
 
-	trMsg := msgs[2]
-	if len(trMsg.ToolResults) != 1 {
-		t.Fatalf("got %d tool results, want 1",
-			len(trMsg.ToolResults))
-	}
-	// {"files":["a.go","b.go"]} = 25 bytes
-	if got := trMsg.ContentLength; got != 25 {
-		t.Errorf(
-			"ContentLength = %d, want 25 for object result",
-			got,
-		)
-	}
-	if got := trMsg.ToolResults[0].ContentLength; got != 25 {
-		t.Errorf(
-			"tool result ContentLength = %d, want 25 "+
-				"for object result", got,
-		)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeCopilotJSONL(t,
+				`{"type":"session.start","data":{"sessionId":"test"},"timestamp":"2025-01-15T10:00:00Z"}`,
+				`{"type":"user.message","data":{"content":"cmd"},"timestamp":"2025-01-15T10:00:01Z"}`,
+				`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc","name":"ls","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
+				`{"type":"tool.execution_complete","data":{"toolCallId":"tc","success":true,"result":`+tt.resultJSON+`},"timestamp":"2025-01-15T10:00:03Z"}`,
+				`{"type":"assistant.message","data":{"content":"Done."},"timestamp":"2025-01-15T10:00:04Z"}`,
+			)
 
-func TestParseCopilotSession_ArrayToolResult(t *testing.T) {
-	path := writeCopilotJSONL(t,
-		`{"type":"session.start","data":{"sessionId":"arr-result"},"timestamp":"2025-01-15T10:00:00Z"}`,
-		`{"type":"user.message","data":{"content":"get items"},"timestamp":"2025-01-15T10:00:01Z"}`,
-		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-3","name":"list","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
-		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-3","success":true,"result":["one","two","three"]},"timestamp":"2025-01-15T10:00:03Z"}`,
-		`{"type":"assistant.message","data":{"content":"Got 3 items."},"timestamp":"2025-01-15T10:00:04Z"}`,
-	)
+			_, msgs := parseAndValidateHelper(t, path, "m", 4)
+			trMsg := msgs[2]
 
-	_, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(msgs) != 4 {
-		t.Fatalf("got %d messages, want 4", len(msgs))
-	}
-
-	trMsg := msgs[2]
-	// ["one","two","three"] = 21 bytes
-	if got := trMsg.ContentLength; got != 21 {
-		t.Errorf(
-			"ContentLength = %d, want 21 for array result",
-			got,
-		)
-	}
-	if got := trMsg.ToolResults[0].ContentLength; got != 21 {
-		t.Errorf(
-			"tool result ContentLength = %d, want 21 "+
-				"for array result", got,
-		)
-	}
-}
-
-func TestParseCopilotSession_EmptyStringToolResult(
-	t *testing.T,
-) {
-	// result is an explicit empty string — ContentLength
-	// should be 0, not 2 (the length of `""`).
-	path := writeCopilotJSONL(t,
-		`{"type":"session.start","data":{"sessionId":"empty-str"},"timestamp":"2025-01-15T10:00:00Z"}`,
-		`{"type":"user.message","data":{"content":"run cmd"},"timestamp":"2025-01-15T10:00:01Z"}`,
-		`{"type":"assistant.message","data":{"content":"","toolRequests":[{"toolCallId":"tc-4","name":"exec","arguments":"{}"}]},"timestamp":"2025-01-15T10:00:02Z"}`,
-		`{"type":"tool.execution_complete","data":{"toolCallId":"tc-4","success":true,"result":""},"timestamp":"2025-01-15T10:00:03Z"}`,
-		`{"type":"assistant.message","data":{"content":"Done."},"timestamp":"2025-01-15T10:00:04Z"}`,
-	)
-
-	_, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(msgs) != 4 {
-		t.Fatalf("got %d messages, want 4", len(msgs))
-	}
-
-	trMsg := msgs[2]
-	if got := trMsg.ContentLength; got != 0 {
-		t.Errorf(
-			"ContentLength = %d, want 0 for empty-string result",
-			got,
-		)
-	}
-	if got := trMsg.ToolResults[0].ContentLength; got != 0 {
-		t.Errorf(
-			"tool result ContentLength = %d, want 0 "+
-				"for empty-string result", got,
-		)
+			assertEqual(t, tt.expectedLen, trMsg.ContentLength, "ContentLength")
+			assertEqual(t, tt.expectedLen, trMsg.ToolResults[0].ContentLength, "tool result ContentLength")
+		})
 	}
 }
 
@@ -273,25 +141,14 @@ func TestParseCopilotSession_Reasoning(t *testing.T) {
 		`{"type":"assistant.message","data":{"content":"Here is my analysis.","reasoningText":"Let me think about this carefully..."},"timestamp":"2025-01-15T10:00:02Z"}`,
 	)
 
-	sess, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected non-nil session")
-	}
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2", len(msgs))
-	}
+	_, msgs := parseAndValidateHelper(t, path, "m", 2)
+
 	if !msgs[1].HasThinking {
-		t.Error("expected HasThinking on assistant message " +
-			"with reasoningText")
+		t.Error("expected HasThinking on assistant message with reasoningText")
 	}
 }
 
-func TestParseCopilotSession_AssistantReasoningEvent(
-	t *testing.T,
-) {
+func TestParseCopilotSession_AssistantReasoningEvent(t *testing.T) {
 	path := writeCopilotJSONL(t,
 		`{"type":"session.start","data":{"sessionId":"reason-event"},"timestamp":"2025-01-15T10:00:00Z"}`,
 		`{"type":"user.message","data":{"content":"Hello"},"timestamp":"2025-01-15T10:00:01Z"}`,
@@ -299,16 +156,9 @@ func TestParseCopilotSession_AssistantReasoningEvent(
 		`{"type":"assistant.reasoning","data":{},"timestamp":"2025-01-15T10:00:03Z"}`,
 	)
 
-	_, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2", len(msgs))
-	}
+	_, msgs := parseAndValidateHelper(t, path, "m", 2)
 	if !msgs[1].HasThinking {
-		t.Error("expected HasThinking set by " +
-			"assistant.reasoning event")
+		t.Error("expected HasThinking set by assistant.reasoning event")
 	}
 }
 
@@ -332,22 +182,11 @@ func TestParseCopilotSession_DirectoryFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sess, _, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected non-nil session")
-	}
-	if sess.ID != "copilot:abc-456" {
-		t.Errorf("session ID = %q, want %q",
-			sess.ID, "copilot:abc-456")
-	}
+	sess, _ := parseAndValidateHelper(t, path, "m", 2)
+	assertEqual(t, "copilot:abc-456", sess.ID, "session ID")
 }
 
-func TestParseCopilotSession_DirectoryFormatFallbackID(
-	t *testing.T,
-) {
+func TestParseCopilotSession_DirectoryFormatFallbackID(t *testing.T) {
 	dir := t.TempDir()
 	sessDir := filepath.Join(dir, "def-789")
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
@@ -367,17 +206,8 @@ func TestParseCopilotSession_DirectoryFormatFallbackID(
 		t.Fatal(err)
 	}
 
-	sess, _, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected non-nil session")
-	}
-	if sess.ID != "copilot:def-789" {
-		t.Errorf("session ID = %q, want %q",
-			sess.ID, "copilot:def-789")
-	}
+	sess, _ := parseAndValidateHelper(t, path, "m", 2)
+	assertEqual(t, "copilot:def-789", sess.ID, "session ID")
 }
 
 func TestParseCopilotSession_EmptySession(t *testing.T) {
@@ -390,12 +220,10 @@ func TestParseCopilotSession_EmptySession(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if sess != nil {
-		t.Errorf("expected nil session for empty, got %+v",
-			sess)
+		t.Errorf("expected nil session for empty, got %+v", sess)
 	}
 	if msgs != nil {
-		t.Errorf("expected nil messages for empty, got %d",
-			len(msgs))
+		t.Errorf("expected nil messages for empty, got %d", len(msgs))
 	}
 }
 
@@ -423,17 +251,11 @@ func TestParseCopilotSession_ObjectArguments(t *testing.T) {
 		`{"type":"assistant.message","data":{"content":"done"},"timestamp":"2025-01-15T10:00:03Z"}`,
 	)
 
-	_, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, msgs := parseAndValidateHelper(t, path, "m", 3)
 
 	tc := msgs[1].ToolCalls[0]
 	wantInput := `{"pattern":"*.go"}`
-	if tc.InputJSON != wantInput {
-		t.Errorf("InputJSON = %q, want %q",
-			tc.InputJSON, wantInput)
-	}
+	assertEqual(t, wantInput, tc.InputJSON, "InputJSON")
 }
 
 func TestCopilotUserMessageCount(t *testing.T) {
@@ -451,25 +273,11 @@ func TestCopilotUserMessageCount(t *testing.T) {
 		`{"type":"assistant.message","data":{"content":"Done."},"timestamp":"2025-01-15T10:00:06Z"}`,
 	)
 
-	sess, msgs, err := ParseCopilotSession(path, "m")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected non-nil session")
-	}
-
-	// Messages: user, assistant(tool), user(tool-result), assistant, user, assistant
-	if len(msgs) != 6 {
-		t.Fatalf("got %d messages, want 6", len(msgs))
-	}
+	sess, _ := parseAndValidateHelper(t, path, "m", 6)
 
 	// Only 2 real user prompts: "Fix the bug" and "Ship it".
 	// The tool-result message at index 2 has empty Content.
-	if sess.UserMessageCount != 2 {
-		t.Errorf("UserMessageCount = %d, want 2",
-			sess.UserMessageCount)
-	}
+	assertEqual(t, 2, sess.UserMessageCount, "UserMessageCount")
 }
 
 func TestSessionIDFromPath(t *testing.T) {
@@ -485,10 +293,7 @@ func TestSessionIDFromPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			got := sessionIDFromPath(tt.path)
-			if got != tt.want {
-				t.Errorf("sessionIDFromPath(%q) = %q, want %q",
-					tt.path, got, tt.want)
-			}
+			assertEqual(t, tt.want, got, "sessionIDFromPath")
 		})
 	}
 }
