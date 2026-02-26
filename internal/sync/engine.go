@@ -101,7 +101,9 @@ func (e *Engine) SyncPaths(paths []string) {
 	}
 
 	results := e.startWorkers(files)
-	stats := e.collectAndBatch(results, len(files), nil)
+	stats := e.collectAndBatch(
+		results, len(files), nil, false,
+	)
 	e.persistSkipCache()
 
 	e.mu.Lock()
@@ -335,18 +337,18 @@ func (e *Engine) ResyncAll(
 		log.Printf("resync: reset mtimes: %v", err)
 	}
 
-	return e.syncAllLocked(onProgress)
+	return e.syncAllLocked(onProgress, true)
 }
 
 // SyncAll discovers and syncs all session files from all agents.
 func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	e.syncMu.Lock()
 	defer e.syncMu.Unlock()
-	return e.syncAllLocked(onProgress)
+	return e.syncAllLocked(onProgress, false)
 }
 
 func (e *Engine) syncAllLocked(
-	onProgress ProgressFunc,
+	onProgress ProgressFunc, forceReplace bool,
 ) SyncStats {
 	t0 := time.Now()
 
@@ -392,7 +394,9 @@ func (e *Engine) syncAllLocked(
 
 	tWorkers := time.Now()
 	results := e.startWorkers(all)
-	stats := e.collectAndBatch(results, len(all), onProgress)
+	stats := e.collectAndBatch(
+		results, len(all), onProgress, forceReplace,
+	)
 	if verbose {
 		log.Printf(
 			"file sync: %d synced, %d skipped in %s",
@@ -544,9 +548,11 @@ func (e *Engine) startWorkers(
 
 // collectAndBatch drains the results channel, batches
 // successful parses, and writes them to the database.
+// When forceReplace is true (full resync), messages are
+// deleted and reinserted instead of incrementally appended.
 func (e *Engine) collectAndBatch(
 	results <-chan syncJob, total int,
-	onProgress ProgressFunc,
+	onProgress ProgressFunc, forceReplace bool,
 ) SyncStats {
 	var stats SyncStats
 	stats.TotalSessions = total
@@ -596,7 +602,7 @@ func (e *Engine) collectAndBatch(
 		if len(pending) >= batchSize {
 			stats.RecordSynced(len(pending))
 			progress.MessagesIndexed += countMessages(pending)
-			e.writeBatch(pending)
+			e.writeBatch(pending, forceReplace)
 			pending = pending[:0]
 		}
 
@@ -609,7 +615,7 @@ func (e *Engine) collectAndBatch(
 	if len(pending) > 0 {
 		stats.RecordSynced(len(pending))
 		progress.MessagesIndexed += countMessages(pending)
-		e.writeBatch(pending)
+		e.writeBatch(pending, forceReplace)
 	}
 
 	progress.Phase = PhaseDone
@@ -882,8 +888,14 @@ type pendingWrite struct {
 	msgs []parser.ParsedMessage
 }
 
-func (e *Engine) writeBatch(batch []pendingWrite) {
+func (e *Engine) writeBatch(
+	batch []pendingWrite, forceReplace bool,
+) {
 	for _, pw := range batch {
+		if forceReplace {
+			e.writeSessionFull(pw)
+			continue
+		}
 		msgs := toDBMessages(pw)
 		s := toDBSession(pw)
 		s.MessageCount, s.UserMessageCount =

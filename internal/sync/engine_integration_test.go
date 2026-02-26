@@ -1603,3 +1603,93 @@ func TestSyncSmallGapRetry(t *testing.T) {
 
 	assertSessionMessageCount(t, env.db, "retry-uuid", 4)
 }
+
+func TestResyncAllReplacesMessageContent(t *testing.T) {
+	env := setupTestEnv(t)
+
+	sessionID := "gem-resync-test"
+	hash := "resync123"
+
+	content := testjsonl.GeminiSessionJSON(
+		sessionID, hash, tsEarly, tsEarlyS5,
+		[]map[string]any{
+			testjsonl.GeminiUserMsg(
+				"u1", tsEarly, "Explain this code",
+			),
+			testjsonl.GeminiAssistantMsg(
+				"a1", tsEarlyS5, "Here is the explanation.",
+				&testjsonl.GeminiMsgOpts{
+					Thoughts: []testjsonl.GeminiThought{{
+						Subject:     "Analysis",
+						Description: "Reading the code",
+						Timestamp:   tsEarlyS1,
+					}},
+				},
+			),
+		},
+	)
+
+	relPath := filepath.Join(
+		"tmp", hash, "chats", "session-001.json",
+	)
+	env.writeGeminiSession(t, relPath, content)
+
+	// Initial sync.
+	runSyncAndAssert(t, env.engine, sync.SyncStats{
+		TotalSessions: 1, Synced: 1,
+	})
+
+	fullID := "gemini:" + sessionID
+	msgs := fetchMessages(t, env.db, fullID)
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+
+	// Simulate a parser change by directly modifying message
+	// content in the DB. This mirrors what happens when the Go
+	// parser is updated (e.g. thinking format change) but the
+	// source files on disk are unchanged.
+	err := env.db.Update(func(tx *sql.Tx) error {
+		_, err := tx.Exec(
+			"UPDATE messages SET content = ?"+
+				" WHERE session_id = ? AND ordinal = 1",
+			"stale content from old parser",
+			fullID,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("update message content: %v", err)
+	}
+
+	// Normal SyncAll should skip (file unchanged on disk).
+	stats := env.engine.SyncAll(nil)
+	if stats.Skipped != 1 {
+		t.Fatalf("expected 1 skip, got %d", stats.Skipped)
+	}
+	msgs = fetchMessages(t, env.db, fullID)
+	if !strings.Contains(msgs[1].Content, "stale content") {
+		t.Fatal("SyncAll should not have replaced content")
+	}
+
+	// ResyncAll should re-parse and replace message content.
+	env.engine.ResyncAll(nil)
+	msgs = fetchMessages(t, env.db, fullID)
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages after resync, want 2",
+			len(msgs))
+	}
+	if strings.Contains(msgs[1].Content, "stale content") {
+		t.Error(
+			"ResyncAll did not replace message content",
+		)
+	}
+	if !strings.Contains(
+		msgs[1].Content, "Here is the explanation.",
+	) {
+		t.Errorf(
+			"unexpected content after resync: %q",
+			msgs[1].Content,
+		)
+	}
+}
