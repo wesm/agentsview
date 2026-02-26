@@ -1,22 +1,51 @@
 package sync
 
 import (
-	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSyncStats_RecordSkip(t *testing.T) {
-	var s SyncStats
-	s.RecordSkip()
-	s.RecordSkip()
-	assertSyncStats(t, s, 2, 0)
+	tests := []struct {
+		name  string
+		skips int
+		want  int
+	}{
+		{"zero skips", 0, 0},
+		{"multiple skips", 2, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s SyncStats
+			for i := 0; i < tt.skips; i++ {
+				s.RecordSkip()
+			}
+			assert.Equal(t, tt.want, s.Skipped)
+			assert.Equal(t, 0, s.Synced)
+		})
+	}
 }
 
 func TestSyncStats_RecordSynced(t *testing.T) {
-	var s SyncStats
-	s.RecordSynced(5)
-	s.RecordSynced(3)
-	assertSyncStats(t, s, 0, 8)
+	tests := []struct {
+		name   string
+		synced []int
+		want   int
+	}{
+		{"zero synced", []int{}, 0},
+		{"multiple synced", []int{5, 3}, 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s SyncStats
+			for _, v := range tt.synced {
+				s.RecordSynced(v)
+			}
+			assert.Equal(t, 0, s.Skipped)
+			assert.Equal(t, tt.want, s.Synced)
+		})
+	}
 }
 
 func TestProgress_Percent(t *testing.T) {
@@ -49,26 +78,7 @@ func TestProgress_Percent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.p.Percent()
-			assertFloatEqual(t, got, tt.want)
+			assert.InDelta(t, tt.want, got, 1e-4)
 		})
-	}
-}
-
-func assertSyncStats(t *testing.T, s SyncStats, wantSkipped, wantSynced int) {
-	t.Helper()
-	if s.Skipped != wantSkipped {
-		t.Errorf("Skipped = %d, want %d", s.Skipped, wantSkipped)
-	}
-	if s.Synced != wantSynced {
-		t.Errorf("Synced = %d, want %d", s.Synced, wantSynced)
-	}
-}
-
-func assertFloatEqual(t *testing.T, got, want float64) {
-	t.Helper()
-	const epsilon = 1e-4
-
-	if math.Abs(got-want) > epsilon {
-		t.Errorf("got %f, want %f", got, want)
 	}
 }
