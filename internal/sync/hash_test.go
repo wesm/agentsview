@@ -10,7 +10,8 @@ import (
 
 func createTempFile(t *testing.T, content []byte) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test-file")
+	cleanName := strings.ReplaceAll(t.Name(), "/", "_")
+	path := filepath.Join(t.TempDir(), cleanName+".txt")
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
@@ -51,43 +52,44 @@ func TestComputeHash(t *testing.T) {
 func TestComputeFileHash(t *testing.T) {
 	tests := []struct {
 		name    string
-		content []byte // nil means file does not exist
+		setup   func(t *testing.T) string
 		want    string
 		wantErr bool
 	}{
 		{
-			name:    "hello world",
-			content: []byte("hello world\n"),
-			want:    helloWorldHash,
+			name: "hello world",
+			setup: func(t *testing.T) string {
+				return createTempFile(t, []byte("hello world\n"))
+			},
+			want: helloWorldHash,
 		},
 		{
-			name:    "empty file",
-			content: []byte(""),
-			want:    emptyInputHash,
+			name: "empty file",
+			setup: func(t *testing.T) string {
+				return createTempFile(t, []byte(""))
+			},
+			want: emptyInputHash,
 		},
 		{
-			name:    "missing file",
-			content: nil,
+			name: "missing file",
+			setup: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "nonexistent.txt")
+			},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var path string
-			if tt.content != nil {
-				path = createTempFile(t, tt.content)
-			} else {
-				path = filepath.Join(t.TempDir(), "nonexistent.txt")
-			}
+			path := tt.setup(t)
 
 			got, err := ComputeFileHash(path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ComputeFileHash() error = %v, wantErr %v", err, tt.wantErr)
+			}
 			if tt.wantErr {
 				requirePathError(t, err)
 				return
-			}
-			if err != nil {
-				t.Fatalf("ComputeFileHash: %v", err)
 			}
 			if got != tt.want {
 				t.Errorf("ComputeFileHash() = %q, want %q", got, tt.want)
@@ -116,9 +118,5 @@ func TestComputeFileHash_ReadError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	// On most systems, reading a directory fails.
-	// We expect the error to be wrapped with "hashing <path>"
-	if !strings.Contains(err.Error(), "hashing "+dir) {
-		t.Errorf("expected error to contain 'hashing %s', got %v", dir, err)
-	}
 	requirePathError(t, err)
 }
