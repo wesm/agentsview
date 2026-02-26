@@ -330,13 +330,16 @@ func (e *Engine) ResyncAll(
 	origPath := origDB.Path()
 	tempPath := origPath + resyncTempSuffix
 
-	// Snapshot old session count to detect empty-discovery.
-	// Fail closed: if we can't read stats, assume the old DB
-	// has data worth protecting.
-	oldStats, err := origDB.GetStats(context.Background())
+	// Snapshot old file-backed session count to detect
+	// empty-discovery. Uses file-backed count (excludes
+	// OpenCode) so OpenCode-only datasets don't trigger the
+	// guard. Fail closed: if we can't query, assume old DB
+	// has file-backed data worth protecting.
+	ctx := context.Background()
+	oldFileSessions, err := origDB.FileBackedSessionCount(ctx)
 	if err != nil {
-		log.Printf("resync: get old stats: %v", err)
-		oldStats.SessionCount = 1
+		log.Printf("resync: get old file count: %v", err)
+		oldFileSessions = 1
 	}
 
 	// Clean up stale temp DB from a prior crash.
@@ -377,8 +380,7 @@ func (e *Engine) ResyncAll(
 	// files were broken in the old DB too.
 	emptyDiscovery := stats.filesDiscovered == 0 &&
 		stats.filesOK == 0 &&
-		stats.Synced == 0 &&
-		oldStats.SessionCount > 0
+		oldFileSessions > 0
 	abortSwap := emptyDiscovery ||
 		(stats.Synced == 0 && stats.TotalSessions > 0) ||
 		(stats.Failed > 0 && stats.Failed > stats.filesOK)

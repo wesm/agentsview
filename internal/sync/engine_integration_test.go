@@ -2225,3 +2225,91 @@ func TestResyncAllOpenCodeOnly(t *testing.T) {
 		"hello opencode", "hi there",
 	)
 }
+
+// TestResyncAllAbortsMixedSourceEmptyFiles verifies that
+// ResyncAll aborts when the old DB has both file-backed and
+// OpenCode sessions but file discovery returns zero (e.g.
+// file dirs temporarily inaccessible). OpenCode sync
+// succeeding must not mask the loss of file-backed sessions.
+func TestResyncAllAbortsMixedSourceEmptyFiles(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Seed file-backed sessions.
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "file session").
+		AddClaudeAssistant(tsEarlyS5, "file reply").
+		String()
+	env.writeClaudeSession(
+		t, "proj", "mixed-file.jsonl", content,
+	)
+
+	// Seed OpenCode sessions.
+	oc := createOpenCodeDB(t, env.opencodeDir)
+	oc.addProject(t, "proj-1", "/home/user/code/myapp")
+
+	sessionID := "oc-mixed"
+	var timeCreated int64 = 1704067200000
+	var timeUpdated int64 = 1704067205000
+
+	oc.addSession(
+		t, sessionID, "proj-1",
+		timeCreated, timeUpdated,
+	)
+	oc.addMessage(
+		t, "msg-u1", sessionID, "user", timeCreated,
+	)
+	oc.addMessage(
+		t, "msg-a1", sessionID, "assistant",
+		timeCreated+1,
+	)
+	oc.addTextPart(
+		t, "part-u1", sessionID, "msg-u1",
+		"oc question", timeCreated,
+	)
+	oc.addTextPart(
+		t, "part-a1", sessionID, "msg-a1",
+		"oc answer", timeCreated+1,
+	)
+
+	// Initial sync: both sources.
+	env.engine.SyncAll(nil)
+	assertSessionMessageCount(t, env.db, "mixed-file", 2)
+	assertSessionMessageCount(
+		t, env.db, "opencode:"+sessionID, 2,
+	)
+
+	// Remove all file-based sessions to simulate empty
+	// file discovery. OpenCode data remains.
+	entries, err := os.ReadDir(
+		filepath.Join(env.claudeDir, "proj"),
+	)
+	if err != nil {
+		t.Fatalf("reading dir: %v", err)
+	}
+	for _, e := range entries {
+		p := filepath.Join(env.claudeDir, "proj", e.Name())
+		os.Remove(p)
+	}
+
+	stats := env.engine.ResyncAll(nil)
+
+	// Must abort: file-backed sessions would be lost.
+	hasAbortWarning := false
+	for _, w := range stats.Warnings {
+		if strings.Contains(w, "resync aborted") {
+			hasAbortWarning = true
+		}
+	}
+	if !hasAbortWarning {
+		t.Error(
+			"expected abort when file dirs are empty " +
+				"but old DB has file-backed sessions",
+		)
+	}
+
+	// Both file-backed and OpenCode data preserved.
+	assertSessionMessageCount(t, env.db, "mixed-file", 2)
+	assertSessionMessageCount(
+		t, env.db, "opencode:"+sessionID, 2,
+	)
+}
