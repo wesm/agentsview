@@ -31,7 +31,7 @@ type Engine struct {
 	geminiDirs    []string
 	opencodeDirs  []string
 	machine       string
-	syncMu        gosync.Mutex // serializes full sync runs
+	syncMu        gosync.Mutex // serializes all sync operations
 	mu            gosync.RWMutex
 	lastSync      time.Time
 	lastSyncStats SyncStats
@@ -355,6 +355,12 @@ func (e *Engine) ResyncAll(
 			"search index rebuild failed: "+err.Error(),
 		)
 	}
+
+	// Update cached stats so /api/v1/sync/status includes
+	// any warnings appended after syncAllLocked returned.
+	e.mu.Lock()
+	e.lastSyncStats = stats
+	e.mu.Unlock()
 
 	return stats
 }
