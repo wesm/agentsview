@@ -7,8 +7,20 @@ import (
 	"time"
 )
 
-func seedAnalyticsData(t *testing.T, d *DB) {
+type seedStats struct {
+	TotalSessions  int
+	TotalMessages  int
+	ActiveProjects int
+}
+
+func seedAnalyticsData(t *testing.T, d *DB) seedStats {
 	t.Helper()
+
+	stats := seedStats{
+		TotalSessions:  5,
+		TotalMessages:  80,
+		ActiveProjects: 2,
+	}
 
 	// Project A: 3 sessions across 2 days, mixed agents
 	insertSession(t, d, "a1", "project-alpha", func(s *Session) {
@@ -69,6 +81,7 @@ func seedAnalyticsData(t *testing.T, d *DB) {
 		}
 		insertMessages(t, d, msgs...)
 	}
+	return stats
 }
 
 func baseFilter() AnalyticsFilter {
@@ -145,18 +158,18 @@ func TestGetAnalyticsSummary(t *testing.T) {
 		}
 	})
 
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, baseFilter())
-		if s.TotalSessions != 5 {
-			t.Errorf("TotalSessions = %d, want 5", s.TotalSessions)
+		if s.TotalSessions != stats.TotalSessions {
+			t.Errorf("TotalSessions = %d, want %d", s.TotalSessions, stats.TotalSessions)
 		}
-		if s.TotalMessages != 80 {
-			t.Errorf("TotalMessages = %d, want 80", s.TotalMessages)
+		if s.TotalMessages != stats.TotalMessages {
+			t.Errorf("TotalMessages = %d, want %d", s.TotalMessages, stats.TotalMessages)
 		}
-		if s.ActiveProjects != 2 {
-			t.Errorf("ActiveProjects = %d, want 2", s.ActiveProjects)
+		if s.ActiveProjects != stats.ActiveProjects {
+			t.Errorf("ActiveProjects = %d, want %d", s.ActiveProjects, stats.ActiveProjects)
 		}
 		if s.ActiveDays != 3 {
 			t.Errorf("ActiveDays = %d, want 3", s.ActiveDays)
@@ -346,12 +359,12 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 func TestGetAnalyticsProjects(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
 		resp := mustProjects(t, d, ctx, baseFilter())
-		if len(resp.Projects) != 2 {
-			t.Fatalf("len(Projects) = %d, want 2", len(resp.Projects))
+		if len(resp.Projects) != stats.ActiveProjects {
+			t.Fatalf("len(Projects) = %d, want %d", len(resp.Projects), stats.ActiveProjects)
 		}
 		// Sorted by message count desc: beta (45) > alpha (35)
 		if resp.Projects[0].Name != "project-beta" {
@@ -1591,7 +1604,7 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		}
 	})
 
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("ByMessages", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
@@ -1600,9 +1613,9 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsTopSessions: %v", err)
 		}
-		if len(resp.Sessions) != 5 {
-			t.Fatalf("len(Sessions) = %d, want 5",
-				len(resp.Sessions))
+		if len(resp.Sessions) != stats.TotalSessions {
+			t.Fatalf("len(Sessions) = %d, want %d",
+				len(resp.Sessions), stats.TotalSessions)
 		}
 		// First should be the session with most messages (b1=30)
 		if resp.Sessions[0].MessageCount != 30 {
