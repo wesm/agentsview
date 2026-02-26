@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 )
 
 const (
@@ -280,11 +282,22 @@ func insertToolCallsTx(
 	return nil
 }
 
+const slowOpThreshold = 100 * time.Millisecond
+
 // InsertMessages batch-inserts messages for a session.
 func (db *DB) InsertMessages(msgs []Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
+	t := time.Now()
+	defer func() {
+		if d := time.Since(t); d > slowOpThreshold {
+			log.Printf(
+				"db: InsertMessages (%d msgs): %s",
+				len(msgs), d.Round(time.Millisecond),
+			)
+		}
+	}()
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -340,6 +353,16 @@ func (db *DB) DeleteMessagesForSessions(
 	if len(sessionIDs) == 0 {
 		return nil
 	}
+	t := time.Now()
+	defer func() {
+		if d := time.Since(t); d > slowOpThreshold {
+			log.Printf(
+				"db: DeleteMessagesForSessions (%d): %s",
+				len(sessionIDs), d.Round(time.Millisecond),
+			)
+		}
+	}()
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -376,6 +399,17 @@ func (db *DB) DeleteMessagesForSessions(
 func (db *DB) ReplaceSessionMessages(
 	sessionID string, msgs []Message,
 ) error {
+	t := time.Now()
+	defer func() {
+		if d := time.Since(t); d > slowOpThreshold {
+			log.Printf(
+				"db: ReplaceSessionMessages %s (%d msgs): %s",
+				sessionID, len(msgs),
+				d.Round(time.Millisecond),
+			)
+		}
+	}()
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 

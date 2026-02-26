@@ -342,19 +342,29 @@ func (e *Engine) ResyncAll(
 
 	// 4. Drop FTS triggers so bulk message replacement is
 	//    fast (no per-row index updates). Rebuilt after sync.
+	tFTS := time.Now()
 	if err := e.db.DropFTS(); err != nil {
 		log.Printf("resync: drop fts: %v", err)
 	}
+	log.Printf(
+		"resync: drop fts: %s",
+		time.Since(tFTS).Round(time.Millisecond),
+	)
 
 	stats := e.syncAllLocked(onProgress, true)
 
 	// 5. Recreate FTS table and rebuild index from content.
+	tFTS = time.Now()
 	if err := e.db.RebuildFTS(); err != nil {
 		log.Printf("resync: rebuild fts: %v", err)
 		stats.Warnings = append(stats.Warnings,
 			"search index rebuild failed: "+err.Error(),
 		)
 	}
+	log.Printf(
+		"resync: rebuild fts: %s",
+		time.Since(tFTS).Round(time.Millisecond),
+	)
 
 	// Update cached stats so /api/v1/sync/status includes
 	// any warnings appended after syncAllLocked returned.
@@ -914,6 +924,7 @@ func (e *Engine) writeBatch(
 		// Bulk-delete all existing messages in one tx,
 		// then the normal writeMessages path will see
 		// maxOrd=-1 and INSERT all.
+		tDel := time.Now()
 		ids := make([]string, len(batch))
 		for i, pw := range batch {
 			ids[i] = pw.sess.ID
@@ -923,7 +934,13 @@ func (e *Engine) writeBatch(
 		); err != nil {
 			log.Printf("bulk delete messages: %v", err)
 		}
+		log.Printf(
+			"resync: bulk delete %d sessions: %s",
+			len(ids),
+			time.Since(tDel).Round(time.Millisecond),
+		)
 	}
+	tWrite := time.Now()
 	for _, pw := range batch {
 		msgs := toDBMessages(pw)
 		s := toDBSession(pw)
@@ -935,6 +952,11 @@ func (e *Engine) writeBatch(
 		}
 		e.writeMessages(pw.sess.ID, msgs)
 	}
+	log.Printf(
+		"resync: write batch (%d sessions): %s",
+		len(batch),
+		time.Since(tWrite).Round(time.Millisecond),
+	)
 }
 
 // writeMessages uses an incremental append when possible.

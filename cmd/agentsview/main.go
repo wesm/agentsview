@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -125,6 +126,7 @@ func warnMissingDirs(dirs []string, label string) {
 func runServe(args []string) {
 	start := time.Now()
 	cfg := mustLoadConfig(args)
+	setupLogFile(cfg.DataDir)
 	database := mustOpenDB(cfg)
 	defer database.Close()
 
@@ -206,6 +208,18 @@ func mustLoadConfig(args []string) config.Config {
 		log.Fatalf("creating data dir: %v", err)
 	}
 	return cfg
+}
+
+func setupLogFile(dataDir string) {
+	logPath := filepath.Join(dataDir, "debug.log")
+	f, err := os.OpenFile(
+		logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644,
+	)
+	if err != nil {
+		log.Printf("warning: cannot open log file: %v", err)
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
 }
 
 func mustOpenDB(cfg config.Config) *db.DB {
