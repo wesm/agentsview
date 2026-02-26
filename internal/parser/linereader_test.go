@@ -3,8 +3,10 @@ package parser
 import (
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestLineReader(t *testing.T) {
@@ -78,46 +80,22 @@ func TestLineReader(t *testing.T) {
 				}
 				got = append(got, line)
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("got %d lines, want %d: %v",
-					len(got), len(tt.want), got)
+			if err := lr.Err(); err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("line[%d] = %q, want %q",
-						i, got[i], tt.want[i])
-				}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-// errAfterReader yields data from buf, then returns errIO on the
-// next read.
-type errAfterReader struct {
-	buf   *strings.Reader
-	errIO error
-	done  bool
-}
-
-func (r *errAfterReader) Read(p []byte) (int, error) {
-	if r.done {
-		return 0, r.errIO
-	}
-	n, err := r.buf.Read(p)
-	if err == io.EOF {
-		r.done = true
-		return n, r.errIO
-	}
-	return n, err
-}
-
 func TestLineReaderIOError(t *testing.T) {
 	ioErr := errors.New("disk read failed")
-	r := &errAfterReader{
-		buf:   strings.NewReader("aaa\nbbb\n"),
-		errIO: ioErr,
-	}
+	r := io.MultiReader(
+		strings.NewReader("aaa\nbbb\n"),
+		iotest.ErrReader(ioErr),
+	)
 
 	lr := newLineReader(r, 100)
 	var got []string
