@@ -64,6 +64,8 @@ func ParseClaudeSession(
 		foundParentSID  bool
 		lineIndex       int
 		subagentMap     = map[string]string{}
+		globalStart     time.Time
+		globalEnd       time.Time
 	)
 	allHaveUUID = true
 
@@ -78,6 +80,17 @@ func ParseClaudeSession(
 		}
 
 		entryType := gjson.Get(line, "type").Str
+
+		// Track global timestamps from all lines for session
+		// bounds, including non-message events.
+		if ts := extractTimestamp(line); !ts.IsZero() {
+			if globalStart.IsZero() || ts.Before(globalStart) {
+				globalStart = ts
+			}
+			if ts.After(globalEnd) {
+				globalEnd = ts
+			}
+		}
 
 		// Collect queue-operation enqueue entries for subagent mapping.
 		if entryType == "queue-operation" {
@@ -154,6 +167,7 @@ func ParseClaudeSession(
 		return parseDAG(
 			entries, sessionID, project, machine,
 			parentSessionID, fileInfo, subagentMap,
+			globalStart, globalEnd,
 		)
 	}
 
@@ -161,6 +175,7 @@ func ParseClaudeSession(
 	return parseLinear(
 		entries, sessionID, project, machine,
 		parentSessionID, fileInfo, subagentMap,
+		globalStart, globalEnd,
 	)
 }
 
@@ -170,8 +185,11 @@ func parseLinear(
 	sessionID, project, machine, parentSessionID string,
 	fileInfo FileInfo,
 	subagentMap map[string]string,
+	globalStart, globalEnd time.Time,
 ) ([]ParseResult, error) {
 	messages, startedAt, endedAt := extractMessages(entries)
+	startedAt = earlierTime(globalStart, startedAt)
+	endedAt = laterTime(globalEnd, endedAt)
 	annotateSubagentSessions(messages, subagentMap)
 
 	userCount := 0
@@ -212,6 +230,7 @@ func parseDAG(
 	sessionID, project, machine, parentSessionID string,
 	fileInfo FileInfo,
 	subagentMap map[string]string,
+	globalStart, globalEnd time.Time,
 ) ([]ParseResult, error) {
 	// Build parent -> children ordered by line position and
 	// collect the set of all uuids for connectivity checks.
@@ -236,6 +255,7 @@ func parseDAG(
 		return parseLinear(
 			entries, sessionID, project, machine,
 			parentSessionID, fileInfo, subagentMap,
+			globalStart, globalEnd,
 		)
 	}
 	for _, e := range entries {
@@ -244,6 +264,7 @@ func parseDAG(
 				return parseLinear(
 					entries, sessionID, project, machine,
 					parentSessionID, fileInfo, subagentMap,
+					globalStart, globalEnd,
 				)
 			}
 		}
@@ -252,7 +273,8 @@ func parseDAG(
 	// Walk from the root, collecting branches.
 	// branches[0] is the main branch; subsequent entries are forks.
 	type branch struct {
-		indices []int
+		indices  []int
+		parentID string // immediate parent session ID
 	}
 
 	var branches []branch
@@ -260,10 +282,11 @@ func parseDAG(
 	// walkBranch follows the DAG from a starting index, collecting
 	// all entries on the chosen path. At fork points, it either
 	// follows the latest child (small gap) or splits (large gap).
-	var walkBranch func(startIdx int) []int
+	// ownerID is the session ID of the branch that owns this walk.
+	var walkBranch func(startIdx int, ownerID string) []int
 	var forkBranches []branch
 
-	walkBranch = func(startIdx int) []int {
+	walkBranch = func(startIdx int, ownerID string) []int {
 		var path []int
 		current := startIdx
 
@@ -288,8 +311,16 @@ func parseDAG(
 				// Large-gap fork: follow first child on main,
 				// collect other children as fork branches.
 				for _, kid := range kids[1:] {
-					forkPath := walkBranch(kid)
-					forkBranches = append(forkBranches, branch{indices: forkPath})
+					forkSID := sessionID + "-" +
+						entries[kid].uuid
+					forkPath := walkBranch(kid, forkSID)
+					forkBranches = append(
+						forkBranches,
+						branch{
+							indices:  forkPath,
+							parentID: ownerID,
+						},
+					)
 				}
 				current = kids[0]
 			}
@@ -298,8 +329,11 @@ func parseDAG(
 		return path
 	}
 
-	mainPath := walkBranch(roots[0])
-	branches = append(branches, branch{indices: mainPath})
+	mainPath := walkBranch(roots[0], sessionID)
+	branches = append(
+		branches,
+		branch{indices: mainPath, parentID: parentSessionID},
+	)
 	branches = append(branches, forkBranches...)
 
 	// Build results for each branch.
@@ -312,6 +346,12 @@ func parseDAG(
 		}
 
 		messages, startedAt, endedAt := extractMessages(branchEntries)
+		// Main session uses global bounds to capture timestamps
+		// from non-message events (e.g. queue-operation).
+		if i == 0 {
+			startedAt = earlierTime(globalStart, startedAt)
+			endedAt = laterTime(globalEnd, endedAt)
+		}
 		annotateSubagentSessions(messages, subagentMap)
 
 		userCount := 0
@@ -328,14 +368,14 @@ func parseDAG(
 		}
 
 		sid := sessionID
-		pSID := parentSessionID
+		pSID := b.parentID
 		relType := RelationshipType("")
 
 		if i > 0 {
-			// Fork session.
+			// Fork session: ID derived from first entry's uuid,
+			// parent is the branch that forked.
 			firstEntry := entries[b.indices[0]]
 			sid = sessionID + "-" + firstEntry.uuid
-			pSID = sessionID
 			relType = RelFork
 		}
 
@@ -481,6 +521,34 @@ func extractTimestamp(line string) time.Time {
 		}
 	}
 	return ts
+}
+
+// earlierTime returns the earlier of two times, ignoring zero values.
+func earlierTime(a, b time.Time) time.Time {
+	if a.IsZero() {
+		return b
+	}
+	if b.IsZero() {
+		return a
+	}
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// laterTime returns the later of two times, ignoring zero values.
+func laterTime(a, b time.Time) time.Time {
+	if a.IsZero() {
+		return b
+	}
+	if b.IsZero() {
+		return a
+	}
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 // ExtractClaudeProjectHints reads project-identifying metadata

@@ -164,6 +164,7 @@ func (db *DB) DecodeCursor(s string) (SessionCursor, error) {
 // SessionFilter specifies how to query sessions.
 type SessionFilter struct {
 	Project         string
+	ExcludeProject  string // exclude sessions with this project name
 	Machine         string
 	Agent           string
 	Date            string // exact date YYYY-MM-DD
@@ -196,6 +197,10 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 	if f.Project != "" {
 		preds = append(preds, "project = ?")
 		args = append(args, f.Project)
+	}
+	if f.ExcludeProject != "" {
+		preds = append(preds, "project != ?")
+		args = append(args, f.ExcludeProject)
 	}
 	if f.Machine != "" {
 		preds = append(preds, "machine = ?")

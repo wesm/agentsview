@@ -57,6 +57,7 @@ func (s *Server) handleListSessions(
 
 	filter := db.SessionFilter{
 		Project:         q.Get("project"),
+		ExcludeProject:  q.Get("exclude_project"),
 		Machine:         q.Get("machine"),
 		Agent:           q.Get("agent"),
 		Date:            date,

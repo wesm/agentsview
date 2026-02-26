@@ -238,6 +238,16 @@ func TestForkDetection_NestedFork(t *testing.T) {
 	if nested.Session.RelationshipType != RelFork {
 		t.Errorf("nested RelationshipType = %q, want %q", nested.Session.RelationshipType, RelFork)
 	}
+	// Nested fork's parent should be the fork branch it split
+	// from, not the root session.
+	wantNestedParent := "nested-fork-m"
+	if nested.Session.ParentSessionID != wantNestedParent {
+		t.Errorf(
+			"nested ParentSessionID = %q, want %q",
+			nested.Session.ParentSessionID,
+			wantNestedParent,
+		)
+	}
 
 	// Fork from b: m,n,o,p,q,r,s,tt,u,v = 10 messages
 	fork := results[2]
@@ -247,6 +257,14 @@ func TestForkDetection_NestedFork(t *testing.T) {
 	assertMessageCount(t, len(fork.Messages), 10)
 	if fork.Session.RelationshipType != RelFork {
 		t.Errorf("fork RelationshipType = %q, want %q", fork.Session.RelationshipType, RelFork)
+	}
+	// Fork from b's parent should be the root session.
+	if fork.Session.ParentSessionID != "nested-fork" {
+		t.Errorf(
+			"fork ParentSessionID = %q, want %q",
+			fork.Session.ParentSessionID,
+			"nested-fork",
+		)
 	}
 }
 
@@ -306,4 +324,35 @@ func TestForkDetection_DisconnectedParent(t *testing.T) {
 	assertMessage(t, results[0].Messages[1], RoleAssistant, "hi")
 	assertMessage(t, results[0].Messages[2], RoleUser, "orphan")
 	assertMessage(t, results[0].Messages[3], RoleAssistant, "orphan reply")
+}
+
+func TestSessionBoundsIncludeNonMessageEvents(t *testing.T) {
+	// A trailing queue-operation event has a later timestamp
+	// than any user/assistant message. Session endedAt should
+	// still reflect that later timestamp.
+	queueLine := `{"type":"queue-operation","operation":"enqueue",` +
+		`"timestamp":"2024-01-01T11:00:00Z","content":"{}"}`
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser("2024-01-01T10:00:00Z", "hello").
+		AddClaudeAssistant("2024-01-01T10:00:01Z", "hi").
+		AddRaw(queueLine).
+		String()
+
+	path := createTestFile(t, "queue-ts.jsonl", content)
+	results, err := ParseClaudeSession(path, "proj", "local")
+	if err != nil {
+		t.Fatalf("ParseClaudeSession: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+
+	sess := results[0].Session
+	wantEnd := "2024-01-01T11:00:00Z"
+	got := sess.EndedAt.Format("2006-01-02T15:04:05Z")
+	if got != wantEnd {
+		t.Errorf("EndedAt = %q, want %q", got, wantEnd)
+	}
 }
