@@ -12,7 +12,7 @@ export class SessionsPage {
   readonly scroller: Locator;
 
   readonly sortButton: Locator;
-  readonly projectSelect: Locator;
+  readonly projectTypeahead: Locator;
   readonly sessionListHeader: Locator;
 
   readonly analyticsPage: Locator;
@@ -25,7 +25,7 @@ export class SessionsPage {
     this.messageRows = page.locator(".virtual-row");
     this.scroller = page.locator(".message-list-scroll");
     this.sortButton = page.getByLabel("Toggle sort order");
-    this.projectSelect = page.locator("select.project-select");
+    this.projectTypeahead = page.locator(".typeahead");
     this.sessionListHeader = page.locator(".session-list-header");
     this.analyticsPage = page.locator(".analytics-page");
     this.analyticsToolbar = page.locator(".analytics-toolbar");
@@ -64,11 +64,20 @@ export class SessionsPage {
   }
 
   async filterByProject(project: string) {
-    await this.projectSelect.selectOption(project);
+    await this.projectTypeahead.locator(".typeahead-trigger").click();
+    const input = this.projectTypeahead.locator(".typeahead-input");
+    await input.fill(project);
+    await this.projectTypeahead
+      .locator(".typeahead-option", { hasText: project })
+      .first()
+      .click();
   }
 
   async clearProjectFilter() {
-    await this.projectSelect.selectOption("");
+    await this.projectTypeahead.locator(".typeahead-trigger").click();
+    await this.projectTypeahead
+      .locator(".typeahead-option", { hasText: "All Projects" })
+      .click();
   }
 
   async pressNextSessionShortcut() {

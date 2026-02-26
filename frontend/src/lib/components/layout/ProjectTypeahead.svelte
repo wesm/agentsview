@@ -14,6 +14,7 @@
   let highlightIndex = $state(0);
   let inputEl = $state<HTMLInputElement>();
   let containerEl = $state<HTMLDivElement>();
+  let pointerInsideContainer = $state(false);
 
   const allOption = { name: "", label: "All Projects", count: 0 };
 
@@ -87,14 +88,24 @@
   }
 
   function handleBlur(e: FocusEvent) {
-    // Close if focus leaves the container entirely
     const related = e.relatedTarget as Node | null;
     if (containerEl && related && containerEl.contains(related)) return;
+    // When clicking scrollbar or non-focusable parts of the
+    // dropdown, relatedTarget is null but the pointer is still
+    // inside the container. Keep the dropdown open.
+    if (pointerInsideContainer) return;
     closeDropdown();
   }
 </script>
 
-<div class="typeahead" bind:this={containerEl}>
+<div
+  class="typeahead"
+  role="group"
+  bind:this={containerEl}
+  onpointerdown={() => (pointerInsideContainer = true)}
+  onpointerup={() => (pointerInsideContainer = false)}
+  onpointerleave={() => (pointerInsideContainer = false)}
+>
   {#if open}
     <input
       bind:this={inputEl}
