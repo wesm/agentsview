@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { SessionsPage } from "./pages/sessions-page";
 
+// The test fixture seeds 8 root sessions with messages, plus
+// subagent, fork, and empty sessions that must be excluded.
+const EXPECTED_ROOT_SESSIONS = 8;
+
 test.describe("Session count consistency", () => {
   let sp: SessionsPage;
 
@@ -12,7 +16,7 @@ test.describe("Session count consistency", () => {
   test("session list, analytics summary, and status bar show the same count", async ({
     page,
   }) => {
-    // 1. Session list header count (e.g. "65 sessions")
+    // 1. Session list header count
     const headerText = await sp.sessionListHeader.textContent();
     const listMatch = headerText?.match(/(\d[\d,]*)\s+sessions/);
     expect(listMatch, "session list header must show a count").toBeTruthy();
@@ -38,7 +42,6 @@ test.describe("Session count consistency", () => {
     await expect(
       sessionsCard.locator(".card-value"),
     ).not.toHaveText("--", { timeout: 10_000 });
-    // Also wait for skeletons to disappear.
     await expect(
       sessionsCard.locator(".skeleton-value"),
     ).toHaveCount(0, { timeout: 5_000 });
@@ -51,15 +54,11 @@ test.describe("Session count consistency", () => {
       10,
     );
 
-    // All three must be equal and non-zero.
-    expect(listCount, "session list count must be > 0").toBeGreaterThan(0);
-
-    expect(statsCount, `status bar (${statsCount}) != session list (${listCount})`).toBe(
-      listCount,
-    );
-    expect(
-      analyticsCount,
-      `analytics summary (${analyticsCount}) != session list (${listCount})`,
-    ).toBe(listCount);
+    // Each view must show exactly the expected root session count.
+    // This catches both drift between views AND regressions where
+    // all three silently include subagent/fork/empty sessions.
+    expect(listCount, "session list").toBe(EXPECTED_ROOT_SESSIONS);
+    expect(statsCount, "status bar").toBe(EXPECTED_ROOT_SESSIONS);
+    expect(analyticsCount, "analytics summary").toBe(EXPECTED_ROOT_SESSIONS);
   });
 });
