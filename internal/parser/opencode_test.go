@@ -49,267 +49,174 @@ CREATE TABLE part (
 );
 `
 
-func createTestOpenCodeDB(t *testing.T) string {
+func assertEq[T comparable](t *testing.T, name string, got, want T) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s = %v, want %v", name, got, want)
+	}
+}
+
+type OpenCodeSeeder struct {
+	db *sql.DB
+	t  *testing.T
+}
+
+func (s *OpenCodeSeeder) AddProject(id, worktree string) {
+	s.t.Helper()
+	_, err := s.db.Exec(`INSERT INTO project (id, worktree) VALUES (?, ?)`, id, worktree)
+	if err != nil {
+		s.t.Fatalf("add project: %v", err)
+	}
+}
+
+func (s *OpenCodeSeeder) AddSession(id, projectID, parentID, title string, timeCreated, timeUpdated int64) {
+	s.t.Helper()
+
+	var pID, tStr any
+	if parentID != "" {
+		pID = parentID
+	}
+	if title != "" {
+		tStr = title
+	}
+
+	_, err := s.db.Exec(`INSERT INTO session (id, project_id, parent_id, title, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, projectID, pID, tStr, timeCreated, timeUpdated)
+	if err != nil {
+		s.t.Fatalf("add session: %v", err)
+	}
+}
+
+func (s *OpenCodeSeeder) AddMessage(id, sessionID string, timeCreated, timeUpdated int64, data string) {
+	s.t.Helper()
+	_, err := s.db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		id, sessionID, timeCreated, timeUpdated, data)
+	if err != nil {
+		s.t.Fatalf("add message: %v", err)
+	}
+}
+
+func (s *OpenCodeSeeder) AddPart(id, messageID, sessionID string, timeCreated, timeUpdated int64, data string) {
+	s.t.Helper()
+	_, err := s.db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, messageID, sessionID, timeCreated, timeUpdated, data)
+	if err != nil {
+		s.t.Fatalf("add part: %v", err)
+	}
+}
+
+func newTestDB(t *testing.T) (string, *OpenCodeSeeder, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "opencode.db")
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
-	defer db.Close()
 
 	if _, err := db.Exec(openCodeSchema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	return dbPath
+
+	seeder := &OpenCodeSeeder{db: db, t: t}
+	return dbPath, seeder, db
 }
 
-func seedStandardSession(t *testing.T, dbPath string) {
+func seedStandardSession(t *testing.T, seeder *OpenCodeSeeder) {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	defer db.Close()
+	seeder.AddProject("prj_1", "/home/user/code/myapp")
+	seeder.AddSession("ses_abc", "prj_1", "", "Test Session", 1700000000000, 1700000060000)
 
-	stmts := []string{
-		`INSERT INTO project (id, worktree)
-		 VALUES ('prj_1', '/home/user/code/myapp')`,
-		`INSERT INTO session
-		 (id, project_id, title, time_created, time_updated)
-		 VALUES ('ses_abc', 'prj_1', 'Test Session',
-		         1700000000000, 1700000060000)`,
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_1', 'ses_abc', 1700000000000,
-		         1700000000000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_1', 'msg_1', 'ses_abc',
-		         1700000000000, 1700000000000,
-		         '{"type":"text","text":"Hello, help me with Go"}')`,
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_2', 'ses_abc', 1700000010000,
-		         1700000010000,
-		         '{"role":"assistant"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_2', 'msg_2', 'ses_abc',
-		         1700000010000, 1700000010000,
-		         '{"type":"text","text":"Sure, I can help with Go."}')`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-	}
+	seeder.AddMessage("msg_1", "ses_abc", 1700000000000, 1700000000000, `{"role":"user"}`)
+	seeder.AddPart("prt_1", "msg_1", "ses_abc", 1700000000000, 1700000000000, `{"type":"text","text":"Hello, help me with Go"}`)
+
+	seeder.AddMessage("msg_2", "ses_abc", 1700000010000, 1700000010000, `{"role":"assistant"}`)
+	seeder.AddPart("prt_2", "msg_2", "ses_abc", 1700000010000, 1700000010000, `{"type":"text","text":"Sure, I can help with Go."}`)
 }
 
 func TestParseOpenCodeDB_StandardSession(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	seedStandardSession(t, dbPath)
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
+	seedStandardSession(t, seeder)
 
 	sessions, err := ParseOpenCodeDB(dbPath, "testmachine")
 	if err != nil {
 		t.Fatalf("ParseOpenCodeDB: %v", err)
 	}
 
-	if len(sessions) != 1 {
-		t.Fatalf("got %d sessions, want 1", len(sessions))
-	}
+	assertEq(t, "sessions len", len(sessions), 1)
 
 	s := sessions[0]
-	if s.Session.ID != "opencode:ses_abc" {
-		t.Errorf("ID = %q, want %q",
-			s.Session.ID, "opencode:ses_abc")
-	}
-	if s.Session.Agent != AgentOpenCode {
-		t.Errorf("Agent = %q, want %q",
-			s.Session.Agent, AgentOpenCode)
-	}
-	if s.Session.Machine != "testmachine" {
-		t.Errorf("Machine = %q, want %q",
-			s.Session.Machine, "testmachine")
-	}
-	if s.Session.Project != "myapp" {
-		t.Errorf("Project = %q, want %q",
-			s.Session.Project, "myapp")
-	}
-	if s.Session.MessageCount != 2 {
-		t.Errorf("MessageCount = %d, want 2",
-			s.Session.MessageCount)
-	}
-	if s.Session.FirstMessage != "Hello, help me with Go" {
-		t.Errorf("FirstMessage = %q, want %q",
-			s.Session.FirstMessage,
-			"Hello, help me with Go")
-	}
+	assertEq(t, "ID", s.Session.ID, "opencode:ses_abc")
+	assertEq(t, "Agent", s.Session.Agent, AgentOpenCode)
+	assertEq(t, "Machine", s.Session.Machine, "testmachine")
+	assertEq(t, "Project", s.Session.Project, "myapp")
+	assertEq(t, "MessageCount", s.Session.MessageCount, 2)
+	assertEq(t, "FirstMessage", s.Session.FirstMessage, "Hello, help me with Go")
 
 	wantPath := dbPath + "#ses_abc"
-	if s.Session.File.Path != wantPath {
-		t.Errorf("File.Path = %q, want %q",
-			s.Session.File.Path, wantPath)
-	}
+	assertEq(t, "File.Path", s.Session.File.Path, wantPath)
 
-	// Mtime = time_updated * 1_000_000
 	wantMtime := int64(1700000060000) * 1_000_000
-	if s.Session.File.Mtime != wantMtime {
-		t.Errorf("File.Mtime = %d, want %d",
-			s.Session.File.Mtime, wantMtime)
-	}
+	assertEq(t, "File.Mtime", s.Session.File.Mtime, wantMtime)
 
-	if len(s.Messages) != 2 {
-		t.Fatalf("got %d messages, want 2", len(s.Messages))
-	}
-	if s.Messages[0].Role != RoleUser {
-		t.Errorf("msg[0].Role = %q, want user",
-			s.Messages[0].Role)
-	}
-	if s.Messages[1].Role != RoleAssistant {
-		t.Errorf("msg[1].Role = %q, want assistant",
-			s.Messages[1].Role)
-	}
-	if s.Messages[1].Content != "Sure, I can help with Go." {
-		t.Errorf("msg[1].Content = %q",
-			s.Messages[1].Content)
-	}
+	assertEq(t, "Messages len", len(s.Messages), 2)
+	assertEq(t, "msg[0].Role", s.Messages[0].Role, RoleUser)
+	assertEq(t, "msg[1].Role", s.Messages[1].Role, RoleAssistant)
+	assertEq(t, "msg[1].Content", s.Messages[1].Content, "Sure, I can help with Go.")
 }
 
 func TestParseOpenCodeDB_ToolParts(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
 
-	stmts := []string{
-		`INSERT INTO project (id, worktree)
-		 VALUES ('prj_1', '/tmp/proj')`,
-		`INSERT INTO session
-		 (id, project_id, time_created, time_updated)
-		 VALUES ('ses_tools', 'prj_1',
-		         1700000000000, 1700000030000)`,
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_u', 'ses_tools', 1700000000000,
-		         1700000000000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_u', 'msg_u', 'ses_tools',
-		         1700000000000, 1700000000000,
-		         '{"type":"text","text":"read my file"}')`,
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_a', 'ses_tools', 1700000010000,
-		         1700000012000,
-		         '{"role":"assistant"}')`,
-		// reasoning part
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_r', 'msg_a', 'ses_tools',
-		         1700000010000, 1700000010000,
-		         '{"type":"reasoning","text":"Let me think about this..."}')`,
-		// tool part
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_t', 'msg_a', 'ses_tools',
-		         1700000011000, 1700000011000,
-		         '{"type":"tool","tool":"read","callID":"call_1","state":{"input":{"file_path":"main.go"}}}')`,
-		// text part
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_txt', 'msg_a', 'ses_tools',
-		         1700000012000, 1700000012000,
-		         '{"type":"text","text":"Here is the file content."}')`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-	}
-	db.Close()
+	seeder.AddProject("prj_1", "/tmp/proj")
+	seeder.AddSession("ses_tools", "prj_1", "", "", 1700000000000, 1700000030000)
+
+	seeder.AddMessage("msg_u", "ses_tools", 1700000000000, 1700000000000, `{"role":"user"}`)
+	seeder.AddPart("prt_u", "msg_u", "ses_tools", 1700000000000, 1700000000000, `{"type":"text","text":"read my file"}`)
+
+	seeder.AddMessage("msg_a", "ses_tools", 1700000010000, 1700000012000, `{"role":"assistant"}`)
+	seeder.AddPart("prt_r", "msg_a", "ses_tools", 1700000010000, 1700000010000, `{"type":"reasoning","text":"Let me think about this..."}`)
+	seeder.AddPart("prt_t", "msg_a", "ses_tools", 1700000011000, 1700000011000, `{"type":"tool","tool":"read","callID":"call_1","state":{"input":{"file_path":"main.go"}}}`)
+	seeder.AddPart("prt_txt", "msg_a", "ses_tools", 1700000012000, 1700000012000, `{"type":"text","text":"Here is the file content."}`)
 
 	sessions, err := ParseOpenCodeDB(dbPath, "m")
 	if err != nil {
 		t.Fatalf("ParseOpenCodeDB: %v", err)
 	}
 
-	if len(sessions) != 1 {
-		t.Fatalf("got %d sessions, want 1", len(sessions))
-	}
+	assertEq(t, "sessions len", len(sessions), 1)
 
 	msgs := sessions[0].Messages
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2", len(msgs))
-	}
+	assertEq(t, "messages len", len(msgs), 2)
 
 	ast := msgs[1]
-	if !ast.HasThinking {
-		t.Error("expected HasThinking=true")
-	}
-	if !ast.HasToolUse {
-		t.Error("expected HasToolUse=true")
-	}
-	if len(ast.ToolCalls) != 1 {
-		t.Fatalf("got %d tool calls, want 1",
-			len(ast.ToolCalls))
-	}
+	assertEq(t, "HasThinking", ast.HasThinking, true)
+	assertEq(t, "HasToolUse", ast.HasToolUse, true)
+	assertEq(t, "ToolCalls len", len(ast.ToolCalls), 1)
 
 	tc := ast.ToolCalls[0]
-	if tc.ToolName != "read" {
-		t.Errorf("ToolName = %q, want %q",
-			tc.ToolName, "read")
-	}
-	if tc.Category != "Read" {
-		t.Errorf("Category = %q, want %q",
-			tc.Category, "Read")
-	}
-	if tc.ToolUseID != "call_1" {
-		t.Errorf("ToolUseID = %q, want %q",
-			tc.ToolUseID, "call_1")
-	}
+	assertEq(t, "ToolName", tc.ToolName, "read")
+	assertEq(t, "Category", tc.Category, "Read")
+	assertEq(t, "ToolUseID", tc.ToolUseID, "call_1")
 	if tc.InputJSON == "" {
 		t.Error("expected non-empty InputJSON")
 	}
 }
 
 func TestParseOpenCodeDB_EmptySession(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	stmts := []string{
-		`INSERT INTO project (id, worktree)
-		 VALUES ('prj_1', '/tmp/proj')`,
-		`INSERT INTO session
-		 (id, project_id, time_created, time_updated)
-		 VALUES ('ses_empty', 'prj_1',
-		         1700000000000, 1700000000000)`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-	}
-	db.Close()
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
+
+	seeder.AddProject("prj_1", "/tmp/proj")
+	seeder.AddSession("ses_empty", "prj_1", "", "", 1700000000000, 1700000000000)
 
 	sessions, err := ParseOpenCodeDB(dbPath, "m")
 	if err != nil {
 		t.Fatalf("ParseOpenCodeDB: %v", err)
 	}
 
-	if len(sessions) != 0 {
-		t.Errorf("got %d sessions, want 0 (empty skipped)",
-			len(sessions))
-	}
+	assertEq(t, "sessions len", len(sessions), 0)
 }
 
 func TestParseOpenCodeDB_NonexistentDB(t *testing.T) {
@@ -320,73 +227,41 @@ func TestParseOpenCodeDB_NonexistentDB(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	if sessions != nil {
-		t.Errorf("expected nil sessions, got %d",
-			len(sessions))
+		t.Errorf("expected nil sessions, got %d", len(sessions))
 	}
 }
 
 func TestParseOpenCodeDB_ProjectFromWorktree(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
 
 	// Create a temp dir that looks like a git repo so
 	// ExtractProjectFromCwd resolves it.
 	repoDir := filepath.Join(t.TempDir(), "my-project")
-	if err := os.MkdirAll(
-		filepath.Join(repoDir, ".git"), 0o755,
-	); err != nil {
+	if err := os.MkdirAll(filepath.Join(repoDir, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	stmts := []string{
-		`INSERT INTO project (id, worktree)
-		 VALUES ('prj_git', '` + repoDir + `')`,
-		`INSERT INTO session
-		 (id, project_id, time_created, time_updated)
-		 VALUES ('ses_git', 'prj_git',
-		         1700000000000, 1700000010000)`,
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_1', 'ses_git', 1700000000000,
-		         1700000000000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_1', 'msg_1', 'ses_git',
-		         1700000000000, 1700000000000,
-		         '{"type":"text","text":"hello"}')`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-	}
-	db.Close()
+	seeder.AddProject("prj_git", repoDir)
+	seeder.AddSession("ses_git", "prj_git", "", "", 1700000000000, 1700000010000)
+	seeder.AddMessage("msg_1", "ses_git", 1700000000000, 1700000000000, `{"role":"user"}`)
+	seeder.AddPart("prt_1", "msg_1", "ses_git", 1700000000000, 1700000000000, `{"type":"text","text":"hello"}`)
 
 	sessions, err := ParseOpenCodeDB(dbPath, "m")
 	if err != nil {
 		t.Fatalf("ParseOpenCodeDB: %v", err)
 	}
-	if len(sessions) != 1 {
-		t.Fatalf("got %d sessions, want 1", len(sessions))
-	}
+	assertEq(t, "sessions len", len(sessions), 1)
 
-	if sessions[0].Session.Project != "my_project" {
-		t.Errorf("Project = %q, want %q",
-			sessions[0].Session.Project, "my_project")
-	}
+	assertEq(t, "Project", sessions[0].Session.Project, "my_project")
 }
 
 func TestParseOpenCodeSession_SingleSession(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	seedStandardSession(t, dbPath)
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
+	seedStandardSession(t, seeder)
 
-	sess, msgs, err := ParseOpenCodeSession(
-		dbPath, "ses_abc", "testmachine",
-	)
+	sess, msgs, err := ParseOpenCodeSession(dbPath, "ses_abc", "testmachine")
 	if err != nil {
 		t.Fatalf("ParseOpenCodeSession: %v", err)
 	}
@@ -394,174 +269,69 @@ func TestParseOpenCodeSession_SingleSession(t *testing.T) {
 		t.Fatal("expected non-nil session")
 	}
 
-	if sess.ID != "opencode:ses_abc" {
-		t.Errorf("ID = %q, want %q",
-			sess.ID, "opencode:ses_abc")
-	}
-	if len(msgs) != 2 {
-		t.Errorf("got %d messages, want 2", len(msgs))
-	}
+	assertEq(t, "ID", sess.ID, "opencode:ses_abc")
+	assertEq(t, "messages len", len(msgs), 2)
 }
 
 func TestParseOpenCodeDB_OrdinalContinuity(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
 
-	// Insert messages with mixed roles including "system"
-	// (which should be skipped) and an empty-content user
-	// message (also skipped). Ordinals of the remaining
-	// messages must be contiguous 0,1,2.
-	stmts := []string{
-		`INSERT INTO project (id, worktree)
-		 VALUES ('prj_1', '/tmp/proj')`,
-		`INSERT INTO session
-		 (id, project_id, time_created, time_updated)
-		 VALUES ('ses_ord', 'prj_1',
-		         1700000000000, 1700000050000)`,
-		// msg 0: user (kept, ordinal 0)
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_1', 'ses_ord', 1700000000000,
-		         1700000000000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_1', 'msg_1', 'ses_ord',
-		         1700000000000, 1700000000000,
-		         '{"type":"text","text":"first"}')`,
-		// msg 1: system (skipped role)
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_2', 'ses_ord', 1700000010000,
-		         1700000010000, '{"role":"system"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_2', 'msg_2', 'ses_ord',
-		         1700000010000, 1700000010000,
-		         '{"type":"text","text":"system msg"}')`,
-		// msg 2: user with empty content (skipped)
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_3', 'ses_ord', 1700000020000,
-		         1700000020000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_3', 'msg_3', 'ses_ord',
-		         1700000020000, 1700000020000,
-		         '{"type":"text","text":""}')`,
-		// msg 3: assistant (kept, ordinal 1)
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_4', 'ses_ord', 1700000030000,
-		         1700000030000,
-		         '{"role":"assistant"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_4', 'msg_4', 'ses_ord',
-		         1700000030000, 1700000030000,
-		         '{"type":"text","text":"response"}')`,
-		// msg 4: user (kept, ordinal 2)
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_5', 'ses_ord', 1700000040000,
-		         1700000040000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_5', 'msg_5', 'ses_ord',
-		         1700000040000, 1700000040000,
-		         '{"type":"text","text":"follow up"}')`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-	}
-	db.Close()
+	seeder.AddProject("prj_1", "/tmp/proj")
+	seeder.AddSession("ses_ord", "prj_1", "", "", 1700000000000, 1700000050000)
+
+	// msg 0: user (kept, ordinal 0)
+	seeder.AddMessage("msg_1", "ses_ord", 1700000000000, 1700000000000, `{"role":"user"}`)
+	seeder.AddPart("prt_1", "msg_1", "ses_ord", 1700000000000, 1700000000000, `{"type":"text","text":"first"}`)
+
+	// msg 1: system (skipped role)
+	seeder.AddMessage("msg_2", "ses_ord", 1700000010000, 1700000010000, `{"role":"system"}`)
+	seeder.AddPart("prt_2", "msg_2", "ses_ord", 1700000010000, 1700000010000, `{"type":"text","text":"system msg"}`)
+
+	// msg 2: user with empty content (skipped)
+	seeder.AddMessage("msg_3", "ses_ord", 1700000020000, 1700000020000, `{"role":"user"}`)
+	seeder.AddPart("prt_3", "msg_3", "ses_ord", 1700000020000, 1700000020000, `{"type":"text","text":""}`)
+
+	// msg 3: assistant (kept, ordinal 1)
+	seeder.AddMessage("msg_4", "ses_ord", 1700000030000, 1700000030000, `{"role":"assistant"}`)
+	seeder.AddPart("prt_4", "msg_4", "ses_ord", 1700000030000, 1700000030000, `{"type":"text","text":"response"}`)
+
+	// msg 4: user (kept, ordinal 2)
+	seeder.AddMessage("msg_5", "ses_ord", 1700000040000, 1700000040000, `{"role":"user"}`)
+	seeder.AddPart("prt_5", "msg_5", "ses_ord", 1700000040000, 1700000040000, `{"type":"text","text":"follow up"}`)
 
 	sessions, err := ParseOpenCodeDB(dbPath, "m")
 	if err != nil {
 		t.Fatalf("ParseOpenCodeDB: %v", err)
 	}
-	if len(sessions) != 1 {
-		t.Fatalf("got %d sessions, want 1", len(sessions))
-	}
+	assertEq(t, "sessions len", len(sessions), 1)
 
 	msgs := sessions[0].Messages
-	if len(msgs) != 3 {
-		t.Fatalf("got %d messages, want 3", len(msgs))
-	}
+	assertEq(t, "messages len", len(msgs), 3)
 
 	for i, m := range msgs {
-		if m.Ordinal != i {
-			t.Errorf("msg[%d].Ordinal = %d, want %d",
-				i, m.Ordinal, i)
-		}
+		assertEq(t, "Ordinal", m.Ordinal, i)
 	}
 
-	if msgs[0].Content != "first" {
-		t.Errorf("msgs[0].Content = %q", msgs[0].Content)
-	}
-	if msgs[1].Content != "response" {
-		t.Errorf("msgs[1].Content = %q", msgs[1].Content)
-	}
-	if msgs[2].Content != "follow up" {
-		t.Errorf("msgs[2].Content = %q", msgs[2].Content)
-	}
+	assertEq(t, "msgs[0].Content", msgs[0].Content, "first")
+	assertEq(t, "msgs[1].Content", msgs[1].Content, "response")
+	assertEq(t, "msgs[2].Content", msgs[2].Content, "follow up")
 }
 
 func TestParseOpenCodeDB_ParentSession(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	stmts := []string{
-		`INSERT INTO project (id, worktree)
-		 VALUES ('prj_1', '/tmp/proj')`,
-		`INSERT INTO session
-		 (id, project_id, time_created, time_updated)
-		 VALUES ('ses_parent', 'prj_1',
-		         1700000000000, 1700000010000)`,
-		`INSERT INTO session
-		 (id, project_id, parent_id,
-		  time_created, time_updated)
-		 VALUES ('ses_child', 'prj_1', 'ses_parent',
-		         1700000020000, 1700000030000)`,
-		// Add messages to both so they aren't skipped
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_p', 'ses_parent', 1700000000000,
-		         1700000000000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_p', 'msg_p', 'ses_parent',
-		         1700000000000, 1700000000000,
-		         '{"type":"text","text":"parent msg"}')`,
-		`INSERT INTO message
-		 (id, session_id, time_created, time_updated, data)
-		 VALUES ('msg_c', 'ses_child', 1700000020000,
-		         1700000020000, '{"role":"user"}')`,
-		`INSERT INTO part
-		 (id, message_id, session_id,
-		  time_created, time_updated, data)
-		 VALUES ('prt_c', 'msg_c', 'ses_child',
-		         1700000020000, 1700000020000,
-		         '{"type":"text","text":"child msg"}')`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-	}
-	db.Close()
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
+
+	seeder.AddProject("prj_1", "/tmp/proj")
+	seeder.AddSession("ses_parent", "prj_1", "", "", 1700000000000, 1700000010000)
+	seeder.AddSession("ses_child", "prj_1", "ses_parent", "", 1700000020000, 1700000030000)
+
+	// Add messages to both so they aren't skipped
+	seeder.AddMessage("msg_p", "ses_parent", 1700000000000, 1700000000000, `{"role":"user"}`)
+	seeder.AddPart("prt_p", "msg_p", "ses_parent", 1700000000000, 1700000000000, `{"type":"text","text":"parent msg"}`)
+
+	seeder.AddMessage("msg_c", "ses_child", 1700000020000, 1700000020000, `{"role":"user"}`)
+	seeder.AddPart("prt_c", "msg_c", "ses_child", 1700000020000, 1700000020000, `{"type":"text","text":"child msg"}`)
 
 	sessions, err := ParseOpenCodeDB(dbPath, "m")
 	if err != nil {
@@ -577,41 +347,28 @@ func TestParseOpenCodeDB_ParentSession(t *testing.T) {
 	if child == nil {
 		t.Fatal("child session not found")
 	}
-	if child.Session.ParentSessionID != "opencode:ses_parent" {
-		t.Errorf("ParentSessionID = %q, want %q",
-			child.Session.ParentSessionID,
-			"opencode:ses_parent")
-	}
+	assertEq(t, "ParentSessionID", child.Session.ParentSessionID, "opencode:ses_parent")
 }
 
 func TestListOpenCodeSessionMeta(t *testing.T) {
-	dbPath := createTestOpenCodeDB(t)
-	seedStandardSession(t, dbPath)
+	dbPath, seeder, db := newTestDB(t)
+	defer db.Close()
+	seedStandardSession(t, seeder)
 
 	metas, err := ListOpenCodeSessionMeta(dbPath)
 	if err != nil {
 		t.Fatalf("ListOpenCodeSessionMeta: %v", err)
 	}
-	if len(metas) != 1 {
-		t.Fatalf("got %d metas, want 1", len(metas))
-	}
+	assertEq(t, "metas len", len(metas), 1)
 
 	m := metas[0]
-	if m.SessionID != "ses_abc" {
-		t.Errorf("SessionID = %q, want %q",
-			m.SessionID, "ses_abc")
-	}
+	assertEq(t, "SessionID", m.SessionID, "ses_abc")
+
 	wantPath := dbPath + "#ses_abc"
-	if m.VirtualPath != wantPath {
-		t.Errorf("VirtualPath = %q, want %q",
-			m.VirtualPath, wantPath)
-	}
-	// time_updated = 1700000060000 ms → nanos
+	assertEq(t, "VirtualPath", m.VirtualPath, wantPath)
+
 	wantMtime := int64(1700000060000) * 1_000_000
-	if m.FileMtime != wantMtime {
-		t.Errorf("FileMtime = %d, want %d",
-			m.FileMtime, wantMtime)
-	}
+	assertEq(t, "FileMtime", m.FileMtime, wantMtime)
 }
 
 func TestListOpenCodeSessionMeta_NonexistentDB(t *testing.T) {
@@ -620,7 +377,5 @@ func TestListOpenCodeSessionMeta_NonexistentDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(metas) != 0 {
-		t.Fatalf("got %d metas, want 0", len(metas))
-	}
+	assertEq(t, "metas len", len(metas), 0)
 }
