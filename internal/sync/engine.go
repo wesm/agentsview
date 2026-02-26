@@ -910,11 +910,21 @@ type pendingWrite struct {
 func (e *Engine) writeBatch(
 	batch []pendingWrite, forceReplace bool,
 ) {
-	for _, pw := range batch {
-		if forceReplace {
-			e.writeSessionFull(pw)
-			continue
+	if forceReplace {
+		// Bulk-delete all existing messages in one tx,
+		// then the normal writeMessages path will see
+		// maxOrd=-1 and INSERT all.
+		ids := make([]string, len(batch))
+		for i, pw := range batch {
+			ids[i] = pw.sess.ID
 		}
+		if err := e.db.DeleteMessagesForSessions(
+			ids,
+		); err != nil {
+			log.Printf("bulk delete messages: %v", err)
+		}
+	}
+	for _, pw := range batch {
 		msgs := toDBMessages(pw)
 		s := toDBSession(pw)
 		s.MessageCount, s.UserMessageCount =
