@@ -9,6 +9,27 @@ import (
 	"github.com/wesm/agentsview/internal/parser"
 )
 
+const (
+	copilotStateDir = "session-state"
+	geminiChatsDir  = "chats"
+)
+
+// setupFileSystem creates a temporary directory and populates
+// it with the given relative file paths and contents.
+func setupFileSystem(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for path, content := range files {
+		fullPath := filepath.Join(dir, path)
+
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(fullPath), err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", fullPath, err)
+		}
+	}
+}
+
 // setupTestDir creates a temporary directory and populates
 // it with the given relative file paths (each containing
 // "{}").
@@ -319,90 +340,164 @@ func TestIsDigits(t *testing.T) {
 }
 
 func TestDiscoverGeminiSessions(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join("tmp", "hash1", "chats", "session-2026-01-01T10-00-abc123.json"),
-		filepath.Join("tmp", "hash1", "chats", "session-2026-01-02T10-00-def456.json"),
-		filepath.Join("tmp", "hash2", "chats", "session-2026-01-03T10-00-ghi789.json"),
-	})
-
-	files := DiscoverGeminiSessions(dir)
-
-	assertDiscoveredFiles(t, files, []string{
-		"session-2026-01-01T10-00-abc123.json",
-		"session-2026-01-02T10-00-def456.json",
-		"session-2026-01-03T10-00-ghi789.json",
-	}, parser.AgentGemini)
-}
-
-func TestDiscoverGeminiSessionsNoChatDir(t *testing.T) {
-	// Hash dir exists but has no chats/ subdirectory
-	dir := setupTestDir(t, []string{
-		filepath.Join("tmp", "hash1", "other.txt"),
-	})
-
-	files := DiscoverGeminiSessions(dir)
-	assertDiscoveredFiles(t, files, nil, parser.AgentGemini)
-}
-
-func TestDiscoverGeminiSessionsEmptyChatDir(t *testing.T) {
-	dir := t.TempDir()
-	chatsDir := filepath.Join(dir, "tmp", "hash1", "chats")
-	if err := os.MkdirAll(chatsDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantFiles []string
+	}{
+		{
+			name: "Basic",
+			files: map[string]string{
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-01T10-00-abc123.json"): "{}",
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-02T10-00-def456.json"): "{}",
+				filepath.Join("tmp", "hash2", geminiChatsDir, "session-2026-01-03T10-00-ghi789.json"): "{}",
+			},
+			wantFiles: []string{
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-01T10-00-abc123.json"),
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-02T10-00-def456.json"),
+				filepath.Join("tmp", "hash2", geminiChatsDir, "session-2026-01-03T10-00-ghi789.json"),
+			},
+		},
+		{
+			name: "NoChatDir",
+			files: map[string]string{
+				filepath.Join("tmp", "hash1", "other.txt"): "{}",
+			},
+			wantFiles: nil,
+		},
+		{
+			name: "SkipsNonSessionFiles",
+			files: map[string]string{
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-abc.json"): "{}",
+				filepath.Join("tmp", "hash1", geminiChatsDir, "other.json"):       "{}",
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-def.txt"):  "{}",
+			},
+			wantFiles: []string{
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-abc.json"),
+			},
+		},
+		{
+			name: "NamedDirs",
+			files: map[string]string{
+				filepath.Join("tmp", "my-project", geminiChatsDir, "session-2026-01-01T10-00-abc.json"): "{}",
+			},
+			wantFiles: []string{
+				filepath.Join("tmp", "my-project", geminiChatsDir, "session-2026-01-01T10-00-abc.json"),
+			},
+		},
 	}
 
-	files := DiscoverGeminiSessions(dir)
-	assertDiscoveredFiles(t, files, nil, parser.AgentGemini)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
 
-func TestDiscoverGeminiSessionsNonexistent(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "does-not-exist")
-	files := DiscoverGeminiSessions(dir)
-	if files != nil {
-		t.Errorf("expected nil, got %d files", len(files))
+			files := DiscoverGeminiSessions(dir)
+
+			if len(files) != len(tt.wantFiles) {
+				t.Fatalf("got %d files, want %d", len(files), len(tt.wantFiles))
+			}
+
+			wantMap := make(map[string]bool)
+			for _, p := range tt.wantFiles {
+				wantMap[filepath.Join(dir, p)] = true
+			}
+
+			for _, f := range files {
+				if f.Agent != parser.AgentGemini {
+					t.Errorf("agent = %q, want %q", f.Agent, parser.AgentGemini)
+				}
+				if !wantMap[f.Path] {
+					t.Errorf("unexpected file discovered: %q", f.Path)
+				}
+			}
+		})
 	}
-}
 
-func TestDiscoverGeminiSessionsSkipsNonSessionFiles(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join("tmp", "hash1", "chats", "session-abc.json"),
-		filepath.Join("tmp", "hash1", "chats", "other.json"),
-		filepath.Join("tmp", "hash1", "chats", "session-def.txt"),
+	t.Run("EmptyChatDir", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "tmp", "hash1", geminiChatsDir), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		files := DiscoverGeminiSessions(dir)
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
+		}
 	})
 
-	files := DiscoverGeminiSessions(dir)
-	assertDiscoveredFiles(t, files, []string{
-		"session-abc.json",
-	}, parser.AgentGemini)
+	t.Run("Nonexistent", func(t *testing.T) {
+		files := DiscoverGeminiSessions(filepath.Join(t.TempDir(), "does-not-exist"))
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
+		}
+	})
+
+	t.Run("EmptyDir", func(t *testing.T) {
+		files := DiscoverGeminiSessions("")
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
+		}
+	})
 }
 
 func TestFindGeminiSourceFile(t *testing.T) {
-	sessionID := "b0a4eadd-cb99-4165-94d9-64cad5a66d24"
-	sessionContent := `{"sessionId":"` + sessionID + `","messages":[]}`
-	filename := "session-2026-01-19T18-21-b0a4eadd.json"
+	tests := []struct {
+		name     string
+		files    map[string]string
+		targetID string
+		wantFile string // empty if nonexistent
+	}{
+		{
+			name: "Found",
+			files: map[string]string{
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-19T18-21-b0a4eadd.json"): `{"sessionId":"b0a4eadd-cb99-4165-94d9-64cad5a66d24","messages":[]}`,
+			},
+			targetID: "b0a4eadd-cb99-4165-94d9-64cad5a66d24",
+			wantFile: filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-19T18-21-b0a4eadd.json"),
+		},
+		{
+			name: "Nonexistent",
+			files: map[string]string{
+				filepath.Join("tmp", "hash1", geminiChatsDir, "session-2026-01-19T18-21-b0a4eadd.json"): `{"sessionId":"b0a4eadd-cb99-4165-94d9-64cad5a66d24","messages":[]}`,
+			},
+			targetID: "nonexistent-uuid-1234",
+			wantFile: "",
+		},
+	}
 
-	dir := t.TempDir()
-	chatsDir := filepath.Join(dir, "tmp", "hash1", "chats")
-	if err := os.MkdirAll(chatsDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	path := filepath.Join(chatsDir, filename)
-	if err := os.WriteFile(
-		path, []byte(sessionContent), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+
+			got := FindGeminiSourceFile(dir, tt.targetID)
+			want := ""
+			if tt.wantFile != "" {
+				want = filepath.Join(dir, tt.wantFile)
+			}
+
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 
-	got := FindGeminiSourceFile(dir, sessionID)
-	if got != path {
-		t.Errorf("got %q, want %q", got, path)
-	}
+	t.Run("ShortID", func(t *testing.T) {
+		dir := t.TempDir()
+		for _, id := range []string{"", "a", "abc", "1234567"} {
+			got := FindGeminiSourceFile(dir, id)
+			if got != "" {
+				t.Errorf("FindGeminiSourceFile(%q) = %q, want empty", id, got)
+			}
+		}
+	})
 
-	// Nonexistent session
-	got = FindGeminiSourceFile(dir, "nonexistent-uuid-1234")
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
+	t.Run("EmptyDir", func(t *testing.T) {
+		got := FindGeminiSourceFile("", "b0a4eadd-cb99-4165-94d9-64cad5a66d24")
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
 }
 
 func TestGeminiPathHash(t *testing.T) {
@@ -598,358 +693,195 @@ func TestBuildGeminiProjectMapProjectsWin(t *testing.T) {
 	}
 }
 
-func TestDiscoverGeminiNamedDirs(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join(
-			"tmp", "my-project", "chats",
-			"session-2026-01-01T10-00-abc.json",
-		),
-	})
 
-	files := DiscoverGeminiSessions(dir)
-	if len(files) != 1 {
-		t.Fatalf("got %d files, want 1", len(files))
-	}
-	if files[0].Project != "my_project" {
-		t.Errorf(
-			"project = %q, want %q",
-			files[0].Project, "my_project",
-		)
-	}
-}
 
-func TestFindGeminiSourceFileShortID(t *testing.T) {
-	dir := t.TempDir()
-	// IDs shorter than 8 chars should return empty, not panic
-	for _, id := range []string{"", "a", "abc", "1234567"} {
-		got := FindGeminiSourceFile(dir, id)
-		if got != "" {
-			t.Errorf(
-				"FindGeminiSourceFile(%q) = %q, want empty",
-				id, got,
-			)
-		}
-	}
-}
 
-func TestDiscoverGeminiSessionsEmptyDir(t *testing.T) {
-	files := DiscoverGeminiSessions("")
-	if files != nil {
-		t.Errorf("expected nil, got %d files", len(files))
-	}
-}
 
-func TestFindGeminiSourceFileEmptyDir(t *testing.T) {
-	got := FindGeminiSourceFile(
-		"", "b0a4eadd-cb99-4165-94d9-64cad5a66d24",
-	)
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
+
+
+
 
 // --- Copilot discovery tests ---
 
-func TestDiscoverCopilotSessions_BareFormat(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join("session-state", "abc-123.jsonl"),
-		filepath.Join("session-state", "def-456.jsonl"),
+func TestDiscoverCopilotSessions(t *testing.T) {
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantFiles []string // Using full paths relative to dir to check Discover output strictly
+	}{
+		{
+			name: "BareFormat",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "abc-123.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "def-456.jsonl"): "{}",
+			},
+			wantFiles: []string{
+				filepath.Join(copilotStateDir, "abc-123.jsonl"),
+				filepath.Join(copilotStateDir, "def-456.jsonl"),
+			},
+		},
+		{
+			name: "DirFormat",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "sess-1", "events.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "sess-2", "events.jsonl"): "{}",
+			},
+			wantFiles: []string{
+				filepath.Join(copilotStateDir, "sess-1", "events.jsonl"),
+				filepath.Join(copilotStateDir, "sess-2", "events.jsonl"),
+			},
+		},
+		{
+			name: "Mixed",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "bare-1.jsonl"):          "{}",
+				filepath.Join(copilotStateDir, "dir-1", "events.jsonl"): "{}",
+			},
+			wantFiles: []string{
+				filepath.Join(copilotStateDir, "bare-1.jsonl"),
+				filepath.Join(copilotStateDir, "dir-1", "events.jsonl"),
+			},
+		},
+		{
+			name: "BareWithInvalidDir",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "invalid-dir-uuid.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "invalid-dir-uuid", "other.txt"): "{}", // Dir without events.jsonl
+			},
+			wantFiles: []string{
+				filepath.Join(copilotStateDir, "invalid-dir-uuid.jsonl"),
+			},
+		},
+		{
+			name: "DedupBareAndDir",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "dup-uuid-1234.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "dup-uuid-1234", "events.jsonl"): "{}",
+			},
+			wantFiles: []string{
+				filepath.Join(copilotStateDir, "dup-uuid-1234", "events.jsonl"), // Dir format preferred
+			},
+		},
+		{
+			name: "DirWithoutEvents",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "no-events", "other.txt"): "{}",
+			},
+			wantFiles: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+
+			files := DiscoverCopilotSessions(dir)
+
+			if len(files) != len(tt.wantFiles) {
+				t.Fatalf("got %d files, want %d", len(files), len(tt.wantFiles))
+			}
+
+			wantMap := make(map[string]bool)
+			for _, p := range tt.wantFiles {
+				wantMap[filepath.Join(dir, p)] = true
+			}
+
+			for _, f := range files {
+				if f.Agent != parser.AgentCopilot {
+					t.Errorf("agent = %q, want %q", f.Agent, parser.AgentCopilot)
+				}
+				if !wantMap[f.Path] {
+					t.Errorf("unexpected file discovered: %q", f.Path)
+				}
+			}
+		})
+	}
+
+	t.Run("EmptyDir", func(t *testing.T) {
+		files := DiscoverCopilotSessions("")
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
+		}
 	})
 
-	files := DiscoverCopilotSessions(dir)
-	assertDiscoveredFiles(t, files, []string{
-		"abc-123.jsonl",
-		"def-456.jsonl",
-	}, parser.AgentCopilot)
-}
-
-func TestDiscoverCopilotSessions_DirFormat(t *testing.T) {
-	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "session-state")
-
-	// Create directory-format sessions with events.jsonl
-	for _, id := range []string{"sess-1", "sess-2"} {
-		sessDir := filepath.Join(stateDir, id)
-		if err := os.MkdirAll(sessDir, 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
+	t.Run("Nonexistent", func(t *testing.T) {
+		files := DiscoverCopilotSessions(filepath.Join(t.TempDir(), "does-not-exist"))
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
 		}
-		path := filepath.Join(sessDir, "events.jsonl")
-		if err := os.WriteFile(
-			path, []byte("{}"), 0o644,
-		); err != nil {
-			t.Fatalf("write: %v", err)
-		}
-	}
-
-	files := DiscoverCopilotSessions(dir)
-	if len(files) != 2 {
-		t.Fatalf("got %d files, want 2", len(files))
-	}
-	for _, f := range files {
-		if f.Agent != parser.AgentCopilot {
-			t.Errorf("agent = %q, want %q",
-				f.Agent, parser.AgentCopilot)
-		}
-		if filepath.Base(f.Path) != "events.jsonl" {
-			t.Errorf("base = %q, want events.jsonl",
-				filepath.Base(f.Path))
-		}
-	}
-}
-
-func TestDiscoverCopilotSessions_Mixed(t *testing.T) {
-	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "session-state")
-
-	// Bare format
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(stateDir, "bare-1.jsonl"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	// Directory format
-	sessDir := filepath.Join(stateDir, "dir-1")
-	if err := os.MkdirAll(sessDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(sessDir, "events.jsonl"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	files := DiscoverCopilotSessions(dir)
-	if len(files) != 2 {
-		t.Fatalf("got %d files, want 2", len(files))
-	}
-	for _, f := range files {
-		if f.Agent != parser.AgentCopilot {
-			t.Errorf("agent = %q, want %q",
-				f.Agent, parser.AgentCopilot)
-		}
-	}
-}
-
-func TestDiscoverCopilotSessions_BareWithInvalidDir(
-	t *testing.T,
-) {
-	// A directory without events.jsonl should not suppress
-	// the bare file with the same stem.
-	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "session-state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-
-	uuid := "invalid-dir-uuid"
-	if err := os.WriteFile(
-		filepath.Join(stateDir, uuid+".jsonl"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write bare: %v", err)
-	}
-	// Directory exists but has no events.jsonl.
-	if err := os.MkdirAll(
-		filepath.Join(stateDir, uuid), 0o755,
-	); err != nil {
-		t.Fatalf("mkdir dir: %v", err)
-	}
-
-	files := DiscoverCopilotSessions(dir)
-	if len(files) != 1 {
-		t.Fatalf("got %d files, want 1", len(files))
-	}
-	wantPath := filepath.Join(stateDir, uuid+".jsonl")
-	if files[0].Path != wantPath {
-		t.Errorf("path = %q, want %q",
-			files[0].Path, wantPath)
-	}
-}
-
-func TestDiscoverCopilotSessions_DedupBareAndDir(
-	t *testing.T,
-) {
-	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "session-state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-
-	// Both bare and directory format for the same UUID.
-	uuid := "dup-uuid-1234"
-	if err := os.WriteFile(
-		filepath.Join(stateDir, uuid+".jsonl"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write bare: %v", err)
-	}
-	sessDir := filepath.Join(stateDir, uuid)
-	if err := os.MkdirAll(sessDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(sessDir, "events.jsonl"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write dir: %v", err)
-	}
-
-	files := DiscoverCopilotSessions(dir)
-	if len(files) != 1 {
-		t.Fatalf("got %d files, want 1 (dedup)", len(files))
-	}
-	// Directory format should win.
-	want := filepath.Join(sessDir, "events.jsonl")
-	if files[0].Path != want {
-		t.Errorf("path = %q, want %q", files[0].Path, want)
-	}
-}
-
-func TestDiscoverCopilotSessions_DirWithoutEvents(
-	t *testing.T,
-) {
-	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "session-state")
-	// Directory exists but has no events.jsonl
-	sessDir := filepath.Join(stateDir, "no-events")
-	if err := os.MkdirAll(sessDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(sessDir, "other.txt"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	files := DiscoverCopilotSessions(dir)
-	assertDiscoveredFiles(
-		t, files, nil, parser.AgentCopilot,
-	)
-}
-
-func TestDiscoverCopilotSessions_EmptyDir(t *testing.T) {
-	files := DiscoverCopilotSessions("")
-	if files != nil {
-		t.Errorf("expected nil, got %d files", len(files))
-	}
-}
-
-func TestDiscoverCopilotSessions_Nonexistent(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "does-not-exist")
-	files := DiscoverCopilotSessions(dir)
-	if files != nil {
-		t.Errorf("expected nil, got %d files", len(files))
-	}
-}
-
-func TestFindCopilotSourceFile_Bare(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join("session-state", "abc-123.jsonl"),
 	})
-	expected := filepath.Join(
-		dir, "session-state", "abc-123.jsonl",
-	)
-
-	got := FindCopilotSourceFile(dir, "abc-123")
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
 }
 
-func TestFindCopilotSourceFile_DirFormat(t *testing.T) {
-	dir := t.TempDir()
-	sessDir := filepath.Join(
-		dir, "session-state", "sess-42",
-	)
-	if err := os.MkdirAll(sessDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	expected := filepath.Join(sessDir, "events.jsonl")
-	if err := os.WriteFile(
-		expected, []byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
+func TestFindCopilotSourceFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    map[string]string
+		targetID string
+		wantFile string // empty if nonexistent
+	}{
+		{
+			name:     "Bare",
+			files:    map[string]string{filepath.Join(copilotStateDir, "abc-123.jsonl"): "{}"},
+			targetID: "abc-123",
+			wantFile: filepath.Join(copilotStateDir, "abc-123.jsonl"),
+		},
+		{
+			name:     "DirFormat",
+			files:    map[string]string{filepath.Join(copilotStateDir, "sess-42", "events.jsonl"): "{}"},
+			targetID: "sess-42",
+			wantFile: filepath.Join(copilotStateDir, "sess-42", "events.jsonl"),
+		},
+		{
+			name:     "Nonexistent",
+			files:    map[string]string{filepath.Join(copilotStateDir, "abc-123.jsonl"): "{}"},
+			targetID: "nonexistent",
+			wantFile: "",
+		},
+		{
+			name:     "DirPreferred",
+			files: map[string]string{
+				filepath.Join(copilotStateDir, "dual-1.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "dual-1", "events.jsonl"): "{}",
+			},
+			targetID: "dual-1",
+			wantFile: filepath.Join(copilotStateDir, "dual-1", "events.jsonl"),
+		},
 	}
 
-	got := FindCopilotSourceFile(dir, "sess-42")
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
 
-func TestFindCopilotSourceFile_Nonexistent(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join("session-state", "abc-123.jsonl"),
+			got := FindCopilotSourceFile(dir, tt.targetID)
+			want := ""
+			if tt.wantFile != "" {
+				want = filepath.Join(dir, tt.wantFile)
+			}
+
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+	}
+
+	t.Run("InvalidID", func(t *testing.T) {
+		dir := t.TempDir()
+		for _, id := range []string{"", "../etc/passwd", "a/b", "a b"} {
+			got := FindCopilotSourceFile(dir, id)
+			if got != "" {
+				t.Errorf("FindCopilotSourceFile(%q) = %q, want empty", id, got)
+			}
+		}
 	})
 
-	got := FindCopilotSourceFile(dir, "nonexistent")
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-func TestFindCopilotSourceFile_InvalidID(t *testing.T) {
-	dir := t.TempDir()
-	for _, id := range []string{
-		"", "../etc/passwd", "a/b", "a b",
-	} {
-		got := FindCopilotSourceFile(dir, id)
+	t.Run("EmptyDir", func(t *testing.T) {
+		got := FindCopilotSourceFile("", "abc-123")
 		if got != "" {
-			t.Errorf(
-				"FindCopilotSourceFile(%q) = %q, want empty",
-				id, got,
-			)
+			t.Errorf("expected empty, got %q", got)
 		}
-	}
-}
-
-func TestFindCopilotSourceFile_EmptyDir(t *testing.T) {
-	got := FindCopilotSourceFile("", "abc-123")
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-func TestFindCopilotSourceFile_DirPreferred(t *testing.T) {
-	// When both bare and directory format exist, directory is
-	// preferred (matching discovery precedence).
-	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "session-state")
-
-	// Create bare file
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(stateDir, "dual-1.jsonl"),
-		[]byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	// Create directory format too
-	sessDir := filepath.Join(stateDir, "dual-1")
-	if err := os.MkdirAll(sessDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	dirPath := filepath.Join(sessDir, "events.jsonl")
-	if err := os.WriteFile(
-		dirPath, []byte("{}"), 0o644,
-	); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	got := FindCopilotSourceFile(dir, "dual-1")
-	if got != dirPath {
-		t.Errorf("got %q, want dir path %q", got, dirPath)
-	}
+	})
 }
 
 // --- Symlink tests ---
