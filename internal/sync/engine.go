@@ -920,6 +920,7 @@ type pendingWrite struct {
 func (e *Engine) writeBatch(
 	batch []pendingWrite, forceReplace bool,
 ) {
+	bulkDeleted := false
 	if forceReplace {
 		// Bulk-delete all existing messages in one tx,
 		// then the normal writeMessages path will see
@@ -933,13 +934,35 @@ func (e *Engine) writeBatch(
 			ids,
 		); err != nil {
 			log.Printf("bulk delete messages: %v", err)
+			// Fall back to per-session atomic replace so
+			// we don't proceed with incremental writes
+			// against stale data.
+		} else {
+			bulkDeleted = true
 		}
 		log.Printf(
-			"resync: bulk delete %d sessions: %s",
-			len(ids),
+			"resync: bulk delete %d sessions (ok=%v): %s",
+			len(ids), bulkDeleted,
 			time.Since(tDel).Round(time.Millisecond),
 		)
 	}
+
+	// When forceReplace was requested but bulk delete failed,
+	// fall back to per-session ReplaceSessionMessages which
+	// keeps delete+insert atomic per session.
+	if forceReplace && !bulkDeleted {
+		tWrite := time.Now()
+		for _, pw := range batch {
+			e.writeSessionFull(pw)
+		}
+		log.Printf(
+			"resync: write batch fallback (%d sessions): %s",
+			len(batch),
+			time.Since(tWrite).Round(time.Millisecond),
+		)
+		return
+	}
+
 	tWrite := time.Now()
 	for _, pw := range batch {
 		msgs := toDBMessages(pw)
@@ -952,11 +975,13 @@ func (e *Engine) writeBatch(
 		}
 		e.writeMessages(pw.sess.ID, msgs)
 	}
-	log.Printf(
-		"resync: write batch (%d sessions): %s",
-		len(batch),
-		time.Since(tWrite).Round(time.Millisecond),
-	)
+	if forceReplace {
+		log.Printf(
+			"resync: write batch (%d sessions): %s",
+			len(batch),
+			time.Since(tWrite).Round(time.Millisecond),
+		)
+	}
 }
 
 // writeMessages uses an incremental append when possible.
