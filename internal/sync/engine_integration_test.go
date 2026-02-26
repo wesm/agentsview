@@ -1695,16 +1695,20 @@ func TestResyncAllReplacesMessageContent(t *testing.T) {
 	}
 
 	// FTS search should work after resync (index was dropped
-	// and rebuilt).
-	page, err := env.db.Search(
-		context.Background(),
-		db.SearchFilter{Query: "explanation"},
-	)
-	if err != nil {
-		t.Fatalf("search after resync: %v", err)
-	}
-	if len(page.Results) == 0 {
-		t.Error("FTS search returned no results after resync")
+	// and rebuilt). Skip if FTS5 module is unavailable.
+	if env.db.HasFTS() {
+		page, err := env.db.Search(
+			context.Background(),
+			db.SearchFilter{Query: "explanation"},
+		)
+		if err != nil {
+			t.Fatalf("search after resync: %v", err)
+		}
+		if len(page.Results) == 0 {
+			t.Error(
+				"FTS search returned no results after resync",
+			)
+		}
 	}
 }
 

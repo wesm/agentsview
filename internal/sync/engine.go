@@ -342,11 +342,15 @@ func (e *Engine) ResyncAll(
 	newDB, err := db.Open(tempPath)
 	if err != nil {
 		log.Printf("resync: open temp db: %v", err)
-		return SyncStats{
+		stats := SyncStats{
 			Warnings: []string{
 				"resync failed: " + err.Error(),
 			},
 		}
+		e.mu.Lock()
+		e.lastSyncStats = stats
+		e.mu.Unlock()
+		return stats
 	}
 
 	// 3. Point engine at newDB and sync into it.
@@ -381,7 +385,29 @@ func (e *Engine) ResyncAll(
 		return stats
 	}
 
-	// 4. Copy insights from old DB into new DB.
+	// 4. Close origDB connections first to quiesce writes,
+	// then copy insights into newDB (which is still open).
+	// This ensures no insight writes land in the old DB
+	// after the copy.
+	if err := origDB.CloseConnections(); err != nil {
+		log.Printf("resync: close orig db: %v", err)
+		stats.Warnings = append(stats.Warnings,
+			"close before swap failed: "+err.Error(),
+		)
+		removeTempDB(tempPath)
+		// Connections may be partially closed; reopen to
+		// restore service before returning.
+		if rerr := origDB.Reopen(); rerr != nil {
+			log.Printf("resync: recovery reopen: %v", rerr)
+		}
+		e.mu.Lock()
+		e.lastSyncStats = stats
+		e.mu.Unlock()
+		return stats
+	}
+
+	// origDB connections are now closed; copy insights into
+	// newDB (still open) from the quiesced old DB file.
 	tInsights := time.Now()
 	if err := newDB.CopyInsightsFrom(origPath); err != nil {
 		log.Printf("resync: copy insights: %v", err)
@@ -394,27 +420,9 @@ func (e *Engine) ResyncAll(
 		time.Since(tInsights).Round(time.Millisecond),
 	)
 
-	// 5. Close temp DB and original connections, swap files,
-	// then reopen. On Windows, mandatory file locking
-	// prevents renaming over an open file, so we must
-	// close origDB's connections before the rename.
+	// 5. Close newDB and swap files, then reopen origDB.
 	newDB.Close()
 
-	if err := origDB.CloseConnections(); err != nil {
-		log.Printf("resync: close orig db: %v", err)
-		stats.Warnings = append(stats.Warnings,
-			"close before swap failed: "+err.Error(),
-		)
-		removeTempDB(tempPath)
-		// Connections may be partially closed; reopen to
-		// restore service before returning.
-		if rerr := origDB.Reopen(); rerr != nil {
-			log.Printf("resync: recovery reopen: %v", rerr)
-		}
-		return stats
-	}
-
-	// Remove WAL/SHM while connections are closed.
 	removeWAL(origPath)
 
 	if err := os.Rename(tempPath, origPath); err != nil {
@@ -427,6 +435,9 @@ func (e *Engine) ResyncAll(
 		if rerr := origDB.Reopen(); rerr != nil {
 			log.Printf("resync: recovery reopen: %v", rerr)
 		}
+		e.mu.Lock()
+		e.lastSyncStats = stats
+		e.mu.Unlock()
 		return stats
 	}
 	removeWAL(tempPath)
