@@ -19,6 +19,7 @@ type seedStats struct {
 	ActiveProjects int
 	TotalToolCalls int
 	Agents         int
+	ActiveDays     int
 }
 
 // seedAnalyticsEnv populates the test env with sessions and
@@ -43,6 +44,7 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 		ActiveProjects: 2, // alpha and beta
 		TotalToolCalls: 0,
 		Agents:         2, // claude, codex
+		ActiveDays:     3, // June 1 to June 3
 	}
 
 	for _, s := range entries {
@@ -358,7 +360,7 @@ func TestAnalyticsActivity(t *testing.T) {
 
 func TestAnalyticsHeatmap(t *testing.T) {
 	te := setup(t)
-	seedAnalyticsEnv(t, te)
+	stats := seedAnalyticsEnv(t, te)
 
 	tests := []struct {
 		name        string
@@ -366,7 +368,7 @@ func TestAnalyticsHeatmap(t *testing.T) {
 		wantStatus  int
 		wantEntries int
 	}{
-		{"MessageMetric", "messages", http.StatusOK, 3},
+		{"MessageMetric", "messages", http.StatusOK, stats.ActiveDays},
 		{"SessionMetric", "sessions", http.StatusOK, -1}, // -1 means don't check exactly
 		{"DefaultMetric", "", http.StatusOK, -1},
 		{"InvalidMetric", "bytes", http.StatusBadRequest, -1},
@@ -416,7 +418,7 @@ func TestAnalyticsProjects(t *testing.T) {
 			total += p.Messages
 		}
 		if total != stats.TotalMessages {
-			t.Errorf("total messages = %d, want %d", total, stats.TotalMessages)
+			t.Errorf("total messages across projects = %d, want %d", total, stats.TotalMessages)
 		}
 	})
 
@@ -514,7 +516,7 @@ func TestAnalyticsTools(t *testing.T) {
 
 func TestAnalyticsTopSessions(t *testing.T) {
 	te := setup(t)
-	seedAnalyticsEnv(t, te)
+	stats := seedAnalyticsEnv(t, te)
 
 	tests := []struct {
 		name       string
@@ -554,8 +556,8 @@ func TestAnalyticsTopSessions(t *testing.T) {
 				if resp.Metric != expectedMetric {
 					t.Errorf("Metric = %q, want %q", resp.Metric, expectedMetric)
 				}
-				if tt.project == "" && len(resp.Sessions) == 0 {
-					t.Error("expected non-empty sessions")
+				if tt.project == "" && len(resp.Sessions) != stats.TotalSessions {
+					t.Errorf("len(Sessions) = %d, want %d", len(resp.Sessions), stats.TotalSessions)
 				}
 				if tt.project != "" {
 					for _, s := range resp.Sessions {
