@@ -78,7 +78,10 @@ func TestContentTypeWrapper(t *testing.T) {
 				t.Errorf("Content-Type = %q, want %q", gotCT, tt.wantContentType)
 			}
 
-			body, _ := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("failed to read body: %v", err)
+			}
 			if string(body) != tt.wantBody {
 				t.Errorf("body = %q, want %q", string(body), tt.wantBody)
 			}

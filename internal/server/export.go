@@ -217,7 +217,10 @@ func createGistWithURL(
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if err != nil {
+			return nil, fmt.Errorf("github API error: %d: reading body: %w", resp.StatusCode, err)
+		}
 		return nil, fmt.Errorf("github API error: %d: %s",
 			resp.StatusCode, string(body))
 	}
