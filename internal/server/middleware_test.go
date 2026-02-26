@@ -86,8 +86,7 @@ func TestContentTypeWrapper(t *testing.T) {
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				t.Errorf("failed to read body: %v", err)
-				return
+				t.Fatalf("failed to read body: %v", err)
 			}
 			if string(body) != tt.wantBody {
 				t.Errorf("body = %q, want %q", string(body), tt.wantBody)
@@ -131,9 +130,7 @@ func TestMiddlewareTimeout(t *testing.T) {
 			defer resp.Body.Close()
 
 			if tt.wantTimeout {
-				if !isTimeoutResponse(t, resp) {
-					t.Errorf("%s: expected timeout response", tt.path)
-				}
+				assertTimeoutResponse(t, resp)
 			} else {
 				if isTimeoutResponse(t, resp) {
 					t.Errorf("%s: unexpected timeout for unwrapped route", tt.path)
