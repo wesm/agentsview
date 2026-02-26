@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wesm/agentsview/internal/dbtest"
 	"github.com/wesm/agentsview/internal/parser"
 )
 
@@ -28,22 +27,6 @@ func setupFileSystem(t *testing.T, dir string, files map[string]string) {
 			t.Fatalf("write %s: %v", fullPath, err)
 		}
 	}
-}
-
-// setupTestDir creates a temporary directory and populates
-// it with the given relative file paths (each containing
-// "{}").
-func setupTestDir(
-	t *testing.T, relativePaths []string,
-) string {
-	t.Helper()
-	dir := t.TempDir()
-	for _, p := range relativePaths {
-		dbtest.WriteTestFile(
-			t, filepath.Join(dir, p), []byte("{}"),
-		)
-	}
-	return dir
 }
 
 // assertDiscoveredFiles verifies that the discovered files match the expected filenames and agent type.
@@ -83,159 +66,170 @@ func assertDiscoveredFiles(t *testing.T, got []DiscoveredFile, wantFilenames []s
 }
 
 func TestDiscoverClaudeProjects(t *testing.T) {
-	dir := setupTestDir(t, []string{
-		filepath.Join("project-a", "abc.jsonl"),
-		filepath.Join("project-a", "def.jsonl"),
-		filepath.Join("project-a", "agent-123.jsonl"), // Should be ignored
-		filepath.Join("project-b", "xyz.jsonl"),
-	})
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantFiles []string
+	}{
+		{
+			name: "Basic",
+			files: map[string]string{
+				filepath.Join("project-a", "abc.jsonl"):       "{}",
+				filepath.Join("project-a", "def.jsonl"):       "{}",
+				filepath.Join("project-a", "agent-123.jsonl"): "{}", // Should be ignored
+				filepath.Join("project-b", "xyz.jsonl"):       "{}",
+			},
+			wantFiles: []string{
+				"abc.jsonl",
+				"def.jsonl",
+				"xyz.jsonl",
+			},
+		},
+		{
+			name: "Subagents",
+			files: map[string]string{
+				filepath.Join("project-a", "parent-session.jsonl"):                           "{}",
+				filepath.Join("project-a", "parent-session", "subagents", "agent-abc.jsonl"): "{}",
+				filepath.Join("project-a", "parent-session", "subagents", "agent-def.jsonl"): "{}",
+				filepath.Join("project-a", "parent-session", "subagents", "not-agent.jsonl"): "{}",
+			},
+			wantFiles: []string{
+				"parent-session.jsonl",
+				"agent-abc.jsonl",
+				"agent-def.jsonl",
+			},
+		},
+		{
+			name:      "Empty",
+			files:     map[string]string{},
+			wantFiles: nil,
+		},
+	}
 
-	files := DiscoverClaudeProjects(dir)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+			files := DiscoverClaudeProjects(dir)
 
-	assertDiscoveredFiles(t, files, []string{
-		"abc.jsonl",
-		"def.jsonl",
-		"xyz.jsonl",
-	}, parser.AgentClaude)
-}
+			assertDiscoveredFiles(t, files, tt.wantFiles, parser.AgentClaude)
 
-func TestDiscoverClaudeSubagents(t *testing.T) {
-	dir := t.TempDir()
+			if tt.name == "Subagents" {
+				for _, f := range files {
+					if f.Project != "project-a" {
+						t.Errorf("file %q: project = %q, want %q",
+							filepath.Base(f.Path), f.Project, "project-a")
+					}
+				}
+			}
+		})
+	}
 
-	// Create parent session file
-	dbtest.WriteTestFile(
-		t,
-		filepath.Join(dir, "project-a", "parent-session.jsonl"),
-		[]byte("{}"),
-	)
-	// Create subagent files under parent-session/subagents/
-	dbtest.WriteTestFile(
-		t,
-		filepath.Join(dir, "project-a", "parent-session", "subagents", "agent-abc.jsonl"),
-		[]byte("{}"),
-	)
-	dbtest.WriteTestFile(
-		t,
-		filepath.Join(dir, "project-a", "parent-session", "subagents", "agent-def.jsonl"),
-		[]byte("{}"),
-	)
-	// Non-agent file in subagents dir should be ignored
-	dbtest.WriteTestFile(
-		t,
-		filepath.Join(dir, "project-a", "parent-session", "subagents", "not-agent.jsonl"),
-		[]byte("{}"),
-	)
-
-	files := DiscoverClaudeProjects(dir)
-
-	assertDiscoveredFiles(t, files, []string{
-		"parent-session.jsonl",
-		"agent-abc.jsonl",
-		"agent-def.jsonl",
-	}, parser.AgentClaude)
-
-	// Verify project is set for subagent files
-	for _, f := range files {
-		if f.Project != "project-a" {
-			t.Errorf("file %q: project = %q, want %q",
-				filepath.Base(f.Path), f.Project, "project-a")
+	t.Run("Nonexistent", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "does-not-exist")
+		files := DiscoverClaudeProjects(dir)
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
 		}
-	}
-}
-
-func TestDiscoverClaudeProjectsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	files := DiscoverClaudeProjects(dir)
-	assertDiscoveredFiles(t, files, nil, parser.AgentClaude)
-}
-
-func TestDiscoverClaudeProjectsNonexistent(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "does-not-exist")
-	files := DiscoverClaudeProjects(dir)
-	if files != nil {
-		t.Errorf("expected nil, got %d files", len(files))
-	}
+	})
 }
 
 func TestDiscoverCodexSessions(t *testing.T) {
 	file1 := "rollout-123-abc-def-ghi-jkl-mno.jsonl"
 	file2 := "rollout-456-abc-def-ghi-jkl-mno.jsonl"
 
-	dir := setupTestDir(t, []string{
-		filepath.Join("2024", "01", "15", file1),
-		filepath.Join("2024", "02", "01", file2),
-	})
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantFiles []string
+	}{
+		{
+			name: "Basic",
+			files: map[string]string{
+				filepath.Join("2024", "01", "15", file1): "{}",
+				filepath.Join("2024", "02", "01", file2): "{}",
+			},
+			wantFiles: []string{file1, file2},
+		},
+		{
+			name: "SkipsNonDigit",
+			files: map[string]string{
+				filepath.Join("notes", "01", "01", "x.jsonl"): "{}",
+			},
+			wantFiles: nil,
+		},
+	}
 
-	files := DiscoverCodexSessions(dir)
-
-	assertDiscoveredFiles(t, files, []string{
-		file1,
-		file2,
-	}, parser.AgentCodex)
-}
-
-func TestDiscoverCodexSessionsSkipsNonDigit(t *testing.T) {
-	// Non-digit directory should be ignored
-	dir := setupTestDir(t, []string{
-		filepath.Join("notes", "01", "01", "x.jsonl"),
-	})
-
-	files := DiscoverCodexSessions(dir)
-	assertDiscoveredFiles(t, files, nil, parser.AgentCodex)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+			files := DiscoverCodexSessions(dir)
+			assertDiscoveredFiles(t, files, tt.wantFiles, parser.AgentCodex)
+		})
+	}
 }
 
 func TestFindClaudeSourceFile(t *testing.T) {
-	relPath := filepath.Join("project-a", "session-abc.jsonl")
-	dir := setupTestDir(t, []string{relPath})
-
-	expected := filepath.Join(dir, relPath)
-
-	got := FindClaudeSourceFile(dir, "session-abc")
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
+	tests := []struct {
+		name     string
+		files    map[string]string
+		targetID string
+		wantFile string
+	}{
+		{
+			name: "Found",
+			files: map[string]string{
+				filepath.Join("project-a", "session-abc.jsonl"): "{}",
+			},
+			targetID: "session-abc",
+			wantFile: filepath.Join("project-a", "session-abc.jsonl"),
+		},
+		{
+			name: "Subagent",
+			files: map[string]string{
+				filepath.Join("project-a", "parent-sess", "subagents", "agent-sub1.jsonl"): "{}",
+			},
+			targetID: "agent-sub1",
+			wantFile: filepath.Join("project-a", "parent-sess", "subagents", "agent-sub1.jsonl"),
+		},
+		{
+			name: "Nonexistent",
+			files: map[string]string{
+				filepath.Join("project-a", "session-abc.jsonl"): "{}",
+			},
+			targetID: "nonexistent",
+			wantFile: "",
+		},
 	}
 
-	// Nonexistent
-	got = FindClaudeSourceFile(dir, "nonexistent")
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
 
-func TestFindClaudeSourceFileSubagent(t *testing.T) {
-	dir := t.TempDir()
+			got := FindClaudeSourceFile(dir, tt.targetID)
+			want := ""
+			if tt.wantFile != "" {
+				want = filepath.Join(dir, tt.wantFile)
+			}
 
-	// Create a subagent file
-	subPath := filepath.Join(
-		dir, "project-a", "parent-sess",
-		"subagents", "agent-sub1.jsonl",
-	)
-	dbtest.WriteTestFile(t, subPath, []byte("{}"))
-
-	got := FindClaudeSourceFile(dir, "agent-sub1")
-	if got != subPath {
-		t.Errorf("got %q, want %q", got, subPath)
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 
-	// Nonexistent subagent
-	got = FindClaudeSourceFile(dir, "agent-nonexistent")
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-func TestFindClaudeSourceFileValidation(t *testing.T) {
-	dir := t.TempDir()
-
-	// Invalid session IDs should return empty
-	tests := []string{"", "../etc/passwd", "a/b", "a b"}
-	for _, id := range tests {
-		got := FindClaudeSourceFile(dir, id)
-		if got != "" {
-			t.Errorf("FindClaudeSourceFile(%q) = %q, want empty",
-				id, got)
+	t.Run("Validation", func(t *testing.T) {
+		dir := t.TempDir()
+		tests := []string{"", "../etc/passwd", "a/b", "a b"}
+		for _, id := range tests {
+			got := FindClaudeSourceFile(dir, id)
+			if got != "" {
+				t.Errorf("FindClaudeSourceFile(%q) = %q, want empty", id, got)
+			}
 		}
-	}
+	})
 }
 
 func TestFindCodexSourceFile(t *testing.T) {
@@ -243,12 +237,41 @@ func TestFindCodexSourceFile(t *testing.T) {
 	filename := "rollout-20240115-" + uuid + ".jsonl"
 	relPath := filepath.Join("2024", "01", "15", filename)
 
-	dir := setupTestDir(t, []string{relPath})
-	expected := filepath.Join(dir, relPath)
+	tests := []struct {
+		name     string
+		files    map[string]string
+		targetID string
+		wantFile string
+	}{
+		{
+			name:     "Found",
+			files:    map[string]string{relPath: "{}"},
+			targetID: uuid,
+			wantFile: relPath,
+		},
+		{
+			name:     "Nonexistent",
+			files:    map[string]string{relPath: "{}"},
+			targetID: "nonexistent-uuid",
+			wantFile: "",
+		},
+	}
 
-	got := FindCodexSourceFile(dir, uuid)
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+
+			got := FindCodexSourceFile(dir, tt.targetID)
+			want := ""
+			if tt.wantFile != "" {
+				want = filepath.Join(dir, tt.wantFile)
+			}
+
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -693,14 +716,6 @@ func TestBuildGeminiProjectMapProjectsWin(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
-
-
 // --- Copilot discovery tests ---
 
 func TestDiscoverCopilotSessions(t *testing.T) {
@@ -745,7 +760,7 @@ func TestDiscoverCopilotSessions(t *testing.T) {
 		{
 			name: "BareWithInvalidDir",
 			files: map[string]string{
-				filepath.Join(copilotStateDir, "invalid-dir-uuid.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "invalid-dir-uuid.jsonl"):        "{}",
 				filepath.Join(copilotStateDir, "invalid-dir-uuid", "other.txt"): "{}", // Dir without events.jsonl
 			},
 			wantFiles: []string{
@@ -755,7 +770,7 @@ func TestDiscoverCopilotSessions(t *testing.T) {
 		{
 			name: "DedupBareAndDir",
 			files: map[string]string{
-				filepath.Join(copilotStateDir, "dup-uuid-1234.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "dup-uuid-1234.jsonl"):           "{}",
 				filepath.Join(copilotStateDir, "dup-uuid-1234", "events.jsonl"): "{}",
 			},
 			wantFiles: []string{
@@ -839,9 +854,9 @@ func TestFindCopilotSourceFile(t *testing.T) {
 			wantFile: "",
 		},
 		{
-			name:     "DirPreferred",
+			name: "DirPreferred",
 			files: map[string]string{
-				filepath.Join(copilotStateDir, "dual-1.jsonl"): "{}",
+				filepath.Join(copilotStateDir, "dual-1.jsonl"):           "{}",
 				filepath.Join(copilotStateDir, "dual-1", "events.jsonl"): "{}",
 			},
 			targetID: "dual-1",
