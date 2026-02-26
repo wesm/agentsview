@@ -84,12 +84,12 @@ func TestClampLimit(t *testing.T) {
 		limit int
 		want  int
 	}{
-		{"zero uses default", 0, 100},
-		{"negative uses default", -1, 100},
+		{"zero uses default", 0, defaultLimit},
+		{"negative uses default", -1, defaultLimit},
 		{"within range", 50, 50},
 		{"at max", max, max},
 		{"exceeds max", max + 1, max},
-		{"default itself", 100, 100},
+		{"default itself", defaultLimit, defaultLimit},
 	}
 
 	for _, tt := range tests {
