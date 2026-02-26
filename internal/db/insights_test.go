@@ -93,173 +93,188 @@ func TestInsights_GetNonexistent(t *testing.T) {
 	}
 }
 
-func TestInsights_ListWithFilters(t *testing.T) {
-	d := testDB(t)
+func TestListInsights(t *testing.T) {
 	ctx := context.Background()
 
-	entries := []Insight{
-		{
-			Type:     "daily_activity",
-			DateFrom: "2025-01-15", DateTo: "2025-01-15",
-			Project: ptr("app-a"), Agent: "claude",
-			Content: "Day 1 app-a",
-		},
-		{
-			Type:     "daily_activity",
-			DateFrom: "2025-01-15", DateTo: "2025-01-15",
-			Project: ptr("app-b"), Agent: "claude",
-			Content: "Day 1 app-b",
-		},
-		{
-			Type:     "agent_analysis",
-			DateFrom: "2025-01-15", DateTo: "2025-01-15",
-			Agent: "claude", Content: "Analysis",
-		},
-		{
-			Type:     "daily_activity",
-			DateFrom: "2025-01-16", DateTo: "2025-01-16",
-			Project: ptr("app-a"), Agent: "claude",
-			Content: "Day 2 app-a",
-		},
-	}
-	for _, s := range entries {
-		if _, err := d.InsertInsight(s); err != nil {
-			t.Fatalf("InsertInsight: %v", err)
+	seedFiltersData := func(t *testing.T, d *DB) []int64 {
+		entries := []Insight{
+			{Type: "daily_activity", DateFrom: "2025-01-15", DateTo: "2025-01-15", Project: ptr("app-a"), Agent: "claude", Content: "Day 1 app-a"},
+			{Type: "daily_activity", DateFrom: "2025-01-15", DateTo: "2025-01-15", Project: ptr("app-b"), Agent: "claude", Content: "Day 1 app-b"},
+			{Type: "agent_analysis", DateFrom: "2025-01-15", DateTo: "2025-01-15", Agent: "claude", Content: "Analysis"},
+			{Type: "daily_activity", DateFrom: "2025-01-16", DateTo: "2025-01-16", Project: ptr("app-a"), Agent: "claude", Content: "Day 2 app-a"},
 		}
+		var ids []int64
+		for _, s := range entries {
+			id, err := d.InsertInsight(s)
+			if err != nil {
+				t.Fatalf("InsertInsight: %v", err)
+			}
+			ids = append(ids, id)
+		}
+		return ids
 	}
 
 	tests := []struct {
-		name        string
-		f           InsightFilter
-		wantContent []string
+		name   string
+		seed   func(t *testing.T, d *DB) []int64
+		filter InsightFilter
+		verify func(t *testing.T, got []Insight, ids []int64)
 	}{
 		{
-			"AllInsights",
-			InsightFilter{},
-			[]string{"Day 2 app-a", "Analysis", "Day 1 app-b", "Day 1 app-a"},
+			name:   "AllInsights",
+			seed:   seedFiltersData,
+			filter: InsightFilter{},
+			verify: func(t *testing.T, got []Insight, _ []int64) {
+				wantContent := []string{"Day 2 app-a", "Analysis", "Day 1 app-b", "Day 1 app-a"}
+				if len(got) != len(wantContent) {
+					t.Fatalf("got %d insights, want %d", len(got), len(wantContent))
+				}
+				for i, want := range wantContent {
+					if got[i].Content != want {
+						t.Errorf("got[%d].Content = %q, want %q", i, got[i].Content, want)
+					}
+				}
+			},
 		},
 		{
-			"ByType",
-			InsightFilter{Type: "daily_activity"},
-			[]string{"Day 2 app-a", "Day 1 app-b", "Day 1 app-a"},
+			name:   "ByType",
+			seed:   seedFiltersData,
+			filter: InsightFilter{Type: "daily_activity"},
+			verify: func(t *testing.T, got []Insight, _ []int64) {
+				wantContent := []string{"Day 2 app-a", "Day 1 app-b", "Day 1 app-a"}
+				if len(got) != len(wantContent) {
+					t.Fatalf("got %d insights, want %d", len(got), len(wantContent))
+				}
+				for i, want := range wantContent {
+					if got[i].Content != want {
+						t.Errorf("got[%d].Content = %q, want %q", i, got[i].Content, want)
+					}
+				}
+			},
 		},
 		{
-			"ByProject",
-			InsightFilter{Project: "app-a"},
-			[]string{"Day 2 app-a", "Day 1 app-a"},
+			name:   "ByProject",
+			seed:   seedFiltersData,
+			filter: InsightFilter{Project: "app-a"},
+			verify: func(t *testing.T, got []Insight, _ []int64) {
+				wantContent := []string{"Day 2 app-a", "Day 1 app-a"}
+				if len(got) != len(wantContent) {
+					t.Fatalf("got %d insights, want %d", len(got), len(wantContent))
+				}
+				for i, want := range wantContent {
+					if got[i].Content != want {
+						t.Errorf("got[%d].Content = %q, want %q", i, got[i].Content, want)
+					}
+				}
+			},
 		},
 		{
-			"GlobalOnly",
-			InsightFilter{GlobalOnly: true},
-			[]string{"Analysis"},
+			name:   "GlobalOnly",
+			seed:   seedFiltersData,
+			filter: InsightFilter{GlobalOnly: true},
+			verify: func(t *testing.T, got []Insight, _ []int64) {
+				wantContent := []string{"Analysis"}
+				if len(got) != len(wantContent) {
+					t.Fatalf("got %d insights, want %d", len(got), len(wantContent))
+				}
+				for i, want := range wantContent {
+					if got[i].Content != want {
+						t.Errorf("got[%d].Content = %q, want %q", i, got[i].Content, want)
+					}
+				}
+			},
 		},
 		{
-			"NoMatch",
-			InsightFilter{Type: "agent_analysis",
-				Project: "nonexistent"},
-			[]string{},
+			name:   "NoMatch",
+			seed:   seedFiltersData,
+			filter: InsightFilter{Type: "agent_analysis", Project: "nonexistent"},
+			verify: func(t *testing.T, got []Insight, _ []int64) {
+				if len(got) != 0 {
+					t.Fatalf("got %d insights, want 0", len(got))
+				}
+			},
+		},
+		{
+			name: "OrderByCreatedAtDesc",
+			seed: func(t *testing.T, d *DB) []int64 {
+				var ids []int64
+				for _, content := range []string{"first", "second", "third"} {
+					id, err := d.InsertInsight(Insight{
+						Type:     "daily_activity",
+						DateFrom: "2025-01-15", DateTo: "2025-01-15",
+						Agent: "claude", Content: content,
+					})
+					if err != nil {
+						t.Fatalf("InsertInsight: %v", err)
+					}
+					ids = append(ids, id)
+				}
+				return ids
+			},
+			filter: InsightFilter{},
+			verify: func(t *testing.T, got []Insight, ids []int64) {
+				if len(got) != 3 {
+					t.Fatalf("got %d insights, want 3", len(got))
+				}
+				if got[0].ID != ids[2] {
+					t.Errorf("first id = %d, want %d", got[0].ID, ids[2])
+				}
+				if got[2].ID != ids[0] {
+					t.Errorf("last id = %d, want %d", got[2].ID, ids[0])
+				}
+			},
+		},
+		{
+			name: "CappedAt500",
+			seed: func(t *testing.T, d *DB) []int64 {
+				const total = 502
+				var ids []int64
+				for i := range total {
+					id, err := d.InsertInsight(Insight{
+						Type:     "daily_activity",
+						DateFrom: "2025-01-15",
+						DateTo:   "2025-01-15",
+						Agent:    "claude",
+						Content:  fmt.Sprintf("insight %d", i),
+					})
+					if err != nil {
+						t.Fatalf("InsertInsight %d: %v", i, err)
+					}
+					ids = append(ids, id)
+				}
+				return ids
+			},
+			filter: InsightFilter{},
+			verify: func(t *testing.T, got []Insight, ids []int64) {
+				const total = 502
+				if len(got) != 500 {
+					t.Fatalf("got %d insights, want 500 (capped)", len(got))
+				}
+
+				// Newest (id 502) should be first.
+				newestID := ids[total-1]
+				if got[0].ID != newestID {
+					t.Errorf("first ID = %d, want %d (newest)", got[0].ID, newestID)
+				}
+				// Oldest retained should be id 3 (skipping 1 and 2).
+				oldestRetainedID := ids[total-500]
+				if got[499].ID != oldestRetainedID {
+					t.Errorf("last ID = %d, want %d (oldest retained)", got[499].ID, oldestRetainedID)
+				}
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := d.ListInsights(ctx, tt.f)
+			d := testDB(t)
+			ids := tt.seed(t, d)
+			got, err := d.ListInsights(ctx, tt.filter)
 			if err != nil {
 				t.Fatalf("ListInsights: %v", err)
 			}
-			if len(got) != len(tt.wantContent) {
-				t.Fatalf(
-					"got %d insights, want %d",
-					len(got), len(tt.wantContent),
-				)
-			}
-			for i, want := range tt.wantContent {
-				if got[i].Content != want {
-					t.Errorf("got[%d].Content = %q, want %q", i, got[i].Content, want)
-				}
-			}
+			tt.verify(t, got, ids)
 		})
-	}
-}
-
-func TestInsights_OrderByCreatedAtDesc(t *testing.T) {
-	d := testDB(t)
-	ctx := context.Background()
-
-	ids := make([]int64, 3)
-	for i, content := range []string{"first", "second", "third"} {
-		id, err := d.InsertInsight(Insight{
-			Type:     "daily_activity",
-			DateFrom: "2025-01-15", DateTo: "2025-01-15",
-			Agent: "claude", Content: content,
-		})
-		if err != nil {
-			t.Fatalf("InsertInsight: %v", err)
-		}
-		ids[i] = id
-	}
-
-	got, err := d.ListInsights(ctx, InsightFilter{})
-	if err != nil {
-		t.Fatalf("ListInsights: %v", err)
-	}
-	if len(got) != 3 {
-		t.Fatalf("got %d insights, want 3", len(got))
-	}
-	if got[0].ID != ids[2] {
-		t.Errorf("first id = %d, want %d", got[0].ID, ids[2])
-	}
-	if got[2].ID != ids[0] {
-		t.Errorf("last id = %d, want %d", got[2].ID, ids[0])
-	}
-}
-
-func TestInsights_ListCappedAt500(t *testing.T) {
-	d := testDB(t)
-	ctx := context.Background()
-
-	const total = 502
-	ids := make([]int64, total)
-	for i := range total {
-		id, err := d.InsertInsight(Insight{
-			Type:     "daily_activity",
-			DateFrom: "2025-01-15",
-			DateTo:   "2025-01-15",
-			Agent:    "claude",
-			Content:  fmt.Sprintf("insight %d", i),
-		})
-		if err != nil {
-			t.Fatalf("InsertInsight %d: %v", i, err)
-		}
-		ids[i] = id
-	}
-
-	got, err := d.ListInsights(ctx, InsightFilter{})
-	if err != nil {
-		t.Fatalf("ListInsights: %v", err)
-	}
-	if len(got) != 500 {
-		t.Fatalf(
-			"got %d insights, want 500 (capped)",
-			len(got),
-		)
-	}
-
-	// Newest (id 502) should be first.
-	newestID := ids[total-1]
-	if got[0].ID != newestID {
-		t.Errorf(
-			"first ID = %d, want %d (newest)",
-			got[0].ID, newestID,
-		)
-	}
-	// Oldest retained should be id 3 (skipping 1 and 2).
-	oldestRetainedID := ids[total-500]
-	if got[499].ID != oldestRetainedID {
-		t.Errorf(
-			"last ID = %d, want %d (oldest retained)",
-			got[499].ID, oldestRetainedID,
-		)
 	}
 }
 
