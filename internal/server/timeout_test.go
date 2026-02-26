@@ -68,14 +68,13 @@ func TestServerTimeouts(t *testing.T) {
 			errCh <- fmt.Errorf("writing update: %w", err)
 			return
 		}
-		close(errCh)
 	}()
 
 	readCh := make(chan string)
 	go func() {
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
-			if strings.Contains(scanner.Text(), `"content":"update"`) {
+			if strings.Contains(scanner.Text(), "session_updated") {
 				readCh <- scanner.Text()
 				return
 			}
