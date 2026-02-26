@@ -377,6 +377,7 @@ func (e *Engine) ResyncAll(
 	// files were broken in the old DB too.
 	emptyDiscovery := stats.filesDiscovered == 0 &&
 		stats.filesOK == 0 &&
+		stats.Synced == 0 &&
 		oldStats.SessionCount > 0
 	abortSwap := emptyDiscovery ||
 		(stats.Synced == 0 && stats.TotalSessions > 0) ||

@@ -2163,3 +2163,65 @@ func TestResyncAllAbortsOnEmptyDiscovery(t *testing.T) {
 	// Original data must be preserved.
 	assertSessionMessageCount(t, env.db, "keep", 2)
 }
+
+// TestResyncAllOpenCodeOnly verifies that ResyncAll succeeds
+// when only OpenCode sessions exist (no file-based sessions).
+// The empty-discovery guard must not abort when OpenCode
+// sessions are synced.
+func TestResyncAllOpenCodeOnly(t *testing.T) {
+	env := setupTestEnv(t)
+
+	oc := createOpenCodeDB(t, env.opencodeDir)
+	oc.addProject(t, "proj-1", "/home/user/code/myapp")
+
+	sessionID := "oc-resync-only"
+	var timeCreated int64 = 1704067200000
+	var timeUpdated int64 = 1704067205000
+
+	oc.addSession(
+		t, sessionID, "proj-1",
+		timeCreated, timeUpdated,
+	)
+	oc.addMessage(
+		t, "msg-u1", sessionID, "user", timeCreated,
+	)
+	oc.addMessage(
+		t, "msg-a1", sessionID, "assistant",
+		timeCreated+1,
+	)
+	oc.addTextPart(
+		t, "part-u1", sessionID, "msg-u1",
+		"hello opencode", timeCreated,
+	)
+	oc.addTextPart(
+		t, "part-a1", sessionID, "msg-a1",
+		"hi there", timeCreated+1,
+	)
+
+	// Initial sync populates the DB with OpenCode sessions.
+	env.engine.SyncAll(nil)
+	agentviewID := "opencode:" + sessionID
+	assertSessionMessageCount(t, env.db, agentviewID, 2)
+
+	// ResyncAll must not abort — OpenCode sessions should
+	// survive even though file discovery returns zero.
+	stats := env.engine.ResyncAll(nil)
+
+	for _, w := range stats.Warnings {
+		if strings.Contains(w, "resync aborted") {
+			t.Fatalf(
+				"ResyncAll aborted for OpenCode-only "+
+					"dataset: %s", w,
+			)
+		}
+	}
+	if stats.Synced == 0 {
+		t.Fatal("expected OpenCode sessions to be synced")
+	}
+
+	assertSessionMessageCount(t, env.db, agentviewID, 2)
+	assertMessageContent(
+		t, env.db, agentviewID,
+		"hello opencode", "hi there",
+	)
+}
