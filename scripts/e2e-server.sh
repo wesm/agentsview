@@ -36,12 +36,16 @@ else
       -o "$SERVER" "$ROOT/cmd/agentsview"
 fi
 
-# Run server with test DB, no sync dirs, fixed port
+# Run server with test DB, no sync dirs, fixed port.
+# Every agent dir must point to EMPTY_DIR to prevent
+# the server from discovering real sessions on the host.
 echo "Starting e2e server on :8090..."
 AGENT_VIEWER_DATA_DIR="$TMPDIR" \
 CLAUDE_PROJECTS_DIR="$EMPTY_DIR" \
 CODEX_SESSIONS_DIR="$EMPTY_DIR" \
+COPILOT_DIR="$EMPTY_DIR" \
 GEMINI_DIR="$EMPTY_DIR" \
+OPENCODE_DIR="$EMPTY_DIR" \
 exec "$SERVER" \
   -port 8090 \
   -no-browser

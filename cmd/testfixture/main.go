@@ -12,21 +12,35 @@ import (
 )
 
 type sessionSpec struct {
-	project      string
-	suffix       string
-	msgCount     int
-	userMsgCount int
+	project          string
+	suffix           string
+	msgCount         int
+	userMsgCount     int
+	parentSessionID  string
+	relationshipType string
 }
 
 var specs = []sessionSpec{
-	{"project-alpha", "small-2", 2, 1},
-	{"project-alpha", "small-5", 5, 3},
-	{"project-beta", "mixed-content-7", 7, 3},
-	{"project-beta", "medium-8", 8, 4},
-	{"project-beta", "medium-100", 100, 50},
-	{"project-gamma", "large-200", 200, 100},
-	{"project-gamma", "large-1500", 1500, 750},
-	{"project-delta", "xlarge-5500", 5500, 2750},
+	{"project-alpha", "small-2", 2, 1, "", ""},
+	{"project-alpha", "small-5", 5, 3, "", ""},
+	{"project-beta", "mixed-content-7", 7, 3, "", ""},
+	{"project-beta", "medium-8", 8, 4, "", ""},
+	{"project-beta", "medium-100", 100, 50, "", ""},
+	{"project-gamma", "large-200", 200, 100, "", ""},
+	{"project-gamma", "large-1500", 1500, 750, "", ""},
+	{"project-delta", "xlarge-5500", 5500, 2750, "", ""},
+
+	// Sub-agent and fork sessions: must NOT appear in session
+	// list, stats, or analytics summary counts.
+	{"project-alpha", "subagent-1", 12, 6,
+		"test-session-small-5", "subagent"},
+	{"project-alpha", "subagent-2", 8, 4,
+		"test-session-small-5", "subagent"},
+	{"project-beta", "fork-1", 15, 7,
+		"test-session-medium-8", "fork"},
+
+	// Empty session (0 messages): must also be excluded.
+	{"project-gamma", "empty-0", 0, 0, "", ""},
 }
 
 func main() {
@@ -80,20 +94,30 @@ func createSessionFixture(
 	)
 
 	sess := db.Session{
-		ID:      sessionID,
-		Project: spec.project,
-		Machine: "test-machine",
-		Agent:   "claude",
-		FirstMessage: ptr(
-			fmt.Sprintf("First message for %s", spec.project),
-		),
+		ID:               sessionID,
+		Project:          spec.project,
+		Machine:          "test-machine",
+		Agent:            "claude",
 		StartedAt:        ptr(startedAt.Format(time.RFC3339Nano)),
 		EndedAt:          ptr(endedAt.Format(time.RFC3339Nano)),
 		MessageCount:     spec.msgCount,
 		UserMessageCount: spec.userMsgCount,
+		RelationshipType: spec.relationshipType,
+	}
+	if spec.parentSessionID != "" {
+		sess.ParentSessionID = ptr(spec.parentSessionID)
+	}
+	if spec.msgCount > 0 {
+		sess.FirstMessage = ptr(
+			fmt.Sprintf("First message for %s", spec.project),
+		)
 	}
 	if err := database.UpsertSession(sess); err != nil {
 		return fmt.Errorf("upserting session: %w", err)
+	}
+
+	if spec.msgCount == 0 {
+		return nil
 	}
 
 	var msgs []db.Message
