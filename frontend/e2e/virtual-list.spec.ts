@@ -81,9 +81,16 @@ test.describe("Virtual list behavior", () => {
 
     await sp.filterByProject("tiny");
 
+    // Wait for filtered results to render before checking
+    // scroll position — on CI the re-render can be slow.
+    await expect(sp.sessionListHeader).toContainText(
+      "1 sessions",
+      { timeout: 5_000 },
+    );
+
     await expect
       .poll(() => getScrollTop(sp.sessionListScroll), {
-        timeout: 2000,
+        timeout: 5_000,
       })
       .toBe(0);
   });
