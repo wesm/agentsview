@@ -154,7 +154,7 @@ func TestSyncEngineIntegration(t *testing.T) {
 	)
 
 	// First sync should parse
-	stats := runSyncAndAssert(t, env.engine, 1, 0)
+	stats := runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 	if stats.TotalSessions != 1 {
 		t.Errorf("total = %d, want 1", stats.TotalSessions)
 	}
@@ -170,7 +170,7 @@ func TestSyncEngineIntegration(t *testing.T) {
 	)
 
 	// Second sync should skip (unchanged files)
-	runSyncAndAssert(t, env.engine, 0, 1)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 0 + 1, Synced: 0, Skipped: 1})
 
 	// FindSourceFile
 	src := env.engine.FindSourceFile("test-session")
@@ -215,7 +215,7 @@ func TestSyncEngineWorktreesShareProject(t *testing.T) {
 		"worktree-repo.jsonl", worktreeContent,
 	)
 
-	runSyncAndAssert(t, env.engine, 2, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 2 + 0, Synced: 2, Skipped: 0})
 
 	assertSessionProject(t, env.db, "main-repo", "agentsview")
 	assertSessionProject(t, env.db, "worktree-repo", "agentsview")
@@ -257,7 +257,7 @@ func TestSyncEngineWorktreeProjectWhenPathMissing(t *testing.T) {
 		"offline-worktree.jsonl", worktreeContent,
 	)
 
-	runSyncAndAssert(t, env.engine, 2, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 2 + 0, Synced: 2, Skipped: 0})
 
 	assertSessionProject(t, env.db, "offline-main", "agentsview")
 	assertSessionProject(t, env.db, "offline-worktree", "agentsview")
@@ -277,10 +277,7 @@ func TestSyncEngineCodex(t *testing.T) {
 		"rollout-20240115-test-uuid.jsonl", content,
 	)
 
-	stats := env.engine.SyncAll(nil)
-	if stats.TotalSessions != 1 {
-		t.Errorf("total = %d, want 1", stats.TotalSessions)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1, Synced: 1, Skipped: 0})
 
 	assertSessionProject(t, env.db, "codex:test-uuid", "api")
 	assertSessionState(t, env.db, "codex:test-uuid", func(sess *db.Session) {
@@ -325,7 +322,7 @@ func TestSyncEngineHashSkip(t *testing.T) {
 	)
 
 	// First sync
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	// Verify file metadata was stored
 	size, mtime, ok := env.db.GetSessionFileInfo("hash-test")
@@ -340,7 +337,7 @@ func TestSyncEngineHashSkip(t *testing.T) {
 	}
 
 	// Second sync — unchanged content → skipped
-	runSyncAndAssert(t, env.engine, 0, 1)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 0 + 1, Synced: 0, Skipped: 1})
 
 	// Overwrite with different content (changes mtime).
 	different := testjsonl.NewSessionBuilder().
@@ -349,7 +346,7 @@ func TestSyncEngineHashSkip(t *testing.T) {
 	os.WriteFile(path, []byte(different), 0o644)
 
 	// Third sync — mtime changed → re-synced
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 }
 
 func TestSyncEngineSkipCache(t *testing.T) {
@@ -362,20 +359,17 @@ func TestSyncEngineSkipCache(t *testing.T) {
 	)
 
 	// First sync — file parsed (empty session stored)
-	stats := env.engine.SyncAll(nil)
-	if stats.TotalSessions != 1 {
-		t.Fatalf("total = %d, want 1", stats.TotalSessions)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1, Synced: 1, Skipped: 0})
 
 	// Second sync — unchanged mtime, should be skipped
-	runSyncAndAssert(t, env.engine, 0, 1)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 0 + 1, Synced: 0, Skipped: 1})
 
 	// Touch file (change mtime) but keep same content
 	time.Sleep(10 * time.Millisecond)
 	os.Chtimes(path, time.Now(), time.Now())
 
 	// Third sync — mtime changed → re-synced (harmless)
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 }
 
 func TestSyncEngineFileAppend(t *testing.T) {
@@ -390,7 +384,7 @@ func TestSyncEngineFileAppend(t *testing.T) {
 	)
 
 	// First sync
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "append-test", 1)
 
@@ -402,7 +396,7 @@ func TestSyncEngineFileAppend(t *testing.T) {
 	os.WriteFile(path, []byte(appended), 0o644)
 
 	// Re-sync — different size → re-synced
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "append-test", 2)
 }
@@ -558,7 +552,7 @@ func TestSyncEngineTombstoneClearOnMtimeChange(t *testing.T) {
 	os.WriteFile(path, []byte(valid), 0o644)
 
 	// Re-sync — content changed (different size) → re-synced
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "tombstone-clear", 2)
 }
@@ -627,7 +621,7 @@ func TestSyncEngineNoTrailingNewline(t *testing.T) {
 	)
 
 	// Sync should succeed
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "no-newline", 1)
 }
@@ -644,7 +638,7 @@ func TestSyncPathsClaude(t *testing.T) {
 	)
 
 	// Initial full sync
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "paths-test", 1)
 
@@ -678,7 +672,7 @@ func TestSyncPathsOnlyProcessesChanged(t *testing.T) {
 	)
 
 	// Initial full sync
-	runSyncAndAssert(t, env.engine, 2, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 2 + 0, Synced: 2, Skipped: 0})
 
 	// Only modify session-1
 	appended := content1 + testjsonl.NewSessionBuilder().
@@ -776,7 +770,7 @@ func TestSyncEngineCodexNoTrailingNewline(t *testing.T) {
 	)
 
 	// Sync should succeed
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "codex:"+uuid, 1)
 }
@@ -1017,10 +1011,7 @@ func TestSyncSubagentSetsParentSessionID(t *testing.T) {
 	)
 
 	// SyncAll should discover both parent and subagent
-	stats := env.engine.SyncAll(nil)
-	if stats.Synced != 2 {
-		t.Fatalf("Synced = %d, want 2", stats.Synced)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 2, Synced: 2, Skipped: 0})
 
 	// Verify parent has no parent_session_id
 	assertSessionState(
@@ -1437,7 +1428,7 @@ func TestSyncEnginePostFilterCounts(t *testing.T) {
 		"filter-count.jsonl", content,
 	)
 
-	runSyncAndAssert(t, env.engine, 1, 0)
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1 + 0, Synced: 1, Skipped: 0})
 
 	// Verify stored counts match post-filter values.
 	assertSessionMessageCount(t, env.db, "filter-count", 3)
@@ -1567,10 +1558,7 @@ func TestSyncEngineMultiClaudeDir(t *testing.T) {
 	path2 := filepath.Join(claudeDir2, "proj2", "sess2.jsonl")
 	dbtest.WriteTestFile(t, path2, []byte(content2))
 
-	stats := env.engine.SyncAll(nil)
-	if stats.TotalSessions != 2 {
-		t.Errorf("total = %d, want 2", stats.TotalSessions)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 2, Synced: 2, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "sess1", 1)
 	assertSessionMessageCount(t, env.db, "sess2", 1)
@@ -1613,11 +1601,7 @@ func TestSyncForkDetection(t *testing.T) {
 		String()
 
 	env.writeClaudeSession(t, "test-proj", "parent-uuid.jsonl", content)
-	stats := env.engine.SyncAll(nil)
-
-	if stats.Synced < 2 {
-		t.Fatalf("expected at least 2 synced sessions, got %d", stats.Synced)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1, Synced: 2, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "parent-uuid", 10)
 
@@ -1649,11 +1633,7 @@ func TestSyncSmallGapRetry(t *testing.T) {
 		String()
 
 	env.writeClaudeSession(t, "test-proj", "retry-uuid.jsonl", content)
-	stats := env.engine.SyncAll(nil)
-
-	if stats.Synced != 1 {
-		t.Fatalf("expected 1 synced session, got %d", stats.Synced)
-	}
+	runSyncAndAssert(t, env.engine, sync.SyncStats{TotalSessions: 1, Synced: 1, Skipped: 0})
 
 	assertSessionMessageCount(t, env.db, "retry-uuid", 4)
 }

@@ -163,11 +163,14 @@ func TestFilterEmptyMessages(t *testing.T) {
 }
 
 func TestPostFilterCounts(t *testing.T) {
+	type counts struct {
+		Total int
+		User  int
+	}
 	tests := []struct {
-		name      string
-		msgs      []db.Message
-		wantTotal int
-		wantUser  int
+		name string
+		msgs []db.Message
+		want counts
 	}{
 		{
 			name: "mixed roles",
@@ -176,22 +179,19 @@ func TestPostFilterCounts(t *testing.T) {
 				{Role: "assistant", Content: "hi"},
 				{Role: "user", Content: "thanks"},
 			},
-			wantTotal: 3,
-			wantUser:  2,
+			want: counts{Total: 3, User: 2},
 		},
 		{
 			name: "no user messages",
 			msgs: []db.Message{
 				{Role: "assistant", Content: "hi"},
 			},
-			wantTotal: 1,
-			wantUser:  0,
+			want: counts{Total: 1, User: 0},
 		},
 		{
-			name:      "empty slice",
-			msgs:      nil,
-			wantTotal: 0,
-			wantUser:  0,
+			name: "empty slice",
+			msgs: nil,
+			want: counts{Total: 0, User: 0},
 		},
 		{
 			name: "all user messages",
@@ -199,25 +199,16 @@ func TestPostFilterCounts(t *testing.T) {
 				{Role: "user", Content: "a"},
 				{Role: "user", Content: "b"},
 			},
-			wantTotal: 2,
-			wantUser:  2,
+			want: counts{Total: 2, User: 2},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			total, user := postFilterCounts(tt.msgs)
-			if total != tt.wantTotal {
-				t.Errorf(
-					"total = %d, want %d",
-					total, tt.wantTotal,
-				)
-			}
-			if user != tt.wantUser {
-				t.Errorf(
-					"user = %d, want %d",
-					user, tt.wantUser,
-				)
+			got := counts{Total: total, User: user}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("postFilterCounts() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/wesm/agentsview/internal/db"
@@ -57,14 +58,11 @@ func assertSessionProject(t *testing.T, database *db.DB, sessionID string, want 
 	})
 }
 
-func runSyncAndAssert(t *testing.T, engine *sync.Engine, wantSynced, wantSkipped int) sync.SyncStats {
+func runSyncAndAssert(t *testing.T, engine *sync.Engine, want sync.SyncStats) sync.SyncStats {
 	t.Helper()
 	stats := engine.SyncAll(nil)
-	if stats.Synced != wantSynced {
-		t.Fatalf("Synced: got %d, want %d", stats.Synced, wantSynced)
-	}
-	if stats.Skipped != wantSkipped {
-		t.Fatalf("Skipped: got %d, want %d", stats.Skipped, wantSkipped)
+	if diff := cmp.Diff(want, stats); diff != "" {
+		t.Fatalf("SyncAll() mismatch (-want +got):\n%s", diff)
 	}
 	return stats
 }
@@ -104,7 +102,7 @@ func (e *testEnv) assertResyncRoundTrip(
 		t.Error("SyncSingleSession did not store mtime")
 	}
 
-	runSyncAndAssert(t, e.engine, 0, 1)
+	runSyncAndAssert(t, e.engine, sync.SyncStats{TotalSessions: 0 + 1, Synced: 0, Skipped: 1})
 }
 
 func fetchMessages(t *testing.T, database *db.DB, sessionID string) []db.Message {
