@@ -196,9 +196,9 @@ func TestParseOpenCodeDB_ToolParts(t *testing.T) {
 	assertEq(t, "ToolCalls len", len(ast.ToolCalls), 1)
 
 	tc := ast.ToolCalls[0]
-	assertEq(t, "ToolName", tc.ToolName, "read")
-	assertEq(t, "Category", tc.Category, "Read")
-	assertEq(t, "ToolUseID", tc.ToolUseID, "call_1")
+	assertToolCallField(t, 0, "ToolName", tc.ToolName, "read")
+	assertToolCallField(t, 0, "Category", tc.Category, "Read")
+	assertToolCallField(t, 0, "ToolUseID", tc.ToolUseID, "call_1")
 	if tc.InputJSON == "" {
 		t.Error("expected non-empty InputJSON")
 	}

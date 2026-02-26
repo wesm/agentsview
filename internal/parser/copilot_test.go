@@ -84,15 +84,12 @@ func TestParseCopilotSession_ToolCalls(t *testing.T) {
 	if !tcMsg.HasToolUse {
 		t.Error("expected HasToolUse on tool call message")
 	}
-	assertEqual(t, 1, len(tcMsg.ToolCalls), "len(tcMsg.ToolCalls)")
-
-	tc := tcMsg.ToolCalls[0]
-	assertEqual(t, "view", tc.ToolName, "tool name")
-	assertEqual(t, "Read", tc.Category, "tool category")
-	assertEqual(t, "tc-1", tc.ToolUseID, "tool use ID")
-
-	wantInput := `{"path":"config.json"}`
-	assertEqual(t, wantInput, tc.InputJSON, "InputJSON")
+	assertToolCalls(t, tcMsg.ToolCalls, []ParsedToolCall{{
+		ToolName:  "view",
+		Category:  "Read",
+		ToolUseID: "tc-1",
+		InputJSON: `{"path":"config.json"}`,
+	}})
 
 	// Check tool result message.
 	trMsg := msgs[2]
@@ -253,9 +250,7 @@ func TestParseCopilotSession_ObjectArguments(t *testing.T) {
 
 	_, msgs := parseAndValidateHelper(t, path, "m", 3)
 
-	tc := msgs[1].ToolCalls[0]
-	wantInput := `{"pattern":"*.go"}`
-	assertEqual(t, wantInput, tc.InputJSON, "InputJSON")
+	assertToolCallField(t, 0, "InputJSON", msgs[1].ToolCalls[0].InputJSON, `{"pattern":"*.go"}`)
 }
 
 func TestCopilotUserMessageCount(t *testing.T) {
