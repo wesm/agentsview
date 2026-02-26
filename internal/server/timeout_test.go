@@ -1,10 +1,12 @@
 package server_test
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,7 +17,10 @@ func TestServerTimeouts(t *testing.T) {
 	// Set a very short WriteTimeout to verify SSE is exempt.
 	// If SSE were subject to this timeout, the connection would close
 	// well before our 500ms wait below.
-	te := setup(t, withWriteTimeout(100*time.Millisecond))
+	writeTimeout := 100 * time.Millisecond
+	sleepDuration := 500 * time.Millisecond // Must be > writeTimeout
+
+	te := setup(t, withWriteTimeout(writeTimeout))
 
 	sessionPath := te.writeProjectFile(
 		t, "test-project", "watch-test.jsonl", `{"type":"user"}`,
@@ -51,30 +56,44 @@ func TestServerTimeouts(t *testing.T) {
 	// If the handler had a timeout, the body would be closed by now.
 	errCh := make(chan error, 1)
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		if err := os.WriteFile(
-			sessionPath,
-			[]byte(`{"type":"user","content":"update"}`),
-			0o644,
-		); err != nil {
+		time.Sleep(sleepDuration)
+		f, err := os.OpenFile(sessionPath, os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			errCh <- fmt.Errorf("opening file: %w", err)
+			return
+		}
+		defer f.Close()
+
+		if _, err := f.WriteString("\n{\"type\":\"user\",\"content\":\"update\"}"); err != nil {
 			errCh <- fmt.Errorf("writing update: %w", err)
 			return
 		}
 		close(errCh)
 	}()
 
-	// Read from the stream to verify it's open and receives data.
-	buf := make([]byte, 1024)
-	n, err := resp.Body.Read(buf)
+	readCh := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), `"content":"update"`) {
+				readCh <- scanner.Text()
+				return
+			}
+		}
+		close(readCh)
+	}()
 
-	if writeErr := <-errCh; writeErr != nil {
-		t.Fatalf("update writer failed: %v", writeErr)
+	select {
+	case writeErr := <-errCh:
+		if writeErr != nil {
+			t.Fatalf("update writer failed: %v", writeErr)
+		}
+	case line, ok := <-readCh:
+		if !ok {
+			t.Fatal("stream closed before receiving update")
+		}
+		t.Logf("Received delayed event: %s", line)
+	case <-ctx.Done():
+		t.Fatal("test timed out waiting for delayed event")
 	}
-
-	if n == 0 && err != nil {
-		t.Fatalf(
-			"failed to read bytes (timeout or closed?): %v", err,
-		)
-	}
-	t.Logf("Received %d bytes from SSE stream", n)
 }
