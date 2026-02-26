@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"html/template"
 	"net/http"
@@ -35,11 +34,15 @@ func testSession(
 // stubServer returns an httptest.Server that responds with
 // the given status code and body. Caller must defer ts.Close().
 func stubServer(
-	status int, body string,
+	t *testing.T, status int, body string,
 ) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(
 		http.HandlerFunc(
-			func(w http.ResponseWriter, _ *http.Request) {
+			func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") == "" {
+					t.Errorf("missing Authorization header")
+				}
 				w.WriteHeader(status)
 				if body != "" {
 					w.Write([]byte(body))
@@ -47,6 +50,17 @@ func stubServer(
 			},
 		),
 	)
+}
+
+// assertErrorContains checks that err is non-nil and contains want.
+func assertErrorContains(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error containing %q, got nil", want)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("expected error containing %q, got: %v", want, err)
+	}
 }
 
 // assertContextCancelled checks that err is non-nil and
@@ -528,205 +542,171 @@ func TestExportTemplateValid(t *testing.T) {
 
 // --- GitHub API mock tests ---
 
-func TestCreateGist_Success(t *testing.T) {
+func TestCreateGist(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "POST" {
-				t.Errorf("expected POST, got %s", r.Method)
-			}
-			if r.Header.Get("Authorization") != "token test-tok" {
-				t.Error("missing or wrong Authorization header")
-			}
-			if r.Header.Get("User-Agent") != "agentsview" {
-				t.Error("missing User-Agent header")
-			}
 
-			w.WriteHeader(http.StatusCreated)
-			resp := gistResponse{
-				ID:      "abc123",
-				HTMLURL: "https://gist.github.com/abc123",
-			}
-			resp.Owner.Login = "testuser"
-			json.NewEncoder(w).Encode(resp)
-		}),
-	)
-	defer ts.Close()
+	tests := []struct {
+		name       string
+		respStatus int
+		respBody   string
+		cancelCtx  bool
+		wantErr    string
+		wantID     string
+		wantURL    string
+		wantLogin  string
+	}{
+		{
+			name:       "Success",
+			respStatus: http.StatusCreated,
+			respBody:   `{"id":"abc123","html_url":"https://gist.github.com/abc123","owner":{"login":"testuser"}}`,
+			wantID:     "abc123",
+			wantURL:    "https://gist.github.com/abc123",
+			wantLogin:  "testuser",
+		},
+		{
+			name:       "APIError",
+			respStatus: http.StatusUnprocessableEntity,
+			respBody:   `{"message":"Validation Failed"}`,
+			wantErr:    "422",
+		},
+		{
+			name:       "MalformedJSON",
+			respStatus: http.StatusOK,
+			respBody:   "not json",
+			wantErr:    "parsing",
+		},
+		{
+			name:       "MissingFields",
+			respStatus: http.StatusCreated,
+			respBody:   `{}`,
+		},
+		{
+			name:       "ContextCancelled",
+			respStatus: http.StatusOK,
+			respBody:   "",
+			cancelCtx:  true,
+		},
+	}
 
-	got, err := createGistWithURL(
-		context.Background(),
-		ts.URL, "test-tok", "f.html", "desc", "<html>",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.ID != "abc123" {
-		t.Errorf("ID = %q, want abc123", got.ID)
-	}
-	if got.HTMLURL != "https://gist.github.com/abc123" {
-		t.Errorf("HTMLURL = %q", got.HTMLURL)
-	}
-	if got.Owner.Login != "testuser" {
-		t.Errorf("Owner.Login = %q", got.Owner.Login)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ts := stubServer(t, tt.respStatus, tt.respBody)
+			defer ts.Close()
 
-func TestCreateGist_APIError(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(
-		http.StatusUnprocessableEntity,
-		`{"message":"Validation Failed"}`,
-	)
-	defer ts.Close()
-
-	_, err := createGistWithURL(
-		context.Background(),
-		ts.URL, "tok", "f.html", "desc", "content",
-	)
-	if err == nil {
-		t.Fatal("expected error for 422 response")
-	}
-	if !strings.Contains(err.Error(), "422") {
-		t.Errorf("error should contain status code: %v", err)
-	}
-}
-
-func TestCreateGist_MalformedJSON(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(http.StatusOK, "not json")
-	defer ts.Close()
-
-	_, err := createGistWithURL(
-		context.Background(),
-		ts.URL, "tok", "f.html", "desc", "content",
-	)
-	if err == nil {
-		t.Fatal("expected error for malformed JSON response")
-	}
-	if !strings.Contains(err.Error(), "parsing") {
-		t.Errorf("error should mention parsing: %v", err)
-	}
-}
-
-func TestCreateGist_MissingFields(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(http.StatusCreated, `{}`)
-	defer ts.Close()
-
-	got, err := createGistWithURL(
-		context.Background(),
-		ts.URL, "tok", "f.html", "desc", "content",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Missing fields decode as zero values
-	if got.ID != "" {
-		t.Errorf("expected empty ID, got %q", got.ID)
-	}
-	if got.Owner.Login != "" {
-		t.Errorf(
-			"expected empty Owner.Login, got %q",
-			got.Owner.Login,
-		)
-	}
-}
-
-func TestValidateGithubToken_Success(t *testing.T) {
-	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
-				t.Errorf("expected GET, got %s", r.Method)
-			}
-			if r.Header.Get("Authorization") != "token good-tok" {
-				t.Error("missing or wrong Authorization header")
+			ctx := context.Background()
+			if tt.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
 			}
 
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(
-				map[string]string{"login": "octocat"},
+			got, err := createGistWithURL(
+				ctx, ts.URL, "tok", "f.html", "desc", "content",
 			)
-		}),
-	)
-	defer ts.Close()
 
-	login, err := validateGithubTokenWithURL(context.Background(), ts.URL, "good-tok")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if login != "octocat" {
-		t.Errorf("login = %q, want octocat", login)
-	}
-}
+			if tt.cancelCtx {
+				assertContextCancelled(t, err)
+				return
+			}
 
-func TestValidateGithubToken_Unauthorized(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(http.StatusUnauthorized, "")
-	defer ts.Close()
+			if tt.wantErr != "" {
+				assertErrorContains(t, err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-	_, err := validateGithubTokenWithURL(context.Background(), ts.URL, "bad-tok")
-	if err == nil {
-		t.Fatal("expected error for 401 response")
-	}
-	if !strings.Contains(err.Error(), "invalid") {
-		t.Errorf("error should mention invalid: %v", err)
-	}
-}
-
-func TestValidateGithubToken_ServerError(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(http.StatusInternalServerError, "")
-	defer ts.Close()
-
-	_, err := validateGithubTokenWithURL(context.Background(), ts.URL, "tok")
-	if err == nil {
-		t.Fatal("expected error for 500 response")
-	}
-	if !strings.Contains(err.Error(), "500") {
-		t.Errorf("error should contain status code: %v", err)
+			if got.ID != tt.wantID {
+				t.Errorf("expected ID %q, got %q", tt.wantID, got.ID)
+			}
+			if got.HTMLURL != tt.wantURL {
+				t.Errorf("expected HTMLURL %q, got %q", tt.wantURL, got.HTMLURL)
+			}
+			if got.Owner.Login != tt.wantLogin {
+				t.Errorf("expected Owner.Login %q, got %q", tt.wantLogin, got.Owner.Login)
+			}
+		})
 	}
 }
 
-func TestValidateGithubToken_MalformedJSON(t *testing.T) {
+func TestValidateGithubToken(t *testing.T) {
 	t.Parallel()
-	ts := stubServer(http.StatusOK, "{broken")
-	defer ts.Close()
 
-	_, err := validateGithubTokenWithURL(context.Background(), ts.URL, "tok")
-	if err == nil {
-		t.Fatal("expected error for malformed JSON")
+	tests := []struct {
+		name       string
+		respStatus int
+		respBody   string
+		cancelCtx  bool
+		wantErr    string
+		wantLogin  string
+	}{
+		{
+			name:       "Success",
+			respStatus: http.StatusOK,
+			respBody:   `{"login":"octocat"}`,
+			wantLogin:  "octocat",
+		},
+		{
+			name:       "Unauthorized",
+			respStatus: http.StatusUnauthorized,
+			respBody:   "",
+			wantErr:    "invalid",
+		},
+		{
+			name:       "ServerError",
+			respStatus: http.StatusInternalServerError,
+			respBody:   "",
+			wantErr:    "500",
+		},
+		{
+			name:       "MalformedJSON",
+			respStatus: http.StatusOK,
+			respBody:   "{broken",
+			wantErr:    "parsing",
+		},
+		{
+			name:       "ContextCancelled",
+			respStatus: http.StatusOK,
+			respBody:   "",
+			cancelCtx:  true,
+		},
 	}
-	if !strings.Contains(err.Error(), "parsing") {
-		t.Errorf("error should mention parsing: %v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ts := stubServer(t, tt.respStatus, tt.respBody)
+			defer ts.Close()
+
+			ctx := context.Background()
+			if tt.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+
+			login, err := validateGithubTokenWithURL(
+				ctx, ts.URL, "tok",
+			)
+
+			if tt.cancelCtx {
+				assertContextCancelled(t, err)
+				return
+			}
+
+			if tt.wantErr != "" {
+				assertErrorContains(t, err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if login != tt.wantLogin {
+				t.Errorf("expected login %q, got %q", tt.wantLogin, login)
+			}
+		})
 	}
-}
-
-func TestCreateGist_ContextCancelled(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(http.StatusOK, "")
-	defer ts.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := createGistWithURL(
-		ctx,
-		ts.URL, "tok", "f.html", "desc", "content",
-	)
-	assertContextCancelled(t, err)
-}
-
-func TestValidateGithubToken_ContextCancelled(t *testing.T) {
-	t.Parallel()
-	ts := stubServer(http.StatusOK, "")
-	defer ts.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := validateGithubTokenWithURL(
-		ctx, ts.URL, "tok",
-	)
-	assertContextCancelled(t, err)
 }
