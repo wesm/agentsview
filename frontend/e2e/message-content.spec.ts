@@ -102,6 +102,79 @@ test.describe("Mixed content rendering", () => {
     await expect(toolBlocks).toHaveCount(2);
   });
 
+  test("tool block expands on click and text is selectable", async ({
+    page,
+  }) => {
+    const { project, count, displayRows } = BETA_6;
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
+
+    const toolBlock = page.locator(".tool-block").first();
+    await expect(toolBlock).toBeVisible();
+
+    // Tool content should be hidden (collapsed by default)
+    const toolContent = toolBlock.locator(".tool-content");
+    await expect(toolContent).not.toBeVisible();
+
+    // Click the header to expand
+    const toolHeader = toolBlock.locator(".tool-header");
+    await toolHeader.click();
+
+    // Content should now be visible
+    await expect(toolContent).toBeVisible();
+
+    // Verify text is selectable inside the tool content
+    const isSelectable = await toolContent.evaluate((el) => {
+      const style = window.getComputedStyle(el);
+      return style.userSelect !== "none";
+    });
+    expect(isSelectable).toBe(true);
+
+    // Verify the tool header button allows text selection
+    const headerSelectable = await toolHeader.evaluate((el) => {
+      const style = window.getComputedStyle(el);
+      return style.userSelect !== "none";
+    });
+    expect(headerSelectable).toBe(true);
+  });
+
+  test("text selection does not collapse tool block", async ({
+    page,
+  }) => {
+    const { project, count, displayRows } = BETA_6;
+    const sid = await selectSession(page, project, count);
+    await expectSessionLoaded(page, sid, displayRows);
+
+    // Expand the tool block first
+    const toolBlock = page.locator(".tool-block").first();
+    const toolHeader = toolBlock.locator(".tool-header");
+    await toolHeader.click();
+
+    const toolContent = toolBlock.locator(".tool-content");
+    await expect(toolContent).toBeVisible();
+
+    // Simulate a text selection then click the header
+    // The block should remain expanded because there's a selection
+    await toolContent.evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    await toolHeader.click();
+
+    // Tool content should still be visible (click was suppressed)
+    await expect(toolContent).toBeVisible();
+
+    // Clear selection and click again - now it should collapse
+    await page.evaluate(() =>
+      window.getSelection()?.removeAllRanges(),
+    );
+    await toolHeader.click();
+    await expect(toolContent).not.toBeVisible();
+  });
+
   test("thinking block is collapsed by default", async ({
     page,
   }) => {
