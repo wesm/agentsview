@@ -379,6 +379,11 @@ func TestFormatToolUseVariants(t *testing.T) {
 			`{"type":"tool_use","name":"SendMessage","input":{"type":"message","recipient":"researcher","content":"hello"}}`,
 			"[SendMessage: message to researcher]",
 		},
+		{
+			"",
+			`{"type":"tool_use","name":"empty_tool","input":{}}`,
+			"[Tool: empty_tool]",
+		},
 	}
 
 	for _, tt := range tests {
