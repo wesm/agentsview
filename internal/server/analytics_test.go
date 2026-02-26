@@ -44,7 +44,7 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 		ActiveProjects: 2, // alpha and beta
 		TotalToolCalls: 0,
 		Agents:         2, // claude, codex
-		ActiveDays:     3, // June 1 to June 3
+		ActiveDays:     2, // June 1 and June 2
 	}
 
 	for _, s := range entries {
@@ -125,6 +125,9 @@ func TestAnalyticsSummary(t *testing.T) {
 		}
 		if resp.ActiveProjects != stats.ActiveProjects {
 			t.Errorf("ActiveProjects = %d, want %d", resp.ActiveProjects, stats.ActiveProjects)
+		}
+		if resp.ActiveDays != stats.ActiveDays {
+			t.Errorf("ActiveDays = %d, want %d", resp.ActiveDays, stats.ActiveDays)
 		}
 	})
 
@@ -319,7 +322,7 @@ func TestActiveSinceValidation(t *testing.T) {
 
 func TestAnalyticsActivity(t *testing.T) {
 	te := setup(t)
-	seedAnalyticsEnv(t, te)
+	stats := seedAnalyticsEnv(t, te)
 
 	tests := []struct {
 		name        string
@@ -350,8 +353,19 @@ func TestAnalyticsActivity(t *testing.T) {
 				if resp.Granularity != expectedGran {
 					t.Errorf("Granularity = %q, want %q", resp.Granularity, expectedGran)
 				}
-				if expectedGran == "day" && len(resp.Series) == 0 {
-					t.Fatal("expected non-empty series")
+				if expectedGran == "day" {
+					if len(resp.Series) != stats.ActiveDays {
+						t.Fatalf("len(Series) = %d, want %d", len(resp.Series), stats.ActiveDays)
+					}
+					totalUser := 0
+					totalAsst := 0
+					for _, e := range resp.Series {
+						totalUser += e.UserMessages
+						totalAsst += e.AssistantMessages
+					}
+					if totalUser+totalAsst != stats.TotalMessages {
+						t.Errorf("total messages = %d, want %d", totalUser+totalAsst, stats.TotalMessages)
+					}
 				}
 			}
 		})
@@ -368,9 +382,9 @@ func TestAnalyticsHeatmap(t *testing.T) {
 		wantStatus  int
 		wantEntries int
 	}{
-		{"MessageMetric", "messages", http.StatusOK, stats.ActiveDays},
-		{"SessionMetric", "sessions", http.StatusOK, -1}, // -1 means don't check exactly
-		{"DefaultMetric", "", http.StatusOK, -1},
+		{"MessageMetric", "messages", http.StatusOK, 3},
+		{"SessionMetric", "sessions", http.StatusOK, 3},
+		{"DefaultMetric", "", http.StatusOK, 3},
 		{"InvalidMetric", "bytes", http.StatusBadRequest, -1},
 	}
 
@@ -394,6 +408,17 @@ func TestAnalyticsHeatmap(t *testing.T) {
 				}
 				if tt.wantEntries >= 0 && len(resp.Entries) != tt.wantEntries {
 					t.Errorf("len(Entries) = %d, want %d", len(resp.Entries), tt.wantEntries)
+				}
+				if tt.wantEntries > 0 {
+					total := 0
+					for _, e := range resp.Entries {
+						total += e.Value
+					}
+					if expectedMetric == "messages" && total != stats.TotalMessages {
+						t.Errorf("total messages = %d, want %d", total, stats.TotalMessages)
+					} else if expectedMetric == "sessions" && total != stats.TotalSessions {
+						t.Errorf("total sessions = %d, want %d", total, stats.TotalSessions)
+					}
 				}
 			}
 		})
