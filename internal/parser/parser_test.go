@@ -593,7 +593,7 @@ func TestClaudeSessionTimestampSemantics(t *testing.T) {
 		buf := captureLog(t)
 
 		path := createTestFile(t, "ts-long-invalid.jsonl", content)
-		_, _, err := ParseClaudeSession(
+		_, err := ParseClaudeSession(
 			path, "proj", "local",
 		)
 		if err != nil {
@@ -955,7 +955,7 @@ func TestParseClaudeSession(t *testing.T) {
 				fileName = "test.jsonl"
 			}
 			path := createTestFile(t, fileName, tt.content)
-			sess, msgs, err := ParseClaudeSession(
+			results, err := ParseClaudeSession(
 				path, "my_app", "local",
 			)
 			if (err != nil) != tt.wantErr {
@@ -964,6 +964,11 @@ func TestParseClaudeSession(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
+			if len(results) == 0 {
+				t.Fatal("ParseClaudeSession returned no results")
+			}
+			sess := results[0].Session
+			msgs := results[0].Messages
 			if tt.wantMsgCount >= 0 {
 				assertMessageCount(t, len(msgs), tt.wantMsgCount)
 				assertMessageCount(t, sess.MessageCount, tt.wantMsgCount)
@@ -2007,12 +2012,17 @@ func TestClaudeUserMessageCount(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := createTestFile(t, "test.jsonl", tt.content)
-			sess, msgs, err := ParseClaudeSession(
+			results, err := ParseClaudeSession(
 				path, "test-proj", "local",
 			)
 			if err != nil {
 				t.Fatalf("ParseClaudeSession: %v", err)
 			}
+			if len(results) == 0 {
+				t.Fatal("ParseClaudeSession returned no results")
+			}
+			sess := results[0].Session
+			msgs := results[0].Messages
 			if len(msgs) != tt.wantMsgCount {
 				t.Fatalf("message count = %d, want %d",
 					len(msgs), tt.wantMsgCount)
@@ -2036,10 +2046,14 @@ func TestParseClaudeToolResults(t *testing.T) {
 	content := strings.Join(lines, "\n") + "\n"
 	path := createTestFile(t, "tool-results.jsonl", content)
 
-	_, msgs, err := ParseClaudeSession(path, "test-project", "local")
+	results, err := ParseClaudeSession(path, "test-project", "local")
 	if err != nil {
 		t.Fatalf("ParseClaudeSession: %v", err)
 	}
+	if len(results) == 0 {
+		t.Fatal("ParseClaudeSession returned no results")
+	}
+	msgs := results[0].Messages
 
 	// Should have 2 messages: assistant tool_use + user tool_result
 	if len(msgs) != 2 {

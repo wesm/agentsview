@@ -20,21 +20,21 @@ var ErrInvalidCursor = errors.New("invalid cursor")
 const sessionBaseCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
 	message_count, user_message_count,
-	parent_session_id, created_at`
+	parent_session_id, relationship_type, created_at`
 
 // sessionPruneCols extends sessionBaseCols with file metadata
 // needed by FindPruneCandidates.
 const sessionPruneCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
 	message_count, user_message_count,
-	parent_session_id,
+	parent_session_id, relationship_type,
 	file_path, file_size, created_at`
 
 // sessionFullCols includes all columns for a complete session record.
 const sessionFullCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
 	message_count, user_message_count,
-	parent_session_id,
+	parent_session_id, relationship_type,
 	file_path, file_size, file_mtime,
 	file_hash, created_at`
 
@@ -58,7 +58,8 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
 		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
 		&s.MessageCount, &s.UserMessageCount,
-		&s.ParentSessionID, &s.CreatedAt,
+		&s.ParentSessionID, &s.RelationshipType,
+		&s.CreatedAt,
 	)
 	return s, err
 }
@@ -75,6 +76,7 @@ type Session struct {
 	MessageCount     int     `json:"message_count"`
 	UserMessageCount int     `json:"user_message_count"`
 	ParentSessionID  *string `json:"parent_session_id,omitempty"`
+	RelationshipType string  `json:"relationship_type,omitempty"`
 	FilePath         *string `json:"file_path,omitempty"`
 	FileSize         *int64  `json:"file_size,omitempty"`
 	FileMtime        *int64  `json:"file_mtime,omitempty"`
@@ -162,7 +164,6 @@ func (db *DB) DecodeCursor(s string) (SessionCursor, error) {
 // SessionFilter specifies how to query sessions.
 type SessionFilter struct {
 	Project         string
-	ExcludeProject  string // exclude sessions with this project name
 	Machine         string
 	Agent           string
 	Date            string // exact date YYYY-MM-DD
@@ -186,16 +187,15 @@ type SessionPage struct {
 // buildSessionFilter returns a WHERE clause and args for the
 // non-cursor predicates in SessionFilter.
 func buildSessionFilter(f SessionFilter) (string, []any) {
-	preds := []string{"message_count > 0"}
+	preds := []string{
+		"message_count > 0",
+		"relationship_type NOT IN ('subagent', 'fork')",
+	}
 	var args []any
 
 	if f.Project != "" {
 		preds = append(preds, "project = ?")
 		args = append(args, f.Project)
-	}
-	if f.ExcludeProject != "" {
-		preds = append(preds, "project != ?")
-		args = append(args, f.ExcludeProject)
 	}
 	if f.Machine != "" {
 		preds = append(preds, "machine = ?")
@@ -357,7 +357,7 @@ func (db *DB) GetSessionFull(
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
 		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
 		&s.MessageCount, &s.UserMessageCount,
-		&s.ParentSessionID,
+		&s.ParentSessionID, &s.RelationshipType,
 		&s.FilePath, &s.FileSize,
 		&s.FileMtime, &s.FileHash, &s.CreatedAt,
 	)
@@ -380,8 +380,9 @@ func (db *DB) UpsertSession(s Session) error {
 			id, project, machine, agent, first_message,
 			started_at, ended_at, message_count,
 			user_message_count, parent_session_id,
+			relationship_type,
 			file_path, file_size, file_mtime, file_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project,
 			machine = excluded.machine,
@@ -392,6 +393,7 @@ func (db *DB) UpsertSession(s Session) error {
 			message_count = excluded.message_count,
 			user_message_count = excluded.user_message_count,
 			parent_session_id = excluded.parent_session_id,
+			relationship_type = excluded.relationship_type,
 			file_path = excluded.file_path,
 			file_size = excluded.file_size,
 			file_mtime = excluded.file_mtime,
@@ -399,11 +401,31 @@ func (db *DB) UpsertSession(s Session) error {
 		s.ID, s.Project, s.Machine, s.Agent, s.FirstMessage,
 		s.StartedAt, s.EndedAt, s.MessageCount,
 		s.UserMessageCount, s.ParentSessionID,
+		s.RelationshipType,
 		s.FilePath, s.FileSize, s.FileMtime, s.FileHash)
 	if err != nil {
 		return fmt.Errorf("upserting session %s: %w", s.ID, err)
 	}
 	return nil
+}
+
+// GetChildSessions returns sessions whose parent_session_id
+// matches the given parentID, ordered by started_at ascending.
+func (db *DB) GetChildSessions(
+	ctx context.Context, parentID string,
+) ([]Session, error) {
+	query := "SELECT " + sessionBaseCols +
+		" FROM sessions WHERE parent_session_id = ?" +
+		" ORDER BY started_at"
+	rows, err := db.reader.QueryContext(ctx, query, parentID)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"querying child sessions for %s: %w", parentID, err,
+		)
+	}
+	defer rows.Close()
+
+	return scanSessionRows(rows)
 }
 
 // GetSessionFileInfo returns file_size and file_mtime for a
@@ -472,6 +494,7 @@ func (db *DB) GetProjects(
 		SELECT project, COUNT(*) as session_count
 		FROM sessions
 		WHERE message_count > 0
+		  AND relationship_type NOT IN ('subagent', 'fork')
 		GROUP BY project
 		ORDER BY project`)
 	if err != nil {
@@ -614,7 +637,7 @@ func (db *DB) FindPruneCandidates(
 			&s.ID, &s.Project, &s.Machine, &s.Agent,
 			&s.FirstMessage, &s.StartedAt, &s.EndedAt,
 			&s.MessageCount, &s.UserMessageCount,
-			&s.ParentSessionID,
+			&s.ParentSessionID, &s.RelationshipType,
 			&s.FilePath, &s.FileSize, &s.CreatedAt,
 		)
 		if err != nil {

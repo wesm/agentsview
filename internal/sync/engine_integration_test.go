@@ -1063,6 +1063,159 @@ func TestSyncPathsClaudeNoParentSessionID(t *testing.T) {
 	)
 }
 
+func TestSyncSubagentSetsParentSessionID(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Create parent session
+	parentContent := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Build the feature").
+		AddClaudeAssistant(tsEarlyS5, "On it.").
+		String()
+
+	env.writeClaudeSession(
+		t, "test-proj", "parent-uuid.jsonl", parentContent,
+	)
+
+	// Create subagent file with sessionId pointing to parent
+	subContent := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithSessionID(
+			tsEarly, "Do subtask", "parent-uuid",
+		).
+		AddClaudeAssistant(tsEarlyS5, "Subtask done.").
+		String()
+
+	env.writeSession(
+		t, env.claudeDir,
+		filepath.Join(
+			"test-proj", "parent-uuid",
+			"subagents", "agent-worker1.jsonl",
+		),
+		subContent,
+	)
+
+	// SyncAll should discover both parent and subagent
+	stats := env.engine.SyncAll(nil)
+	if stats.Synced != 2 {
+		t.Fatalf("Synced = %d, want 2", stats.Synced)
+	}
+
+	// Verify parent has no parent_session_id
+	assertSessionState(
+		t, env.db, "parent-uuid",
+		func(sess *db.Session) {
+			if sess.ParentSessionID != nil {
+				t.Errorf(
+					"parent parent_session_id = %v, want nil",
+					sess.ParentSessionID,
+				)
+			}
+		},
+	)
+
+	// Verify subagent has parent_session_id set
+	assertSessionState(
+		t, env.db, "agent-worker1",
+		func(sess *db.Session) {
+			if sess.ParentSessionID == nil ||
+				*sess.ParentSessionID != "parent-uuid" {
+				t.Errorf(
+					"subagent parent_session_id = %v, "+
+						"want %q",
+					sess.ParentSessionID, "parent-uuid",
+				)
+			}
+			if sess.Agent != "claude" {
+				t.Errorf("agent = %q, want claude",
+					sess.Agent)
+			}
+			if sess.MessageCount != 2 {
+				t.Errorf("message_count = %d, want 2",
+					sess.MessageCount)
+			}
+		},
+	)
+
+	// Verify FindSourceFile works for subagent
+	src := env.engine.FindSourceFile("agent-worker1")
+	if src == "" {
+		t.Error("FindSourceFile returned empty for subagent")
+	}
+}
+
+func TestSyncPathsClaudeSubagent(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Create parent session
+	parentContent := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		AddClaudeAssistant(tsZeroS5, "Hi!").
+		String()
+
+	env.writeClaudeSession(
+		t, "test-proj", "parent-sess.jsonl", parentContent,
+	)
+
+	// Create subagent file with sessionId pointing to parent
+	subagentContent := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithSessionID(
+			tsZero, "Do subtask", "parent-sess",
+		).
+		AddClaudeAssistant(tsZeroS5, "Done.").
+		String()
+
+	subPath := env.writeSession(
+		t, env.claudeDir,
+		filepath.Join(
+			"test-proj", "parent-sess",
+			"subagents", "agent-sub1.jsonl",
+		),
+		subagentContent,
+	)
+
+	// SyncPaths should accept the subagent path
+	env.engine.SyncPaths([]string{subPath})
+
+	assertSessionState(
+		t, env.db, "agent-sub1",
+		func(sess *db.Session) {
+			if sess.Agent != "claude" {
+				t.Errorf("agent = %q, want claude",
+					sess.Agent)
+			}
+		},
+	)
+}
+
+func TestSyncPathsClaudeRejectsNonAgentInSubagents(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	// Write a non-agent file in subagents dir
+	path := env.writeSession(
+		t, env.claudeDir,
+		filepath.Join(
+			"proj", "session",
+			"subagents", "not-agent.jsonl",
+		),
+		content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	sess, _ := env.db.GetSession(
+		context.Background(), "not-agent",
+	)
+	if sess != nil {
+		t.Error(
+			"non-agent file in subagents dir " +
+				"should be rejected",
+		)
+	}
+}
+
 func TestSyncPathsClaudeRejectsNested(t *testing.T) {
 	env := setupTestEnv(t)
 
@@ -1552,5 +1705,86 @@ func TestSyncEngineMultiClaudeDir(t *testing.T) {
 	src := engine.FindSourceFile("sess2")
 	if src == "" {
 		t.Error("FindSourceFile failed for sess2 in second directory")
+	}
+}
+
+func TestSyncForkDetection(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Main branch: a->b->c->d->e->f->g->h->k->l (5 user turns)
+	// Fork from b: i->j (1 user turn on fork branch)
+	// First branch from b has 4 user turns (c,e,g,k) > 3 = large gap
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithUUID("2024-01-01T10:00:00Z", "start", "a", "").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:01Z", "ok", "b", "a").
+		AddClaudeUserWithUUID("2024-01-01T10:00:02Z", "step2", "c", "b").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:03Z", "ok2", "d", "c").
+		AddClaudeUserWithUUID("2024-01-01T10:00:04Z", "step3", "e", "d").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:05Z", "ok3", "f", "e").
+		AddClaudeUserWithUUID("2024-01-01T10:00:06Z", "step4", "g", "f").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:07Z", "ok4", "h", "g").
+		AddClaudeUserWithUUID("2024-01-01T10:00:08Z", "step5", "k", "h").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:09Z", "ok5", "l", "k").
+		AddClaudeUserWithUUID("2024-01-01T10:01:00Z", "fork-start", "i", "b").
+		AddClaudeAssistantWithUUID("2024-01-01T10:01:01Z", "fork-ok", "j", "i").
+		String()
+
+	env.writeClaudeSession(t, "test-proj", "parent-uuid.jsonl", content)
+	stats := env.engine.SyncAll(nil)
+
+	if stats.Synced < 2 {
+		t.Fatalf("expected at least 2 synced sessions, got %d", stats.Synced)
+	}
+
+	main, err := env.db.GetSession(context.Background(), "parent-uuid")
+	if err != nil || main == nil {
+		t.Fatalf("main session not found: %v", err)
+	}
+	if main.MessageCount != 10 {
+		t.Errorf("main message_count = %d, want 10", main.MessageCount)
+	}
+
+	fork, err := env.db.GetSession(context.Background(), "parent-uuid-i")
+	if err != nil || fork == nil {
+		t.Fatalf("fork session not found: %v", err)
+	}
+	if fork.MessageCount != 2 {
+		t.Errorf("fork message_count = %d, want 2", fork.MessageCount)
+	}
+	if fork.ParentSessionID == nil || *fork.ParentSessionID != "parent-uuid" {
+		t.Errorf("fork parent = %v, want parent-uuid", fork.ParentSessionID)
+	}
+	if fork.RelationshipType != "fork" {
+		t.Errorf("fork relationship_type = %q, want fork", fork.RelationshipType)
+	}
+}
+
+func TestSyncSmallGapRetry(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Main: a->b->c->d (1 user turn after fork point = small gap)
+	// Retry from b: e->f
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithUUID("2024-01-01T10:00:00Z", "start", "a", "").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:01Z", "ok", "b", "a").
+		AddClaudeUserWithUUID("2024-01-01T10:00:02Z", "try1", "c", "b").
+		AddClaudeAssistantWithUUID("2024-01-01T10:00:03Z", "resp1", "d", "c").
+		AddClaudeUserWithUUID("2024-01-01T10:01:00Z", "try2", "e", "b").
+		AddClaudeAssistantWithUUID("2024-01-01T10:01:01Z", "resp2", "f", "e").
+		String()
+
+	env.writeClaudeSession(t, "test-proj", "retry-uuid.jsonl", content)
+	stats := env.engine.SyncAll(nil)
+
+	if stats.Synced != 1 {
+		t.Fatalf("expected 1 synced session, got %d", stats.Synced)
+	}
+
+	main, err := env.db.GetSession(context.Background(), "retry-uuid")
+	if err != nil || main == nil {
+		t.Fatalf("session not found: %v", err)
+	}
+	if main.MessageCount != 4 {
+		t.Errorf("message_count = %d, want 4", main.MessageCount)
 	}
 }

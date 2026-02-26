@@ -78,6 +78,50 @@ func TestDiscoverClaudeProjects(t *testing.T) {
 	}, parser.AgentClaude)
 }
 
+func TestDiscoverClaudeSubagents(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create parent session file
+	dbtest.WriteTestFile(
+		t,
+		filepath.Join(dir, "project-a", "parent-session.jsonl"),
+		[]byte("{}"),
+	)
+	// Create subagent files under parent-session/subagents/
+	dbtest.WriteTestFile(
+		t,
+		filepath.Join(dir, "project-a", "parent-session", "subagents", "agent-abc.jsonl"),
+		[]byte("{}"),
+	)
+	dbtest.WriteTestFile(
+		t,
+		filepath.Join(dir, "project-a", "parent-session", "subagents", "agent-def.jsonl"),
+		[]byte("{}"),
+	)
+	// Non-agent file in subagents dir should be ignored
+	dbtest.WriteTestFile(
+		t,
+		filepath.Join(dir, "project-a", "parent-session", "subagents", "not-agent.jsonl"),
+		[]byte("{}"),
+	)
+
+	files := DiscoverClaudeProjects(dir)
+
+	assertDiscoveredFiles(t, files, []string{
+		"parent-session.jsonl",
+		"agent-abc.jsonl",
+		"agent-def.jsonl",
+	}, parser.AgentClaude)
+
+	// Verify project is set for subagent files
+	for _, f := range files {
+		if f.Project != "project-a" {
+			t.Errorf("file %q: project = %q, want %q",
+				filepath.Base(f.Path), f.Project, "project-a")
+		}
+	}
+}
+
 func TestDiscoverClaudeProjectsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	files := DiscoverClaudeProjects(dir)
@@ -132,6 +176,28 @@ func TestFindClaudeSourceFile(t *testing.T) {
 
 	// Nonexistent
 	got = FindClaudeSourceFile(dir, "nonexistent")
+	if got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestFindClaudeSourceFileSubagent(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a subagent file
+	subPath := filepath.Join(
+		dir, "project-a", "parent-sess",
+		"subagents", "agent-sub1.jsonl",
+	)
+	dbtest.WriteTestFile(t, subPath, []byte("{}"))
+
+	got := FindClaudeSourceFile(dir, "agent-sub1")
+	if got != subPath {
+		t.Errorf("got %q, want %q", got, subPath)
+	}
+
+	// Nonexistent subagent
+	got = FindClaudeSourceFile(dir, "agent-nonexistent")
 	if got != "" {
 		t.Errorf("expected empty, got %q", got)
 	}

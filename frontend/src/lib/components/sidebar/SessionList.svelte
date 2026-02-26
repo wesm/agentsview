@@ -130,7 +130,7 @@
 
 <div class="session-list-header">
   <span class="session-count">
-    {formatNumber(sessions.total)} sessions
+    {formatNumber(totalCount)} sessions
   </span>
   <div class="header-actions">
     {#if sessions.loading}

@@ -158,6 +158,7 @@ func (e *Engine) classifyOnePath(
 	sep := string(filepath.Separator)
 
 	// Claude: <claudeDir>/<project>/<session>.jsonl
+	//     or: <claudeDir>/<project>/<session>/subagents/agent-<id>.jsonl
 	for _, claudeDir := range e.claudeDirs {
 		if claudeDir == "" {
 			continue
@@ -166,21 +167,37 @@ func (e *Engine) classifyOnePath(
 			if !strings.HasSuffix(path, ".jsonl") {
 				continue
 			}
-			stem := strings.TrimSuffix(
-				filepath.Base(path), ".jsonl",
-			)
-			if strings.HasPrefix(stem, "agent-") {
-				continue
-			}
 			parts := strings.Split(rel, sep)
-			if len(parts) != 2 {
-				continue
+
+			// Standard session: project/session.jsonl
+			if len(parts) == 2 {
+				stem := strings.TrimSuffix(
+					filepath.Base(path), ".jsonl",
+				)
+				if strings.HasPrefix(stem, "agent-") {
+					continue
+				}
+				return DiscoveredFile{
+					Path:    path,
+					Project: parts[0],
+					Agent:   parser.AgentClaude,
+				}, true
 			}
-			return DiscoveredFile{
-				Path:    path,
-				Project: parts[0],
-				Agent:   parser.AgentClaude,
-			}, true
+
+			// Subagent: project/session/subagents/agent-*.jsonl
+			if len(parts) == 4 && parts[2] == "subagents" {
+				stem := strings.TrimSuffix(
+					parts[3], ".jsonl",
+				)
+				if !strings.HasPrefix(stem, "agent-") {
+					return DiscoveredFile{}, false
+				}
+				return DiscoveredFile{
+					Path:    path,
+					Project: parts[0],
+					Agent:   parser.AgentClaude,
+				}, true
+			}
 		}
 	}
 
@@ -559,7 +576,7 @@ func (e *Engine) collectAndBatch(
 			}
 			continue
 		}
-		if r.sess == nil {
+		if len(r.results) == 0 {
 			e.cacheSkip(r.path, r.mtime)
 			progress.SessionsDone++
 			if onProgress != nil {
@@ -569,10 +586,12 @@ func (e *Engine) collectAndBatch(
 		}
 		e.clearSkip(r.path)
 
-		pending = append(pending, pendingWrite{
-			sess: *r.sess,
-			msgs: r.msgs,
-		})
+		for _, pr := range r.results {
+			pending = append(pending, pendingWrite{
+				sess: pr.Session,
+				msgs: pr.Messages,
+			})
+		}
 
 		if len(pending) >= batchSize {
 			stats.RecordSynced(len(pending))
@@ -601,11 +620,10 @@ func (e *Engine) collectAndBatch(
 }
 
 type processResult struct {
-	sess  *parser.ParsedSession
-	msgs  []parser.ParsedMessage
-	skip  bool
-	mtime int64
-	err   error
+	results []parser.ParseResult
+	skip    bool
+	mtime   int64
+	err     error
 }
 
 func (e *Engine) processFile(
@@ -750,7 +768,7 @@ func (e *Engine) processClaude(
 		}
 	}
 
-	sess, msgs, err := parser.ParseClaudeSession(
+	results, err := parser.ParseClaudeSession(
 		file.Path, project, e.machine,
 	)
 	if err != nil {
@@ -759,10 +777,26 @@ func (e *Engine) processClaude(
 
 	hash, err := ComputeFileHash(file.Path)
 	if err == nil {
-		sess.File.Hash = hash
+		for i := range results {
+			results[i].Session.File.Hash = hash
+		}
 	}
 
-	return processResult{sess: &sess, msgs: msgs}
+	for i := range results {
+		if results[i].Session.ParentSessionID == "" {
+			continue
+		}
+		if results[i].Session.RelationshipType != parser.RelNone {
+			continue
+		}
+		if strings.HasPrefix(results[i].Session.ID, "agent-") {
+			results[i].Session.RelationshipType = parser.RelSubagent
+		} else {
+			results[i].Session.RelationshipType = parser.RelContinuation
+		}
+	}
+
+	return processResult{results: results}
 }
 
 func (e *Engine) processCodex(
@@ -789,7 +823,11 @@ func (e *Engine) processCodex(
 		sess.File.Hash = hash
 	}
 
-	return processResult{sess: sess, msgs: msgs}
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
 }
 
 func (e *Engine) processCopilot(
@@ -814,7 +852,11 @@ func (e *Engine) processCopilot(
 		sess.File.Hash = hash
 	}
 
-	return processResult{sess: sess, msgs: msgs}
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
 }
 
 func (e *Engine) processGemini(
@@ -840,7 +882,11 @@ func (e *Engine) processGemini(
 		sess.File.Hash = hash
 	}
 
-	return processResult{sess: sess, msgs: msgs}
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
 }
 
 type pendingWrite struct {
@@ -938,6 +984,7 @@ func toDBSession(pw pendingWrite) db.Session {
 		MessageCount:     pw.sess.MessageCount,
 		UserMessageCount: pw.sess.UserMessageCount,
 		ParentSessionID:  strPtr(pw.sess.ParentSessionID),
+		RelationshipType: string(pw.sess.RelationshipType),
 		FilePath:         strPtr(pw.sess.File.Path),
 		FileSize:         int64Ptr(pw.sess.File.Size),
 		FileMtime:        int64Ptr(pw.sess.File.Mtime),
@@ -1096,9 +1143,9 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 	}
 
 	// For Codex, processFile uses includeExec=false which may
-	// return nil sess for exec-originated sessions. Re-parse
+	// return empty results for exec-originated sessions. Re-parse
 	// with includeExec=true when that happens.
-	if res.sess == nil && agent == parser.AgentCodex {
+	if len(res.results) == 0 && agent == parser.AgentCodex {
 		execRes := e.processCodexIncludeExec(file)
 		if execRes.err != nil {
 			if res.mtime != 0 {
@@ -1106,20 +1153,21 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 			}
 			return execRes.err
 		}
-		if execRes.sess == nil {
+		if len(execRes.results) == 0 {
 			return nil
 		}
-		res.sess = execRes.sess
-		res.msgs = execRes.msgs
+		res.results = execRes.results
 	}
 
-	if res.sess == nil {
+	if len(res.results) == 0 {
 		return nil
 	}
 
-	e.writeSessionFull(
-		pendingWrite{sess: *res.sess, msgs: res.msgs},
-	)
+	for _, pr := range res.results {
+		e.writeSessionFull(
+			pendingWrite{sess: pr.Session, msgs: pr.Messages},
+		)
+	}
 	return nil
 }
 
@@ -1140,7 +1188,11 @@ func (e *Engine) processCodexIncludeExec(
 	if h, herr := ComputeFileHash(file.Path); herr == nil {
 		sess.File.Hash = h
 	}
-	return processResult{sess: sess, msgs: msgs}
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
 }
 
 // syncSingleOpenCode re-syncs a single OpenCode session.
@@ -1207,12 +1259,13 @@ func convertToolCalls(
 	calls := make([]db.ToolCall, len(parsed))
 	for i, tc := range parsed {
 		calls[i] = db.ToolCall{
-			SessionID: sessionID,
-			ToolName:  tc.ToolName,
-			Category:  tc.Category,
-			ToolUseID: tc.ToolUseID,
-			InputJSON: tc.InputJSON,
-			SkillName: tc.SkillName,
+			SessionID:         sessionID,
+			ToolName:          tc.ToolName,
+			Category:          tc.Category,
+			ToolUseID:         tc.ToolUseID,
+			InputJSON:         tc.InputJSON,
+			SkillName:         tc.SkillName,
+			SubagentSessionID: tc.SubagentSessionID,
 		}
 	}
 	return calls

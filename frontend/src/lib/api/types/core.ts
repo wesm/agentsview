@@ -17,6 +17,7 @@ export interface Session {
   message_count: number;
   user_message_count: number;
   parent_session_id?: string;
+  relationship_type?: string;
   file_path?: string;
   file_size?: number;
   file_mtime?: number;
@@ -44,6 +45,7 @@ export interface ToolCall {
   input_json?: string;
   skill_name?: string;
   result_content_length?: number;
+  subagent_session_id?: string;
 }
 
 /** Matches Go Message struct in internal/db/messages.go */

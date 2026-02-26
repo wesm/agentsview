@@ -84,6 +84,37 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 				Agent:   parser.AgentClaude,
 			})
 		}
+
+		// Scan session directories for subagent files
+		for _, sf := range sessionFiles {
+			if !sf.IsDir() {
+				continue
+			}
+			subagentsDir := filepath.Join(
+				projDir, sf.Name(), "subagents",
+			)
+			subFiles, err := os.ReadDir(subagentsDir)
+			if err != nil {
+				continue
+			}
+			for _, sub := range subFiles {
+				if sub.IsDir() {
+					continue
+				}
+				name := sub.Name()
+				if !strings.HasPrefix(name, "agent-") ||
+					!strings.HasSuffix(name, ".jsonl") {
+					continue
+				}
+				files = append(files, DiscoveredFile{
+					Path: filepath.Join(
+						subagentsDir, name,
+					),
+					Project: entry.Name(),
+					Agent:   parser.AgentClaude,
+				})
+			}
+		}
 	}
 
 	sort.Slice(files, func(i, j int) bool {
@@ -149,6 +180,36 @@ func FindClaudeSourceFile(
 			return candidate
 		}
 	}
+
+	// Subagent files live under session directories:
+	// <project>/<session>/subagents/agent-<id>.jsonl
+	if strings.HasPrefix(sessionID, "agent-") {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			projDir := filepath.Join(
+				projectsDir, entry.Name(),
+			)
+			sessionDirs, err := os.ReadDir(projDir)
+			if err != nil {
+				continue
+			}
+			for _, sd := range sessionDirs {
+				if !sd.IsDir() {
+					continue
+				}
+				candidate := filepath.Join(
+					projDir, sd.Name(),
+					"subagents", target,
+				)
+				if _, err := os.Stat(candidate); err == nil {
+					return candidate
+				}
+			}
+		}
+	}
+
 	return ""
 }
 

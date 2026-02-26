@@ -175,7 +175,35 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return umcCount == 0, nil
+	if umcCount == 0 {
+		return true, nil
+	}
+
+	var relTypeCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('sessions')
+		 WHERE name = 'relationship_type'`,
+	).Scan(&relTypeCount)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
+	}
+	if relTypeCount == 0 {
+		return true, nil
+	}
+
+	var subagentColCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')
+		 WHERE name = 'subagent_session_id'`,
+	).Scan(&subagentColCount)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
+	}
+	return subagentColCount == 0, nil
 }
 
 func dropDatabase(path string) error {

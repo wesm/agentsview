@@ -35,6 +35,7 @@ type ToolCall struct {
 	InputJSON           string `json:"input_json,omitempty"`
 	SkillName           string `json:"skill_name,omitempty"`
 	ResultContentLength int    `json:"result_content_length,omitempty"`
+	SubagentSessionID   string `json:"subagent_session_id,omitempty"`
 }
 
 // ToolResult holds a tool_result content length for pairing.
@@ -254,8 +255,8 @@ func insertToolCallsTx(
 		INSERT INTO tool_calls
 			(message_id, session_id, tool_name, category,
 			 tool_use_id, input_json, skill_name,
-			 result_content_length)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+			 result_content_length, subagent_session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("preparing tool_calls insert: %w", err)
 	}
@@ -269,6 +270,7 @@ func insertToolCallsTx(
 			nilIfEmpty(tc.InputJSON),
 			nilIfEmpty(tc.SkillName),
 			nilIfZero(tc.ResultContentLength),
+			nilIfEmpty(tc.SubagentSessionID),
 		); err != nil {
 			return fmt.Errorf(
 				"inserting tool_call %q: %w", tc.ToolName, err,
@@ -418,7 +420,7 @@ func (db *DB) attachToolCallsBatch(
 	query := fmt.Sprintf(`
 		SELECT message_id, session_id, tool_name, category,
 			tool_use_id, input_json, skill_name,
-			result_content_length
+			result_content_length, subagent_session_id
 		FROM tool_calls
 		WHERE message_id IN (%s)
 		ORDER BY id`,
@@ -433,12 +435,13 @@ func (db *DB) attachToolCallsBatch(
 	for rows.Next() {
 		var tc ToolCall
 		var toolUseID, inputJSON, skillName sql.NullString
+		var subagentSessionID sql.NullString
 		var resultLen sql.NullInt64
 		if err := rows.Scan(
 			&tc.MessageID, &tc.SessionID,
 			&tc.ToolName, &tc.Category,
 			&toolUseID, &inputJSON, &skillName,
-			&resultLen,
+			&resultLen, &subagentSessionID,
 		); err != nil {
 			return fmt.Errorf("scanning tool_call: %w", err)
 		}
@@ -453,6 +456,9 @@ func (db *DB) attachToolCallsBatch(
 		}
 		if resultLen.Valid {
 			tc.ResultContentLength = int(resultLen.Int64)
+		}
+		if subagentSessionID.Valid {
+			tc.SubagentSessionID = subagentSessionID.String
 		}
 
 		if idx, ok := idToIdx[tc.MessageID]; ok {
@@ -540,6 +546,7 @@ func resolveToolCalls(
 				InputJSON:           tc.InputJSON,
 				SkillName:           tc.SkillName,
 				ResultContentLength: tc.ResultContentLength,
+				SubagentSessionID:   tc.SubagentSessionID,
 			})
 		}
 	}

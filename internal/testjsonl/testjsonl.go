@@ -217,6 +217,29 @@ func CodexFunctionCallFieldsJSON(
 	return mustMarshal(m)
 }
 
+// ClaudeEntryJSON returns a Claude JSONL entry with uuid and
+// parentUuid fields.
+func ClaudeEntryJSON(
+	entryType, content, timestamp, uuid, parentUuid string,
+	cwd ...string,
+) string {
+	m := map[string]any{
+		"type":      entryType,
+		"timestamp": timestamp,
+		"uuid":      uuid,
+		"message": map[string]any{
+			"content": content,
+		},
+	}
+	if parentUuid != "" {
+		m["parentUuid"] = parentUuid
+	}
+	if len(cwd) > 0 {
+		m["cwd"] = cwd[0]
+	}
+	return mustMarshal(m)
+}
+
 // JoinJSONL joins JSON lines with newlines and appends a
 // trailing newline.
 func JoinJSONL(lines ...string) string {
@@ -253,6 +276,40 @@ func (b *SessionBuilder) AddClaudeUserWithSessionID(
 			content, timestamp, sessionID, cwd...,
 		),
 	)
+	return b
+}
+
+// AddClaudeUserWithUUID appends a Claude user message with
+// uuid and parentUuid fields.
+func (b *SessionBuilder) AddClaudeUserWithUUID(
+	timestamp, content, uuid, parentUuid string,
+	cwd ...string,
+) *SessionBuilder {
+	b.lines = append(b.lines, ClaudeEntryJSON(
+		"user", content, timestamp, uuid, parentUuid, cwd...,
+	))
+	return b
+}
+
+// AddClaudeAssistantWithUUID appends a Claude assistant message
+// with uuid and parentUuid fields.
+func (b *SessionBuilder) AddClaudeAssistantWithUUID(
+	timestamp, text, uuid, parentUuid string,
+) *SessionBuilder {
+	m := map[string]any{
+		"type":      "assistant",
+		"timestamp": timestamp,
+		"uuid":      uuid,
+		"message": map[string]any{
+			"content": []map[string]string{
+				{"type": "text", "text": text},
+			},
+		},
+	}
+	if parentUuid != "" {
+		m["parentUuid"] = parentUuid
+	}
+	b.lines = append(b.lines, mustMarshal(m))
 	return b
 }
 

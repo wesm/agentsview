@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     file_mtime  INTEGER,
     file_hash   TEXT,
     parent_session_id TEXT,
+    relationship_type TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
@@ -99,7 +100,8 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     tool_use_id TEXT,
     input_json  TEXT,
     skill_name  TEXT,
-    result_content_length INTEGER
+    result_content_length INTEGER,
+    subagent_session_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session

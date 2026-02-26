@@ -1,3 +1,5 @@
+// ABOUTME: Parses Claude Code JSONL session files into structured session data.
+// ABOUTME: Detects DAG forks in uuid/parentUuid trees and splits large-gap forks into separate sessions.
 package parser
 
 import (
@@ -5,82 +7,108 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/tidwall/gjson"
 )
 
+var (
+	xmlTaskIDRe  = regexp.MustCompile(`<task-id>([^<]+)</task-id>`)
+	xmlToolUseRe = regexp.MustCompile(`<tool-use-id>([^<]+)</tool-use-id>`)
+)
+
 const (
 	initialScanBufSize = 64 * 1024        // 64KB
 	maxLineSize        = 64 * 1024 * 1024 // 64MB
+	forkThreshold      = 3
 )
 
+// dagEntry holds metadata for a single JSONL entry participating
+// in the uuid/parentUuid DAG.
+type dagEntry struct {
+	uuid       string
+	parentUuid string
+	entryType  string // "user" or "assistant"
+	lineIndex  int
+	line       string
+	timestamp  time.Time
+}
+
 // ParseClaudeSession parses a Claude Code JSONL session file.
+// Returns one or more ParseResult structs (multiple when forks
+// are detected in the uuid/parentUuid DAG).
 func ParseClaudeSession(
 	path, project, machine string,
-) (ParsedSession, []ParsedMessage, error) {
+) ([]ParseResult, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return ParsedSession{}, nil, fmt.Errorf("stat %s: %w", path, err)
+		return nil, fmt.Errorf("stat %s: %w", path, err)
 	}
 
 	sessionID := strings.TrimSuffix(filepath.Base(path), ".jsonl")
 
 	f, err := os.Open(path)
 	if err != nil {
-		return ParsedSession{}, nil, fmt.Errorf("open %s: %w", path, err)
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
 
+	// First pass: collect all valid lines with metadata.
 	var (
-		messages        []ParsedMessage
-		firstMsg        string
+		entries         []dagEntry
+		hasAnyUUID      bool
+		allHaveUUID     bool
 		parentSessionID string
 		foundParentSID  bool
-		startedAt       time.Time
-		endedAt         time.Time
-		ordinal         int
+		lineIndex       int
+		subagentMap     = map[string]string{}
 	)
+	allHaveUUID = true
 
 	lr := newLineReader(f, maxLineSize)
-
 	for {
 		line, ok := lr.next()
 		if !ok {
 			break
 		}
-
 		if !gjson.Valid(line) {
 			continue
 		}
 
-		// Extract timestamp
-		tsStr := gjson.Get(line, "timestamp").Str
-		ts := parseTimestamp(tsStr)
-		if ts.IsZero() {
-			snapTsStr := gjson.Get(line, "snapshot.timestamp").Str
-			ts = parseTimestamp(snapTsStr)
-
-			if ts.IsZero() {
-				if tsStr != "" {
-					logParseError(tsStr)
-				} else if snapTsStr != "" {
-					logParseError(snapTsStr)
-				}
-			}
-		}
-		if !ts.IsZero() {
-			if startedAt.IsZero() {
-				startedAt = ts
-			}
-			endedAt = ts
-		}
-
 		entryType := gjson.Get(line, "type").Str
 
-		if !foundParentSID &&
-			(entryType == "user" || entryType == "assistant") {
+		// Collect queue-operation enqueue entries for subagent mapping.
+		if entryType == "queue-operation" {
+			if gjson.Get(line, "operation").Str == "enqueue" {
+				contentStr := gjson.Get(line, "content").Str
+				if contentStr != "" {
+					tuid := gjson.Get(contentStr, "tool_use_id").Str
+					taskID := gjson.Get(contentStr, "task_id").Str
+					if tuid == "" || taskID == "" {
+						// Fallback: extract from XML <task-id> and <tool-use-id> tags.
+						if m := xmlTaskIDRe.FindStringSubmatch(contentStr); m != nil {
+							taskID = m[1]
+						}
+						if m := xmlToolUseRe.FindStringSubmatch(contentStr); m != nil {
+							tuid = m[1]
+						}
+					}
+					if tuid != "" && taskID != "" {
+						subagentMap[tuid] = "agent-" + taskID
+					}
+				}
+			}
+			continue
+		}
+
+		if entryType != "user" && entryType != "assistant" {
+			continue
+		}
+
+		// Check parentSessionID from first user/assistant entry.
+		if !foundParentSID {
 			if sid := gjson.Get(line, "sessionId").Str; sid != "" {
 				foundParentSID = true
 				if sid != sessionID {
@@ -89,60 +117,73 @@ func ParseClaudeSession(
 			}
 		}
 
-		if entryType == "user" || entryType == "assistant" {
-			// Tier 1: skip system-injected user entries by
-			// JSONL-level flags before extracting content.
-			if entryType == "user" {
-				if gjson.Get(line, "isMeta").Bool() ||
-					gjson.Get(line, "isCompactSummary").Bool() {
-					continue
-				}
-			}
+		uuid := gjson.Get(line, "uuid").Str
+		parentUuid := gjson.Get(line, "parentUuid").Str
 
-			content := gjson.Get(line, "message.content")
-			text, hasThinking, hasToolUse, tcs, trs :=
-				ExtractTextContent(content)
-			if strings.TrimSpace(text) == "" && len(trs) == 0 {
-				continue
-			}
-
-			// Tier 2: skip user messages whose content matches
-			// known system-injected patterns.
-			if entryType == "user" &&
-				isClaudeSystemMessage(text) {
-				continue
-			}
-
-			if entryType == "user" && firstMsg == "" {
-				firstMsg = truncate(
-					strings.ReplaceAll(text, "\n", " "), 300,
-				)
-			}
-
-			messages = append(messages, ParsedMessage{
-				Ordinal:       ordinal,
-				Role:          RoleType(entryType),
-				Content:       text,
-				Timestamp:     ts,
-				HasThinking:   hasThinking,
-				HasToolUse:    hasToolUse,
-				ContentLength: len(text),
-				ToolCalls:     tcs,
-				ToolResults:   trs,
-			})
-			ordinal++
+		if uuid != "" {
+			hasAnyUUID = true
+		} else {
+			allHaveUUID = false
 		}
+
+		ts := extractTimestamp(line)
+
+		entries = append(entries, dagEntry{
+			uuid:       uuid,
+			parentUuid: parentUuid,
+			entryType:  entryType,
+			lineIndex:  lineIndex,
+			line:       line,
+			timestamp:  ts,
+		})
+		lineIndex++
 	}
 
 	if err := lr.Err(); err != nil {
-		return ParsedSession{}, nil,
-			fmt.Errorf("reading %s: %w", path, err)
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
+	fileInfo := FileInfo{
+		Path:  path,
+		Size:  info.Size(),
+		Mtime: info.ModTime().UnixNano(),
+	}
+
+	// If all user/assistant entries have uuids, use DAG-aware processing.
+	if hasAnyUUID && allHaveUUID {
+		return parseDAG(
+			entries, sessionID, project, machine,
+			parentSessionID, fileInfo, subagentMap,
+		)
+	}
+
+	// Fall back to linear processing.
+	return parseLinear(
+		entries, sessionID, project, machine,
+		parentSessionID, fileInfo, subagentMap,
+	)
+}
+
+// parseLinear processes entries sequentially without DAG awareness.
+func parseLinear(
+	entries []dagEntry,
+	sessionID, project, machine, parentSessionID string,
+	fileInfo FileInfo,
+	subagentMap map[string]string,
+) ([]ParseResult, error) {
+	messages, startedAt, endedAt := extractMessages(entries)
+	annotateSubagentSessions(messages, subagentMap)
+
 	userCount := 0
+	firstMsg := ""
 	for _, m := range messages {
 		if m.Role == RoleUser && m.Content != "" {
 			userCount++
+			if firstMsg == "" {
+				firstMsg = truncate(
+					strings.ReplaceAll(m.Content, "\n", " "), 300,
+				)
+			}
 		}
 	}
 
@@ -157,14 +198,289 @@ func ParseClaudeSession(
 		EndedAt:          endedAt,
 		MessageCount:     len(messages),
 		UserMessageCount: userCount,
-		File: FileInfo{
-			Path:  path,
-			Size:  info.Size(),
-			Mtime: info.ModTime().UnixNano(),
-		},
+		File:             fileInfo,
 	}
 
-	return sess, messages, nil
+	return []ParseResult{{Session: sess, Messages: messages}}, nil
+}
+
+// parseDAG builds a parent->children adjacency map and walks the
+// tree to detect fork points. Large-gap forks produce separate
+// ParseResults; small-gap retries follow the latest branch.
+func parseDAG(
+	entries []dagEntry,
+	sessionID, project, machine, parentSessionID string,
+	fileInfo FileInfo,
+	subagentMap map[string]string,
+) ([]ParseResult, error) {
+	// Build parent -> children ordered by line position and
+	// collect the set of all uuids for connectivity checks.
+	children := make(map[string][]int, len(entries))
+	uuidSet := make(map[string]struct{}, len(entries))
+	var roots []int
+	for i, e := range entries {
+		if e.uuid != "" {
+			uuidSet[e.uuid] = struct{}{}
+		}
+		if e.parentUuid == "" {
+			roots = append(roots, i)
+		} else {
+			children[e.parentUuid] = append(children[e.parentUuid], i)
+		}
+	}
+
+	// A well-formed DAG has exactly one root and all parentUuid
+	// references resolve to an existing entry's uuid. If not,
+	// fall back to linear parsing to avoid dropping messages.
+	if len(roots) != 1 {
+		return parseLinear(
+			entries, sessionID, project, machine,
+			parentSessionID, fileInfo, subagentMap,
+		)
+	}
+	for _, e := range entries {
+		if e.parentUuid != "" {
+			if _, ok := uuidSet[e.parentUuid]; !ok {
+				return parseLinear(
+					entries, sessionID, project, machine,
+					parentSessionID, fileInfo, subagentMap,
+				)
+			}
+		}
+	}
+
+	// Walk from the root, collecting branches.
+	// branches[0] is the main branch; subsequent entries are forks.
+	type branch struct {
+		indices []int
+	}
+
+	var branches []branch
+
+	// walkBranch follows the DAG from a starting index, collecting
+	// all entries on the chosen path. At fork points, it either
+	// follows the latest child (small gap) or splits (large gap).
+	var walkBranch func(startIdx int) []int
+	var forkBranches []branch
+
+	walkBranch = func(startIdx int) []int {
+		var path []int
+		current := startIdx
+
+		for current >= 0 {
+			path = append(path, current)
+			uuid := entries[current].uuid
+			kids := children[uuid]
+			if len(kids) == 0 {
+				break
+			}
+			if len(kids) == 1 {
+				current = kids[0]
+				continue
+			}
+
+			// Fork point: count user turns on first child's branch.
+			firstChildTurns := countUserTurns(entries, children, kids[0])
+			if firstChildTurns <= forkThreshold {
+				// Small-gap retry: follow the last child.
+				current = kids[len(kids)-1]
+			} else {
+				// Large-gap fork: follow first child on main,
+				// collect other children as fork branches.
+				for _, kid := range kids[1:] {
+					forkPath := walkBranch(kid)
+					forkBranches = append(forkBranches, branch{indices: forkPath})
+				}
+				current = kids[0]
+			}
+		}
+
+		return path
+	}
+
+	mainPath := walkBranch(roots[0])
+	branches = append(branches, branch{indices: mainPath})
+	branches = append(branches, forkBranches...)
+
+	// Build results for each branch.
+	var results []ParseResult
+
+	for i, b := range branches {
+		branchEntries := make([]dagEntry, len(b.indices))
+		for j, idx := range b.indices {
+			branchEntries[j] = entries[idx]
+		}
+
+		messages, startedAt, endedAt := extractMessages(branchEntries)
+		annotateSubagentSessions(messages, subagentMap)
+
+		userCount := 0
+		firstMsg := ""
+		for _, m := range messages {
+			if m.Role == RoleUser && m.Content != "" {
+				userCount++
+				if firstMsg == "" {
+					firstMsg = truncate(
+						strings.ReplaceAll(m.Content, "\n", " "), 300,
+					)
+				}
+			}
+		}
+
+		sid := sessionID
+		pSID := parentSessionID
+		relType := RelationshipType("")
+
+		if i > 0 {
+			// Fork session.
+			firstEntry := entries[b.indices[0]]
+			sid = sessionID + "-" + firstEntry.uuid
+			pSID = sessionID
+			relType = RelFork
+		}
+
+		sess := ParsedSession{
+			ID:               sid,
+			Project:          project,
+			Machine:          machine,
+			Agent:            AgentClaude,
+			ParentSessionID:  pSID,
+			RelationshipType: relType,
+			FirstMessage:     firstMsg,
+			StartedAt:        startedAt,
+			EndedAt:          endedAt,
+			MessageCount:     len(messages),
+			UserMessageCount: userCount,
+			File:             fileInfo,
+		}
+
+		results = append(results, ParseResult{
+			Session:  sess,
+			Messages: messages,
+		})
+	}
+
+	return results, nil
+}
+
+// countUserTurns counts the number of user entries reachable from
+// a starting index by following the first child at each node.
+func countUserTurns(
+	entries []dagEntry,
+	children map[string][]int,
+	startIdx int,
+) int {
+	count := 0
+	current := startIdx
+	for current >= 0 {
+		if entries[current].entryType == "user" {
+			count++
+		}
+		uuid := entries[current].uuid
+		kids := children[uuid]
+		if len(kids) == 0 {
+			break
+		}
+		current = kids[0]
+	}
+	return count
+}
+
+// extractMessages converts dagEntries into ParsedMessages, applying
+// the same filtering and content extraction as the original linear
+// parser.
+func extractMessages(entries []dagEntry) (
+	[]ParsedMessage, time.Time, time.Time,
+) {
+	var (
+		messages  []ParsedMessage
+		startedAt time.Time
+		endedAt   time.Time
+		ordinal   int
+	)
+
+	for _, e := range entries {
+		if !e.timestamp.IsZero() {
+			if startedAt.IsZero() {
+				startedAt = e.timestamp
+			}
+			endedAt = e.timestamp
+		}
+
+		// Tier 1: skip system-injected user entries.
+		if e.entryType == "user" {
+			if gjson.Get(e.line, "isMeta").Bool() ||
+				gjson.Get(e.line, "isCompactSummary").Bool() {
+				continue
+			}
+		}
+
+		content := gjson.Get(e.line, "message.content")
+		text, hasThinking, hasToolUse, tcs, trs :=
+			ExtractTextContent(content)
+		if strings.TrimSpace(text) == "" && len(trs) == 0 {
+			continue
+		}
+
+		// Tier 2: skip known system-injected patterns.
+		if e.entryType == "user" && isClaudeSystemMessage(text) {
+			continue
+		}
+
+		messages = append(messages, ParsedMessage{
+			Ordinal:       ordinal,
+			Role:          RoleType(e.entryType),
+			Content:       text,
+			Timestamp:     e.timestamp,
+			HasThinking:   hasThinking,
+			HasToolUse:    hasToolUse,
+			ContentLength: len(text),
+			ToolCalls:     tcs,
+			ToolResults:   trs,
+		})
+		ordinal++
+	}
+
+	return messages, startedAt, endedAt
+}
+
+// annotateSubagentSessions sets SubagentSessionID on Task tool calls
+// whose ToolUseID appears in the subagentMap.
+func annotateSubagentSessions(
+	messages []ParsedMessage, subagentMap map[string]string,
+) {
+	if len(subagentMap) == 0 {
+		return
+	}
+	for i := range messages {
+		for j := range messages[i].ToolCalls {
+			tc := &messages[i].ToolCalls[j]
+			if tc.ToolName == "Task" && tc.ToolUseID != "" {
+				if sid, ok := subagentMap[tc.ToolUseID]; ok {
+					tc.SubagentSessionID = sid
+				}
+			}
+		}
+	}
+}
+
+// extractTimestamp parses the timestamp from a JSONL line,
+// checking both top-level and snapshot timestamps.
+func extractTimestamp(line string) time.Time {
+	tsStr := gjson.Get(line, "timestamp").Str
+	ts := parseTimestamp(tsStr)
+	if ts.IsZero() {
+		snapTsStr := gjson.Get(line, "snapshot.timestamp").Str
+		ts = parseTimestamp(snapTsStr)
+		if ts.IsZero() {
+			if tsStr != "" {
+				logParseError(tsStr)
+			} else if snapTsStr != "" {
+				logParseError(snapTsStr)
+			}
+		}
+	}
+	return ts
 }
 
 // ExtractClaudeProjectHints reads project-identifying metadata

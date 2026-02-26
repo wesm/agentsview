@@ -1,5 +1,8 @@
+<!-- ABOUTME: Renders a collapsible tool call block with metadata tags and content. -->
+<!-- ABOUTME: Supports Task tool calls with inline subagent conversation expansion. -->
 <script lang="ts">
   import type { ToolCall } from "../../api/types.js";
+  import SubagentInline from "./SubagentInline.svelte";
 
   interface Props {
     content: string;
@@ -85,6 +88,12 @@
       ? inputParams?.prompt ?? null
       : null,
   );
+
+  let subagentSessionId = $derived(
+    toolCall?.tool_name === "Task"
+      ? toolCall?.subagent_session_id ?? null
+      : null,
+  );
 </script>
 
 <div class="tool-block">
@@ -118,6 +127,9 @@
     {:else if content}
       <pre class="tool-content">{content}</pre>
     {/if}
+  {/if}
+  {#if subagentSessionId}
+    <SubagentInline sessionId={subagentSessionId} />
   {/if}
 </div>
 

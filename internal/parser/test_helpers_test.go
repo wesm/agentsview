@@ -169,11 +169,14 @@ func parseClaudeTestFile(
 ) (ParsedSession, []ParsedMessage) {
 	t.Helper()
 	path := createTestFile(t, name, content)
-	sess, msgs, err := ParseClaudeSession(
+	results, err := ParseClaudeSession(
 		path, project, "local",
 	)
 	if err != nil {
 		t.Fatalf("ParseClaudeSession: %v", err)
 	}
-	return sess, msgs
+	if len(results) == 0 {
+		t.Fatal("ParseClaudeSession returned no results")
+	}
+	return results[0].Session, results[0].Messages
 }

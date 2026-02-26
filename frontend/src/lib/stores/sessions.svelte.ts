@@ -390,6 +390,7 @@ function findRoot(
     visited.add(cur);
     const s = byId.get(cur);
     if (!s?.parent_session_id) break;
+    if (s.relationship_type === "fork") break;
     const parent = s.parent_session_id;
     if (!byId.has(parent)) break; // missing link
     cur = parent;
@@ -415,6 +416,9 @@ export function buildSessionGroups(
   const insertionOrder: string[] = [];
 
   for (const s of sessions) {
+    // Subagent sessions are only visible through their parent.
+    if (s.relationship_type === "subagent") continue;
+
     const root = findRoot(s.id, byId, rootCache);
     // Sessions without a parent_session_id that aren't
     // pointed to by anyone get root == their own id, so

@@ -422,6 +422,97 @@ func TestSessionParentSessionID(t *testing.T) {
 	})
 }
 
+func TestGetChildSessions(t *testing.T) {
+	d := testDB(t)
+
+	// Insert a parent session.
+	insertSession(t, d, "parent-1", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T10:00:00Z")
+		s.EndedAt = Ptr("2024-06-01T11:00:00Z")
+		s.MessageCount = 5
+	})
+
+	// Insert child sessions with different relationship types.
+	insertSession(t, d, "child-sub", "proj", func(s *Session) {
+		s.ParentSessionID = Ptr("parent-1")
+		s.RelationshipType = "subagent"
+		s.StartedAt = Ptr("2024-06-01T10:05:00Z")
+		s.EndedAt = Ptr("2024-06-01T10:10:00Z")
+		s.MessageCount = 3
+	})
+	insertSession(t, d, "child-fork", "proj", func(s *Session) {
+		s.ParentSessionID = Ptr("parent-1")
+		s.RelationshipType = "fork"
+		s.StartedAt = Ptr("2024-06-01T10:20:00Z")
+		s.EndedAt = Ptr("2024-06-01T10:30:00Z")
+		s.MessageCount = 2
+	})
+	insertSession(t, d, "child-cont", "proj", func(s *Session) {
+		s.ParentSessionID = Ptr("parent-1")
+		s.RelationshipType = "continuation"
+		s.StartedAt = Ptr("2024-06-01T10:10:00Z")
+		s.EndedAt = Ptr("2024-06-01T10:15:00Z")
+		s.MessageCount = 4
+	})
+
+	// Insert an unrelated session (no parent).
+	insertSession(t, d, "unrelated", "proj", func(s *Session) {
+		s.StartedAt = Ptr("2024-06-01T10:00:00Z")
+		s.MessageCount = 1
+	})
+
+	t.Run("ReturnsChildrenOrderedByStartedAt", func(t *testing.T) {
+		children, err := d.GetChildSessions(
+			context.Background(), "parent-1",
+		)
+		if err != nil {
+			t.Fatalf("GetChildSessions: %v", err)
+		}
+		if len(children) != 3 {
+			t.Fatalf("expected 3 children, got %d", len(children))
+		}
+		// Ordered by started_at ascending.
+		wantIDs := []string{"child-sub", "child-cont", "child-fork"}
+		for i, want := range wantIDs {
+			if children[i].ID != want {
+				t.Errorf("children[%d].ID = %q, want %q",
+					i, children[i].ID, want)
+			}
+		}
+	})
+
+	t.Run("NoChildren", func(t *testing.T) {
+		children, err := d.GetChildSessions(
+			context.Background(), "unrelated",
+		)
+		if err != nil {
+			t.Fatalf("GetChildSessions: %v", err)
+		}
+		if len(children) != 0 {
+			t.Fatalf("expected 0 children, got %d", len(children))
+		}
+	})
+
+	t.Run("NonexistentParent", func(t *testing.T) {
+		children, err := d.GetChildSessions(
+			context.Background(), "no-such-parent",
+		)
+		if err != nil {
+			t.Fatalf("GetChildSessions: %v", err)
+		}
+		if len(children) != 0 {
+			t.Fatalf("expected 0 children, got %d", len(children))
+		}
+	})
+
+	t.Run("CanceledContext", func(t *testing.T) {
+		_, err := d.GetChildSessions(
+			canceledCtx(), "parent-1",
+		)
+		requireCanceledErr(t, err)
+	})
+}
+
 func TestListSessions(t *testing.T) {
 	d := testDB(t)
 
@@ -2058,6 +2149,92 @@ func TestGetAllMessagesReturnsToolCallsAcrossBatches(t *testing.T) {
 				i, got[i].ToolCalls[0].ToolUseID,
 				fmt.Sprintf("toolu_%d", i))
 		}
+	}
+}
+
+func TestToolCallSubagentSessionID(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, Message{
+		SessionID:     "s1",
+		Ordinal:       0,
+		Role:          "assistant",
+		Content:       "[Task: implement feature]",
+		ContentLength: 24,
+		Timestamp:     tsZero,
+		HasToolUse:    true,
+		ToolCalls: []ToolCall{{
+			SessionID:         "s1",
+			ToolName:          "Task",
+			Category:          "Tool",
+			ToolUseID:         "toolu_task1",
+			SubagentSessionID: "agent-abc123",
+		}},
+	})
+
+	// Verify via raw SQL that the column is stored
+	var subagentID sql.NullString
+	err := d.Reader().QueryRow(`
+		SELECT subagent_session_id
+		FROM tool_calls WHERE session_id = 's1'
+	`).Scan(&subagentID)
+	if err != nil {
+		t.Fatalf("query tool_calls: %v", err)
+	}
+	if !subagentID.Valid || subagentID.String != "agent-abc123" {
+		t.Errorf("subagent_session_id = %v, want agent-abc123",
+			subagentID)
+	}
+
+	// Verify via GetMessages that it round-trips
+	msgs, err := d.GetMessages(
+		context.Background(), "s1", 0, 100, true,
+	)
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages, want 1", len(msgs))
+	}
+	if len(msgs[0].ToolCalls) != 1 {
+		t.Fatalf("got %d tool_calls, want 1",
+			len(msgs[0].ToolCalls))
+	}
+	tc := msgs[0].ToolCalls[0]
+	if tc.SubagentSessionID != "agent-abc123" {
+		t.Errorf("SubagentSessionID = %q, want %q",
+			tc.SubagentSessionID, "agent-abc123")
+	}
+
+	// Verify empty SubagentSessionID stores as NULL
+	insertSession(t, d, "s2", "proj")
+	insertMessages(t, d, Message{
+		SessionID:     "s2",
+		Ordinal:       0,
+		Role:          "assistant",
+		Content:       "[Read: main.go]",
+		ContentLength: 15,
+		Timestamp:     tsZero,
+		HasToolUse:    true,
+		ToolCalls: []ToolCall{{
+			SessionID: "s2",
+			ToolName:  "Read",
+			Category:  "Read",
+			ToolUseID: "toolu_read1",
+		}},
+	})
+
+	var nullSubagent sql.NullString
+	err = d.Reader().QueryRow(`
+		SELECT subagent_session_id
+		FROM tool_calls WHERE session_id = 's2'
+	`).Scan(&nullSubagent)
+	if err != nil {
+		t.Fatalf("query tool_calls s2: %v", err)
+	}
+	if nullSubagent.Valid {
+		t.Errorf("expected NULL subagent_session_id for s2, got %q",
+			nullSubagent.String)
 	}
 }
 

@@ -518,6 +518,58 @@ func TestGetSession_NotFound(t *testing.T) {
 	assertStatus(t, w, http.StatusNotFound)
 }
 
+func TestGetChildSessions_Found(t *testing.T) {
+	te := setup(t)
+	te.seedSession(t, "parent-1", "my-app", 10)
+	te.seedSession(t, "child-a", "my-app", 3, func(s *db.Session) {
+		s.ParentSessionID = dbtest.Ptr("parent-1")
+		s.RelationshipType = "subagent"
+		s.StartedAt = dbtest.Ptr("2025-01-15T10:05:00Z")
+		s.EndedAt = dbtest.Ptr("2025-01-15T10:10:00Z")
+	})
+	te.seedSession(t, "child-b", "my-app", 2, func(s *db.Session) {
+		s.ParentSessionID = dbtest.Ptr("parent-1")
+		s.RelationshipType = "fork"
+		s.StartedAt = dbtest.Ptr("2025-01-15T10:15:00Z")
+		s.EndedAt = dbtest.Ptr("2025-01-15T10:20:00Z")
+	})
+
+	w := te.get(t, "/api/v1/sessions/parent-1/children")
+	assertStatus(t, w, http.StatusOK)
+
+	var children []db.Session
+	if err := json.Unmarshal(w.Body.Bytes(), &children); err != nil {
+		t.Fatalf("decoding JSON: %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+	if children[0].ID != "child-a" {
+		t.Errorf("children[0].ID = %q, want %q",
+			children[0].ID, "child-a")
+	}
+	if children[1].ID != "child-b" {
+		t.Errorf("children[1].ID = %q, want %q",
+			children[1].ID, "child-b")
+	}
+}
+
+func TestGetChildSessions_Empty(t *testing.T) {
+	te := setup(t)
+	te.seedSession(t, "no-kids", "my-app", 5)
+
+	w := te.get(t, "/api/v1/sessions/no-kids/children")
+	assertStatus(t, w, http.StatusOK)
+
+	var children []db.Session
+	if err := json.Unmarshal(w.Body.Bytes(), &children); err != nil {
+		t.Fatalf("decoding JSON: %v", err)
+	}
+	if len(children) != 0 {
+		t.Fatalf("expected 0 children, got %d", len(children))
+	}
+}
+
 func TestGetMessages_AscDefault(t *testing.T) {
 	te := setup(t)
 	te.seedSession(t, "s1", "my-app", 10)

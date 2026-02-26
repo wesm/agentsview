@@ -108,15 +108,18 @@ func (s *Server) saveSessionToDB(
 	msgs []parser.ParsedMessage,
 ) error {
 	dbSess := db.Session{
-		ID:           sess.ID,
-		Project:      sess.Project,
-		Machine:      sess.Machine,
-		Agent:        string(sess.Agent),
-		MessageCount: sess.MessageCount,
-		FilePath:     strPtr(sess.File.Path),
-		FileSize:     int64Ptr(sess.File.Size),
-		FileMtime:    int64Ptr(sess.File.Mtime),
-		FileHash:     strPtr(sess.File.Hash),
+		ID:               sess.ID,
+		Project:          sess.Project,
+		Machine:          sess.Machine,
+		Agent:            string(sess.Agent),
+		MessageCount:     sess.MessageCount,
+		UserMessageCount: sess.UserMessageCount,
+		ParentSessionID:  strPtr(sess.ParentSessionID),
+		RelationshipType: string(sess.RelationshipType),
+		FilePath:         strPtr(sess.File.Path),
+		FileSize:         int64Ptr(sess.File.Size),
+		FileMtime:        int64Ptr(sess.File.Mtime),
+		FileHash:         strPtr(sess.File.Hash),
 	}
 	if sess.FirstMessage != "" {
 		dbSess.FirstMessage = &sess.FirstMessage
@@ -174,7 +177,7 @@ func (s *Server) handleUploadSession(
 		return
 	}
 
-	sess, msgs, err := parser.ParseClaudeSession(
+	results, err := parser.ParseClaudeSession(
 		destPath, req.project, req.machine,
 	)
 	if err != nil {
@@ -182,19 +185,28 @@ func (s *Server) handleUploadSession(
 			fmt.Sprintf("parsing session: %v", err))
 		return
 	}
-
-	if err := s.saveSessionToDB(sess, msgs); err != nil {
-		log.Printf("Error saving session to DB: %v", err)
-		writeError(w, http.StatusInternalServerError,
-			"failed to save session to database")
+	if len(results) == 0 {
+		writeError(w, http.StatusBadRequest,
+			"no sessions parsed from upload")
 		return
 	}
 
+	for _, pr := range results {
+		if err := s.saveSessionToDB(pr.Session, pr.Messages); err != nil {
+			log.Printf("Error saving session to DB: %v", err)
+			writeError(w, http.StatusInternalServerError,
+				"failed to save session to database")
+			return
+		}
+	}
+
+	main := results[0]
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id": sess.ID,
+		"session_id": main.Session.ID,
 		"project":    req.project,
 		"machine":    req.machine,
-		"messages":   len(msgs),
+		"messages":   len(main.Messages),
+		"sessions":   len(results),
 	})
 }
 
