@@ -409,7 +409,7 @@ func parseSSE(body string) []SSEEvent {
 			currentEvent.Event = ev
 		} else if data, ok := strings.CutPrefix(line, "data: "); ok {
 			currentEvent.Data = data
-		} else if line == "" && currentEvent.Event != "" {
+		} else if line == "" && (currentEvent.Event != "" || currentEvent.Data != "") {
 			events = append(events, currentEvent)
 			currentEvent = SSEEvent{}
 		}
