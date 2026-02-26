@@ -1110,7 +1110,7 @@ func TestCORSAllowMethods(t *testing.T) {
 		"Access-Control-Allow-Methods",
 	)
 	for _, want := range []string{
-		"GET", "POST", "DELETE", "OPTIONS",
+		http.MethodGet, "POST", "DELETE", "OPTIONS",
 	} {
 		if !strings.Contains(methods, want) {
 			t.Errorf(
@@ -1439,7 +1439,7 @@ func TestWatchSession_Events(t *testing.T) {
 	defer cancel()
 
 	req := httptest.NewRequest(
-		"GET", "/api/v1/sessions/watch-sess/watch", nil,
+		http.MethodGet, "/api/v1/sessions/watch-sess/watch", nil,
 	).WithContext(ctx)
 	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 
@@ -1485,7 +1485,7 @@ func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 	defer cancel()
 
 	req := httptest.NewRequest(
-		"GET", "/api/v1/sessions/vanish-sess/watch", nil,
+		http.MethodGet, "/api/v1/sessions/vanish-sess/watch", nil,
 	).WithContext(ctx)
 	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 
