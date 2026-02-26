@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // filterWith returns a SessionFilter with Limit defaulted to 100.
@@ -47,11 +49,17 @@ func requireCount(
 	page, err := d.ListSessions(
 		context.Background(), f,
 	)
-	if err != nil {
-		t.Fatalf("ListSessions: %v", err)
-	}
+	requireNoError(t, err, "ListSessions")
 	if got := len(page.Sessions); got != want {
 		t.Errorf("got %d sessions, want %d", got, want)
+	}
+}
+
+// requireNoError fails the test if err is not nil.
+func requireNoError(t *testing.T, err error, msg string) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s: %v", msg, err)
 	}
 }
 
@@ -87,9 +95,7 @@ func testDB(t *testing.T) *DB {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
 	d, err := Open(path)
-	if err != nil {
-		t.Fatalf("opening test db: %v", err)
-	}
+	requireNoError(t, err, "opening test db")
 	t.Cleanup(func() { d.Close() })
 	return d
 }
@@ -172,6 +178,22 @@ func asstMsgAt(
 	return m
 }
 
+type msgBuilder struct {
+	id   string
+	ord  int
+	msgs []Message
+}
+
+func (b *msgBuilder) user(content string) {
+	b.msgs = append(b.msgs, userMsg(b.id, b.ord, content))
+	b.ord++
+}
+
+func (b *msgBuilder) asst(content string) {
+	b.msgs = append(b.msgs, asstMsg(b.id, b.ord, content))
+	b.ord++
+}
+
 // canceledCtx returns an already-canceled context.
 func canceledCtx() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -227,9 +249,7 @@ func TestOpenCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "subdir", "test.db")
 	d, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	requireNoError(t, err, "Open")
 	defer d.Close()
 
 	if _, err := os.Stat(path); err != nil {
@@ -254,9 +274,7 @@ func TestOpenProbeErrorPropagates(t *testing.T) {
 		path := filepath.Join(sub, "test.db")
 
 		d, err := Open(path)
-		if err != nil {
-			t.Fatalf("setup: %v", err)
-		}
+		requireNoError(t, err, "setup")
 		d.Close()
 
 		// Remove execute on parent dir so os.Stat fails
@@ -286,9 +304,7 @@ func TestOpenProbeErrorPropagates(t *testing.T) {
 		path := filepath.Join(dir, "test.db")
 
 		d, err := Open(path)
-		if err != nil {
-			t.Fatalf("setup: %v", err)
-		}
+		requireNoError(t, err, "setup")
 		d.Close()
 
 		// Remove read on the file so os.Stat succeeds
@@ -385,9 +401,7 @@ func TestSessionParentSessionID(t *testing.T) {
 				f.Project = "proj"
 			}),
 		)
-		if err != nil {
-			t.Fatalf("ListSessions: %v", err)
-		}
+		requireNoError(t, err, "ListSessions")
 		found := false
 		for _, s := range page.Sessions {
 			if s.ID == "child-1" {
@@ -408,9 +422,7 @@ func TestSessionParentSessionID(t *testing.T) {
 		got, err := d.GetSessionFull(
 			context.Background(), "child-1",
 		)
-		if err != nil {
-			t.Fatalf("GetSessionFull: %v", err)
-		}
+		requireNoError(t, err, "GetSessionFull")
 		if got == nil {
 			t.Fatal("session not found")
 		}
@@ -465,9 +477,7 @@ func TestGetChildSessions(t *testing.T) {
 		children, err := d.GetChildSessions(
 			context.Background(), "parent-1",
 		)
-		if err != nil {
-			t.Fatalf("GetChildSessions: %v", err)
-		}
+		requireNoError(t, err, "GetChildSessions")
 		if len(children) != 3 {
 			t.Fatalf("expected 3 children, got %d", len(children))
 		}
@@ -485,9 +495,7 @@ func TestGetChildSessions(t *testing.T) {
 		children, err := d.GetChildSessions(
 			context.Background(), "unrelated",
 		)
-		if err != nil {
-			t.Fatalf("GetChildSessions: %v", err)
-		}
+		requireNoError(t, err, "GetChildSessions")
 		if len(children) != 0 {
 			t.Fatalf("expected 0 children, got %d", len(children))
 		}
@@ -497,9 +505,7 @@ func TestGetChildSessions(t *testing.T) {
 		children, err := d.GetChildSessions(
 			context.Background(), "no-such-parent",
 		)
-		if err != nil {
-			t.Fatalf("GetChildSessions: %v", err)
-		}
+		requireNoError(t, err, "GetChildSessions")
 		if len(children) != 0 {
 			t.Fatalf("expected 0 children, got %d", len(children))
 		}
@@ -532,9 +538,7 @@ func TestListSessions(t *testing.T) {
 	page, err := d.ListSessions(
 		context.Background(), SessionFilter{Limit: 2},
 	)
-	if err != nil {
-		t.Fatalf("ListSessions limit: %v", err)
-	}
+	requireNoError(t, err, "ListSessions limit")
 	if len(page.Sessions) != 2 {
 		t.Errorf("got %d sessions, want 2", len(page.Sessions))
 	}
@@ -628,9 +632,7 @@ func TestMessageCRUD(t *testing.T) {
 	insertMessages(t, d, m1, m2, m3, m4)
 
 	got, err := d.GetAllMessages(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("GetAllMessages: %v", err)
-	}
+	requireNoError(t, err, "GetAllMessages")
 	if len(got) != 4 {
 		t.Fatalf("got %d messages, want 4", len(got))
 	}
@@ -643,9 +645,7 @@ func TestMessageCRUD(t *testing.T) {
 
 	// Paginated
 	got, err = d.GetMessages(context.Background(), "s1", 1, 2, true)
-	if err != nil {
-		t.Fatalf("GetMessages: %v", err)
-	}
+	requireNoError(t, err, "GetMessages")
 	if len(got) != 2 {
 		t.Fatalf("got %d messages, want 2", len(got))
 	}
@@ -655,9 +655,7 @@ func TestMessageCRUD(t *testing.T) {
 
 	// Descending
 	got, err = d.GetMessages(context.Background(), "s1", 2, 10, false)
-	if err != nil {
-		t.Fatalf("GetMessages desc: %v", err)
-	}
+	requireNoError(t, err, "GetMessages desc")
 	if len(got) != 3 {
 		t.Fatalf("got %d, want 3", len(got))
 	}
@@ -683,9 +681,7 @@ func TestMinimap(t *testing.T) {
 	)
 
 	entries, err := d.GetMinimap(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("GetMinimap: %v", err)
-	}
+	requireNoError(t, err, "GetMinimap")
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2", len(entries))
 	}
@@ -735,9 +731,7 @@ func TestSearch(t *testing.T) {
 		Query: "authentication",
 		Limit: 10,
 	})
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
+	requireNoError(t, err, "Search")
 	if len(page.Results) != 1 {
 		t.Fatalf("got %d results, want 1", len(page.Results))
 	}
@@ -805,9 +799,7 @@ func TestStats(t *testing.T) {
 	)
 
 	stats, err := d.GetStats(context.Background())
-	if err != nil {
-		t.Fatalf("GetStats: %v", err)
-	}
+	requireNoError(t, err, "GetStats")
 	if stats.SessionCount != 2 {
 		t.Errorf("session_count = %d, want 2", stats.SessionCount)
 	}
@@ -832,9 +824,7 @@ func TestGetProjects(t *testing.T) {
 	insertSession(t, d, "s3", "alpha")
 
 	projects, err := d.GetProjects(context.Background())
-	if err != nil {
-		t.Fatalf("GetProjects: %v", err)
-	}
+	requireNoError(t, err, "GetProjects")
 	if len(projects) != 2 {
 		t.Fatalf("got %d projects, want 2", len(projects))
 	}
@@ -854,48 +844,48 @@ func setupPruneData(t *testing.T, d *DB) {
 		s.EndedAt = Ptr("2024-01-15T00:00:00Z")
 		s.MessageCount = 2
 	})
-	insertMessages(t, d,
-		userMsg("s1", 0, "You are a code reviewer"),
-		userMsg("s1", 1, "Review this"),
-	)
+	b1 := &msgBuilder{id: "s1"}
+	b1.user("You are a code reviewer")
+	b1.user("Review this")
+	insertMessages(t, d, b1.msgs...)
 	// s2: 2 user messages
 	insertSession(t, d, "s2", "spicytakes", func(s *Session) {
 		s.FirstMessage = Ptr("Analyze this blog post")
 		s.EndedAt = Ptr("2024-03-01T00:00:00Z")
 		s.MessageCount = 2
 	})
-	insertMessages(t, d,
-		userMsg("s2", 0, "Analyze this blog post"),
-		userMsg("s2", 1, "More analysis"),
-	)
+	b2 := &msgBuilder{id: "s2"}
+	b2.user("Analyze this blog post")
+	b2.user("More analysis")
+	insertMessages(t, d, b2.msgs...)
 	// s3: 2 user messages
 	insertSession(t, d, "s3", "roborev", func(s *Session) {
 		s.FirstMessage = Ptr("You are a code reviewer")
 		s.EndedAt = Ptr("2024-03-01T00:00:00Z")
 		s.MessageCount = 2
 	})
-	insertMessages(t, d,
-		userMsg("s3", 0, "You are a code reviewer"),
-		userMsg("s3", 1, "Check this file"),
-	)
+	b3 := &msgBuilder{id: "s3"}
+	b3.user("You are a code reviewer")
+	b3.user("Check this file")
+	insertMessages(t, d, b3.msgs...)
 	// s4: 5 user messages + 5 assistant messages = 10 total
 	insertSession(t, d, "s4", "spicytakes", func(s *Session) {
 		s.FirstMessage = Ptr("Help me refactor")
 		s.EndedAt = Ptr("2024-06-01T00:00:00Z")
 		s.MessageCount = 10
 	})
-	insertMessages(t, d,
-		userMsg("s4", 0, "Help me refactor"),
-		asstMsg("s4", 1, "Sure, here's a plan"),
-		userMsg("s4", 2, "Do step 1"),
-		asstMsg("s4", 3, "Done with step 1"),
-		userMsg("s4", 4, "Do step 2"),
-		asstMsg("s4", 5, "Done with step 2"),
-		userMsg("s4", 6, "Do step 3"),
-		asstMsg("s4", 7, "Done with step 3"),
-		userMsg("s4", 8, "Looks good"),
-		asstMsg("s4", 9, "Thanks"),
-	)
+	b4 := &msgBuilder{id: "s4"}
+	b4.user("Help me refactor")
+	b4.asst("Sure, here's a plan")
+	b4.user("Do step 1")
+	b4.asst("Done with step 1")
+	b4.user("Do step 2")
+	b4.asst("Done with step 2")
+	b4.user("Do step 3")
+	b4.asst("Done with step 3")
+	b4.user("Looks good")
+	b4.asst("Thanks")
+	insertMessages(t, d, b4.msgs...)
 }
 
 func TestFindPruneCandidates(t *testing.T) {
@@ -953,9 +943,7 @@ func TestFindPruneCandidates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := d.FindPruneCandidates(tt.filter)
-			if err != nil {
-				t.Fatalf("FindPruneCandidates: %v", err)
-			}
+			requireNoError(t, err, "FindPruneCandidates")
 			if len(got) != tt.want {
 				t.Errorf("got %d candidates, want %d",
 					len(got), tt.want)
@@ -968,9 +956,7 @@ func TestFindPruneCandidates(t *testing.T) {
 		got, err := d.FindPruneCandidates(PruneFilter{
 			Before: "2024-02-01",
 		})
-		if err != nil {
-			t.Fatalf("FindPruneCandidates: %v", err)
-		}
+		requireNoError(t, err, "FindPruneCandidates")
 		if len(got) != 1 {
 			t.Fatalf("got %d, want 1", len(got))
 		}
@@ -989,9 +975,7 @@ func TestFindPruneCandidates(t *testing.T) {
 		got, err := d.FindPruneCandidates(PruneFilter{
 			Project: "test",
 		})
-		if err != nil {
-			t.Fatalf("FindPruneCandidates: %v", err)
-		}
+		requireNoError(t, err, "FindPruneCandidates")
 		if len(got) != 1 {
 			t.Fatalf("got %d, want 1", len(got))
 		}
@@ -1035,9 +1019,7 @@ func TestFindPruneCandidatesExcludesParents(t *testing.T) {
 	got, err := d.FindPruneCandidates(PruneFilter{
 		Project: "proj",
 	})
-	if err != nil {
-		t.Fatalf("FindPruneCandidates: %v", err)
-	}
+	requireNoError(t, err, "FindPruneCandidates")
 
 	ids := collectIDs(got)
 
@@ -1114,9 +1096,7 @@ func TestFindPruneCandidatesLikeEscaping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := d.FindPruneCandidates(tt.filter)
-			if err != nil {
-				t.Fatalf("FindPruneCandidates: %v", err)
-			}
+			requireNoError(t, err, "FindPruneCandidates")
 			if len(got) != tt.wantN {
 				t.Fatalf("got %v, want %d results",
 					collectIDs(got), tt.wantN)
@@ -1173,9 +1153,7 @@ func TestFindPruneCandidatesMaxMessagesSentinel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := d.FindPruneCandidates(tt.filter)
-			if err != nil {
-				t.Fatalf("FindPruneCandidates: %v", err)
-			}
+			requireNoError(t, err, "FindPruneCandidates")
 			if len(got) != tt.want {
 				t.Errorf("got %d, want %d", len(got), tt.want)
 			}
@@ -1184,9 +1162,7 @@ func TestFindPruneCandidatesMaxMessagesSentinel(t *testing.T) {
 
 	// Additional check: MaxMessages=0 returns m1 specifically.
 	got, err := d.FindPruneCandidates(PruneFilter{MaxMessages: Ptr(0)})
-	if err != nil {
-		t.Fatalf("FindPruneCandidates MaxMessages=0: %v", err)
-	}
+	requireNoError(t, err, "FindPruneCandidates MaxMessages=0")
 	if len(got) != 1 {
 		t.Fatalf("MaxMessages 0: got %d results, want 1", len(got))
 	}
@@ -1212,9 +1188,7 @@ func TestDeleteSessions(t *testing.T) {
 	}
 
 	deleted, err := d.DeleteSessions([]string{"s1", "s3"})
-	if err != nil {
-		t.Fatalf("DeleteSessions: %v", err)
-	}
+	requireNoError(t, err, "DeleteSessions")
 	if deleted != 2 {
 		t.Errorf("deleted = %d, want 2", deleted)
 	}
@@ -1241,9 +1215,7 @@ func TestDeleteSessions(t *testing.T) {
 	}
 
 	deleted, err = d.DeleteSessions(nil)
-	if err != nil {
-		t.Fatalf("DeleteSessions empty: %v", err)
-	}
+	requireNoError(t, err, "DeleteSessions empty")
 	if deleted != 0 {
 		t.Errorf("deleted empty = %d, want 0", deleted)
 	}
@@ -1292,41 +1264,27 @@ func TestGetSessionFull(t *testing.T) {
 		})
 
 		got, err := d.GetSessionFull(ctx, "full-1")
-		if err != nil {
-			t.Fatalf("GetSessionFull: %v", err)
-		}
+		requireNoError(t, err, "GetSessionFull")
 		if got == nil {
 			t.Fatal("expected non-nil session")
 		}
-		if got.ID != "full-1" {
-			t.Errorf("ID = %q, want %q", got.ID, "full-1")
+		want := &Session{
+			ID:           "full-1",
+			Project:      "proj",
+			MessageCount: 5,
+			FilePath:     Ptr("/tmp/session.jsonl"),
+			FileSize:     Ptr(int64(2048)),
+			FileMtime:    Ptr(int64(1700000000)),
+			FileHash:     Ptr("abc123"),
+			FirstMessage: Ptr("hello"),
+			StartedAt:    Ptr(tsZero),
+			EndedAt:      Ptr(tsHour1),
+			Machine:      defaultMachine,
+			Agent:        defaultAgent,
+			CreatedAt:    got.CreatedAt,
 		}
-		if got.Project != "proj" {
-			t.Errorf("Project = %q, want %q", got.Project, "proj")
-		}
-		if got.MessageCount != 5 {
-			t.Errorf("MessageCount = %d, want 5", got.MessageCount)
-		}
-		if got.FilePath == nil || *got.FilePath != "/tmp/session.jsonl" {
-			t.Errorf("FilePath = %v, want %q", got.FilePath, "/tmp/session.jsonl")
-		}
-		if got.FileSize == nil || *got.FileSize != 2048 {
-			t.Errorf("FileSize = %v, want 2048", got.FileSize)
-		}
-		if got.FileMtime == nil || *got.FileMtime != 1700000000 {
-			t.Errorf("FileMtime = %v, want 1700000000", got.FileMtime)
-		}
-		if got.FileHash == nil || *got.FileHash != "abc123" {
-			t.Errorf("FileHash = %v, want %q", got.FileHash, "abc123")
-		}
-		if got.FirstMessage == nil || *got.FirstMessage != "hello" {
-			t.Errorf("FirstMessage = %v, want %q", got.FirstMessage, "hello")
-		}
-		if got.StartedAt == nil || *got.StartedAt != tsZero {
-			t.Errorf("StartedAt = %v, want %q", got.StartedAt, tsZero)
-		}
-		if got.EndedAt == nil || *got.EndedAt != tsHour1 {
-			t.Errorf("EndedAt = %v, want %q", got.EndedAt, tsHour1)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("GetSessionFull mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -1336,40 +1294,26 @@ func TestGetSessionFull(t *testing.T) {
 		})
 
 		got, err := d.GetSessionFull(ctx, "full-2")
-		if err != nil {
-			t.Fatalf("GetSessionFull: %v", err)
-		}
+		requireNoError(t, err, "GetSessionFull")
 		if got == nil {
 			t.Fatal("expected non-nil session")
 		}
-		if got.FilePath != nil {
-			t.Errorf("FilePath = %v, want nil", got.FilePath)
+		want := &Session{
+			ID:           "full-2",
+			Project:      "proj",
+			MessageCount: 1,
+			Machine:      defaultMachine,
+			Agent:        defaultAgent,
+			CreatedAt:    got.CreatedAt,
 		}
-		if got.FileSize != nil {
-			t.Errorf("FileSize = %v, want nil", got.FileSize)
-		}
-		if got.FileMtime != nil {
-			t.Errorf("FileMtime = %v, want nil", got.FileMtime)
-		}
-		if got.FileHash != nil {
-			t.Errorf("FileHash = %v, want nil", got.FileHash)
-		}
-		if got.FirstMessage != nil {
-			t.Errorf("FirstMessage = %v, want nil", got.FirstMessage)
-		}
-		if got.StartedAt != nil {
-			t.Errorf("StartedAt = %v, want nil", got.StartedAt)
-		}
-		if got.EndedAt != nil {
-			t.Errorf("EndedAt = %v, want nil", got.EndedAt)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("GetSessionFull mismatch (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("NotFound", func(t *testing.T) {
 		got, err := d.GetSessionFull(ctx, "nonexistent")
-		if err != nil {
-			t.Fatalf("GetSessionFull: %v", err)
-		}
+		requireNoError(t, err, "GetSessionFull")
 		if got != nil {
 			t.Errorf("expected nil session, got %+v", got)
 		}
@@ -1380,9 +1324,7 @@ func TestCursorEncodeDecode(t *testing.T) {
 	d := testDB(t)
 	encoded := d.EncodeCursor(tsZero, "session-1")
 	cur, err := d.DecodeCursor(encoded)
-	if err != nil {
-		t.Fatalf("DecodeCursor: %v", err)
-	}
+	requireNoError(t, err, "DecodeCursor")
 	if cur.EndedAt != tsZero {
 		t.Errorf("EndedAt = %q", cur.EndedAt)
 	}
@@ -1396,9 +1338,7 @@ func TestCursorEncodeDecode(t *testing.T) {
 		123,
 	)
 	cur, err = d.DecodeCursor(encodedWithTotal)
-	if err != nil {
-		t.Fatalf("DecodeCursor with total: %v", err)
-	}
+	requireNoError(t, err, "DecodeCursor with total")
 	if cur.Total != 123 {
 		t.Errorf("Total = %d, want 123", cur.Total)
 	}
@@ -1419,18 +1359,14 @@ func TestCursorTampering(t *testing.T) {
 
 	// 2. Decode payload, modify Total, re-encode
 	data, err := base64.RawURLEncoding.DecodeString(payload)
-	if err != nil {
-		t.Fatalf("DecodeString payload: %v", err)
-	}
+	requireNoError(t, err, "DecodeString payload")
 	var c SessionCursor
 	if err := json.Unmarshal(data, &c); err != nil {
 		t.Fatalf("Unmarshal payload: %v", err)
 	}
 	c.Total = 999
 	tamperedData, err := json.Marshal(c)
-	if err != nil {
-		t.Fatalf("Marshal tampered: %v", err)
-	}
+	requireNoError(t, err, "Marshal tampered")
 	tamperedPayload := base64.RawURLEncoding.EncodeToString(tamperedData)
 
 	// 3. Construct tampered cursor with original signature
@@ -1455,16 +1391,12 @@ func TestLegacyCursor(t *testing.T) {
 		Total:   100, // Should be ignored
 	}
 	data, err := json.Marshal(c)
-	if err != nil {
-		t.Fatalf("Marshal legacy: %v", err)
-	}
+	requireNoError(t, err, "Marshal legacy")
 	legacy := base64.RawURLEncoding.EncodeToString(data)
 
 	// Decode
 	got, err := d.DecodeCursor(legacy)
-	if err != nil {
-		t.Fatalf("DecodeCursor legacy: %v", err)
-	}
+	requireNoError(t, err, "DecodeCursor legacy")
 
 	// Verify ID/EndedAt are preserved
 	if got.ID != "s1" {
@@ -1660,9 +1592,7 @@ func TestMigrationRace(t *testing.T) {
 	// the normal init path (old schemas are now dropped and
 	// rebuilt, making concurrent migration less interesting).
 	db1, err := Open(path)
-	if err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	requireNoError(t, err, "setup")
 	db1.Close()
 
 	// 2. Run concurrent Open.
@@ -1726,9 +1656,7 @@ func TestMigrationRace(t *testing.T) {
 
 	// 3. Verify schema is intact
 	dbCheck, err := Open(path)
-	if err != nil {
-		t.Fatalf("re-open: %v", err)
-	}
+	requireNoError(t, err, "re-open")
 	defer dbCheck.Close()
 
 	_, err = dbCheck.writer.Exec(
@@ -1761,9 +1689,7 @@ func TestToolCallsInsertedWithMessages(t *testing.T) {
 		`SELECT message_id, session_id, tool_name, category
 		 FROM tool_calls WHERE session_id = ?
 		 ORDER BY id`, "s1")
-	if err != nil {
-		t.Fatalf("query tool_calls: %v", err)
-	}
+	requireNoError(t, err, "query tool_calls")
 	defer rows.Close()
 
 	var calls []ToolCall
@@ -1853,9 +1779,7 @@ func TestReplaceSessionMessagesReplacesToolCalls(t *testing.T) {
 	rows, err := d.Reader().Query(
 		`SELECT tool_name FROM tool_calls
 		 WHERE session_id = ? ORDER BY id`, "s1")
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	requireNoError(t, err, "query")
 	defer rows.Close()
 	for rows.Next() {
 		var name string
@@ -1924,9 +1848,7 @@ func TestToolCallsMixedSessionsOverlappingOrdinals(t *testing.T) {
 		FROM tool_calls tc
 		JOIN messages m ON m.id = tc.message_id
 		ORDER BY tc.tool_name`)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	requireNoError(t, err, "query")
 	defer rows.Close()
 
 	type row struct {
@@ -2009,9 +1931,7 @@ func TestToolCallNewColumns(t *testing.T) {
         SELECT tool_use_id, input_json, result_content_length
         FROM tool_calls WHERE session_id = 's1'
     `).Scan(&toolUseID, &inputJSON, &resultLen)
-	if err != nil {
-		t.Fatalf("query tool_calls: %v", err)
-	}
+	requireNoError(t, err, "query tool_calls")
 	if !toolUseID.Valid || toolUseID.String != "toolu_abc" {
 		t.Errorf("tool_use_id = %v, want toolu_abc", toolUseID)
 	}
@@ -2047,9 +1967,7 @@ func TestToolCallSkillName(t *testing.T) {
 	err := d.Reader().QueryRow(`
         SELECT skill_name FROM tool_calls WHERE session_id = 's1'
     `).Scan(&skillName)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	requireNoError(t, err, "query")
 	if !skillName.Valid || skillName.String != "superpowers:brainstorming" {
 		t.Errorf("skill_name = %v, want superpowers:brainstorming", skillName)
 	}
@@ -2080,9 +1998,7 @@ func TestGetMessagesReturnsToolCalls(t *testing.T) {
 	msgs, err := d.GetMessages(
 		context.Background(), "s1", 0, 100, true,
 	)
-	if err != nil {
-		t.Fatalf("GetMessages: %v", err)
-	}
+	requireNoError(t, err, "GetMessages")
 	if len(msgs) != 1 {
 		t.Fatalf("got %d messages, want 1", len(msgs))
 	}
@@ -2132,9 +2048,7 @@ func TestGetAllMessagesReturnsToolCallsAcrossBatches(t *testing.T) {
 	insertMessages(t, d, msgs...)
 
 	got, err := d.GetAllMessages(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("GetAllMessages: %v", err)
-	}
+	requireNoError(t, err, "GetAllMessages")
 	if len(got) != total {
 		t.Fatalf("got %d messages, want %d", len(got), total)
 	}
@@ -2178,9 +2092,7 @@ func TestToolCallSubagentSessionID(t *testing.T) {
 		SELECT subagent_session_id
 		FROM tool_calls WHERE session_id = 's1'
 	`).Scan(&subagentID)
-	if err != nil {
-		t.Fatalf("query tool_calls: %v", err)
-	}
+	requireNoError(t, err, "query tool_calls")
 	if !subagentID.Valid || subagentID.String != "agent-abc123" {
 		t.Errorf("subagent_session_id = %v, want agent-abc123",
 			subagentID)
@@ -2190,9 +2102,7 @@ func TestToolCallSubagentSessionID(t *testing.T) {
 	msgs, err := d.GetMessages(
 		context.Background(), "s1", 0, 100, true,
 	)
-	if err != nil {
-		t.Fatalf("GetMessages: %v", err)
-	}
+	requireNoError(t, err, "GetMessages")
 	if len(msgs) != 1 {
 		t.Fatalf("got %d messages, want 1", len(msgs))
 	}
@@ -2229,9 +2139,7 @@ func TestToolCallSubagentSessionID(t *testing.T) {
 		SELECT subagent_session_id
 		FROM tool_calls WHERE session_id = 's2'
 	`).Scan(&nullSubagent)
-	if err != nil {
-		t.Fatalf("query tool_calls s2: %v", err)
-	}
+	requireNoError(t, err, "query tool_calls s2")
 	if nullSubagent.Valid {
 		t.Errorf("expected NULL subagent_session_id for s2, got %q",
 			nullSubagent.String)
@@ -2248,9 +2156,7 @@ func TestFTSBackfill(t *testing.T) {
 
 	// 1. Create DB and drop FTS to simulate "old" DB or broken state
 	d1, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open 1: %v", err)
-	}
+	requireNoError(t, err, "Open 1")
 	// Use writer directly to ensure it happens
 	if _, err := d1.writer.Exec("DROP TABLE IF EXISTS messages_fts"); err != nil {
 		t.Fatalf("dropping fts: %v", err)
@@ -2272,9 +2178,7 @@ func TestFTSBackfill(t *testing.T) {
 
 	// 3. Re-open. This should detect missing FTS, create it, and backfill.
 	d2, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open 2: %v", err)
-	}
+	requireNoError(t, err, "Open 2")
 	defer d2.Close()
 
 	if !d2.HasFTS() {
@@ -2286,9 +2190,7 @@ func TestFTSBackfill(t *testing.T) {
 		Query: "unique_keyword",
 		Limit: 1,
 	})
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
+	requireNoError(t, err, "Search")
 	if len(page.Results) != 1 {
 		t.Fatalf("got %d results, want 1", len(page.Results))
 	}

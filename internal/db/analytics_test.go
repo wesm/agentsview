@@ -957,7 +957,6 @@ func bucketMap(
 	return m
 }
 
-
 func assertEq[T comparable](t *testing.T, name string, got, want T) {
 	t.Helper()
 	if got != want {
@@ -986,7 +985,7 @@ func (c *testClock) Next(d time.Duration) string {
 func insertConversation(t *testing.T, d *DB, id, proj, agent, start string, delays []time.Duration) {
 	t.Helper()
 	clock := newTestClock(start)
-	
+
 	insertSession(t, d, id, proj, func(s *Session) {
 		s.StartedAt = Ptr(start)
 		s.MessageCount = len(delays)
@@ -999,7 +998,7 @@ func insertConversation(t *testing.T, d *DB, id, proj, agent, start string, dela
 			s.EndedAt = Ptr(endClock.Now())
 		}
 	})
-	
+
 	var msgs []Message
 	for i, delay := range delays {
 		role := "user"
@@ -1019,7 +1018,6 @@ func insertConversation(t *testing.T, d *DB, id, proj, agent, start string, dela
 		insertMessages(t, d, msgs...)
 	}
 }
-
 
 func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 	d := testDB(t)
@@ -1265,8 +1263,6 @@ func TestGetAnalyticsVelocity_ToolUsage(t *testing.T) {
 		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 0.0)
 	})
 }
-
-
 
 func TestVelocityChunkedQuery(t *testing.T) {
 	d := testDB(t)
