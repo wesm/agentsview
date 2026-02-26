@@ -44,9 +44,10 @@
     // Filter thinking-only messages
     if (!ui.showThinking) {
       msgs = msgs.filter(
-        (m) => !(m.has_thinking && !m.content.replace(
-          /\[Thinking\]\n?[\s\S]*?(?:\n?\[\/Thinking\]|\n\[(?!\/Thinking\])|\n\n|$)/g, "",
-        ).trim()),
+        (m) => !(m.has_thinking && !m.content
+          .replace(/\[Thinking\]\n?[\s\S]*?\n?\[\/Thinking\]/g, "")
+          .replace(/\[Thinking\]\n?[\s\S]*?(?:\n\[|\n\n|$)/g, "")
+          .trim()),
       );
     }
 

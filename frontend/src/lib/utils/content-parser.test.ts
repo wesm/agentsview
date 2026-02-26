@@ -220,6 +220,33 @@ describe("parseContent - thinking blocks", () => {
     expect(textSegs).toHaveLength(1);
     expect(textSegs[0]!.content).toBe("Response");
   });
+
+  it("preserves blank lines inside marked thinking block", () => {
+    const text =
+      "[Thinking]\npara1\n\npara2\n[/Thinking]";
+    const segments = parseContent(text, false);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]!.type).toBe("thinking");
+    expect(segments[0]!.content).toContain("para1");
+    expect(segments[0]!.content).toContain("para2");
+  });
+
+  it("preserves bracket lines inside marked thinking", () => {
+    const text =
+      "[Thinking]\nI see [Read: foo] in the code\n" +
+      "[/Thinking]\n\nResponse";
+    const segments = parseContent(text, false);
+    const thinking = segments.filter(
+      (s) => s.type === "thinking",
+    );
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0]!.content).toContain("[Read: foo]");
+    const textSegs = segments.filter(
+      (s) => s.type === "text",
+    );
+    expect(textSegs).toHaveLength(1);
+    expect(textSegs[0]!.content).toBe("Response");
+  });
 });
 
 describe("isToolOnly", () => {

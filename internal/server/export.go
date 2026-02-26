@@ -573,10 +573,12 @@ func generateExportHTML(
 }
 
 var (
-	codeBlockRe  = regexp.MustCompile("(?s)```(\\w*)\\n(.*?)```")
-	inlineCodeRe = regexp.MustCompile("`([^`]+)`")
-	thinkingRe   = regexp.MustCompile(
-		`(?s)\[Thinking\]\n?(.*?)(?:\n?\[/Thinking\]|\n\[|\n\n|$)`)
+	codeBlockRe      = regexp.MustCompile("(?s)```(\\w*)\\n(.*?)```")
+	inlineCodeRe     = regexp.MustCompile("`([^`]+)`")
+	thinkingMarkedRe = regexp.MustCompile(
+		`(?s)\[Thinking\]\n?(.*?)\n?\[/Thinking\]`)
+	thinkingLegacyRe = regexp.MustCompile(
+		`(?s)\[Thinking\]\n?(.*?)(?:\n\[|\n\n|$)`)
 	toolBlockRe = regexp.MustCompile(
 		`(?s)\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|` +
 			`Question|Todo List|Entering Plan Mode|` +
@@ -586,13 +588,15 @@ var (
 			`)([^\]]*)\](.*?)(?:\n\[|\n\n|$)`)
 )
 
+const thinkingHTML = `<div class="thinking-block">` +
+	`<div class="thinking-label">Thinking</div>$1</div>`
+
 func formatContentForExport(text string) string {
 	s := html.EscapeString(text)
 	s = codeBlockRe.ReplaceAllString(s, "<pre><code>$2</code></pre>")
 	s = inlineCodeRe.ReplaceAllString(s, "<code>$1</code>")
-	s = thinkingRe.ReplaceAllString(s,
-		`<div class="thinking-block">`+
-			`<div class="thinking-label">Thinking</div>$1</div>`)
+	s = thinkingMarkedRe.ReplaceAllString(s, thinkingHTML)
+	s = thinkingLegacyRe.ReplaceAllString(s, thinkingHTML)
 	s = toolBlockRe.ReplaceAllString(s,
 		`<div class="tool-block">[$1$2]$3</div>`)
 	return s
@@ -602,7 +606,8 @@ func isThinkingOnly(content string) bool {
 	if content == "" {
 		return false
 	}
-	without := thinkingRe.ReplaceAllString(content, "")
+	without := thinkingMarkedRe.ReplaceAllString(content, "")
+	without = thinkingLegacyRe.ReplaceAllString(without, "")
 	return strings.TrimSpace(without) == ""
 }
 

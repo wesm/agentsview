@@ -13,11 +13,18 @@ export interface ContentSegment {
 }
 
 /**
- * Regex patterns matching Go backend at
- * internal/server/export.go:403-412
+ * Marked thinking blocks use explicit [/Thinking] delimiters.
+ * Tried first; captures everything between markers.
  */
-const THINKING_RE =
-  /\[Thinking\]\n?([\s\S]*?)(?:\n?\[\/Thinking\]|(?=\n\[(?!\/Thinking\])|\n\n|$))/g;
+const THINKING_MARKED_RE =
+  /\[Thinking\]\n?([\s\S]*?)\n?\[\/Thinking\]/g;
+
+/**
+ * Legacy thinking blocks without end markers.
+ * Used as fallback for old data that predates [/Thinking].
+ */
+const THINKING_LEGACY_RE =
+  /\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n|$)/g;
 
 const TOOL_NAMES =
   "Tool|Read|Write|Edit|Bash|Glob|Grep|TaskCreate|TaskUpdate|TaskGet|TaskList|Task|Skill|" +
@@ -63,7 +70,8 @@ export function isToolOnly(msg: Message): boolean {
     return false;
   }
   const stripped = msg.content
-    .replace(THINKING_RE, "")
+    .replace(THINKING_MARKED_RE, "")
+    .replace(THINKING_LEGACY_RE, "")
     .replace(TOOL_RE, "")
     .trim();
   const result = stripped.length === 0;
@@ -74,10 +82,29 @@ export function isToolOnly(msg: Message): boolean {
 function extractMatches(text: string, parseTools = true): Match[] {
   const matches: Match[] = [];
 
-  for (const m of text.matchAll(THINKING_RE)) {
+  // Marked blocks first (explicit [/Thinking] delimiters)
+  for (const m of text.matchAll(THINKING_MARKED_RE)) {
     matches.push({
       start: m.index!,
       end: m.index! + m[0].length,
+      segment: {
+        type: "thinking",
+        content: (m[1] ?? "").trim(),
+      },
+    });
+  }
+
+  // Legacy blocks (no end marker) — skip ranges already matched
+  for (const m of text.matchAll(THINKING_LEGACY_RE)) {
+    const start = m.index!;
+    const end = start + m[0].length;
+    const overlaps = matches.some(
+      (o) => start >= o.start && start < o.end,
+    );
+    if (overlaps) continue;
+    matches.push({
+      start,
+      end,
       segment: {
         type: "thinking",
         content: (m[1] ?? "").trim(),
