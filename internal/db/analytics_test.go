@@ -19,59 +19,54 @@ type seedStats struct {
 func seedAnalyticsData(t *testing.T, d *DB) seedStats {
 	t.Helper()
 
-	stats := seedStats{
-		TotalSessions:          5,
-		TotalMessages:          80,
-		TotalUserMessages:      41,
-		TotalAssistantMessages: 39,
-		ActiveProjects:         2,
-		ActiveDays:             3,
+	type sessionData struct {
+		id      string
+		project string
+		start   string
+		end     string
+		msgs    int
+		agent   string
 	}
 
-	// Project A: 3 sessions across 2 days, mixed agents
-	insertSession(t, d, "a1", "project-alpha", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-		s.EndedAt = Ptr(tsMidYear)
-		s.MessageCount = 10
-		s.Agent = "claude"
-	})
-	insertSession(t, d, "a2", "project-alpha", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-01T14:00:00Z")
-		s.EndedAt = Ptr("2024-06-01T15:00:00Z")
-		s.MessageCount = 20
-		s.Agent = "codex"
-	})
-	insertSession(t, d, "a3", "project-alpha", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-03T09:00:00Z")
-		s.EndedAt = Ptr("2024-06-03T10:00:00Z")
-		s.MessageCount = 5
-		s.Agent = "claude"
-	})
+	sessions := []sessionData{
+		// Project A: 3 sessions across 2 days, mixed agents
+		{"a1", "project-alpha", "2024-06-01T09:00:00Z", tsMidYear, 10, "claude"},
+		{"a2", "project-alpha", "2024-06-01T14:00:00Z", "2024-06-01T15:00:00Z", 20, "codex"},
+		{"a3", "project-alpha", "2024-06-03T09:00:00Z", "2024-06-03T10:00:00Z", 5, "claude"},
+		// Project B: 2 sessions on 1 day
+		{"b1", "project-beta", "2024-06-02T10:00:00Z", "2024-06-02T11:00:00Z", 30, "claude"},
+		{"b2", "project-beta", "2024-06-02T15:00:00Z", "2024-06-02T16:00:00Z", 15, "claude"},
+	}
 
-	// Project B: 2 sessions on 1 day
-	insertSession(t, d, "b1", "project-beta", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-02T10:00:00Z")
-		s.EndedAt = Ptr("2024-06-02T11:00:00Z")
-		s.MessageCount = 30
-		s.Agent = "claude"
-	})
-	insertSession(t, d, "b2", "project-beta", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-02T15:00:00Z")
-		s.EndedAt = Ptr("2024-06-02T16:00:00Z")
-		s.MessageCount = 15
-		s.Agent = "claude"
-	})
+	stats := seedStats{}
+	projects := make(map[string]bool)
+	days := make(map[string]bool)
 
-	// Insert messages for each session
-	for _, sess := range []struct {
-		id    string
-		count int
-	}{
-		{"a1", 10}, {"a2", 20}, {"a3", 5},
-		{"b1", 30}, {"b2", 15},
-	} {
-		msgs := make([]Message, sess.count)
-		for i := range sess.count {
+	for _, sess := range sessions {
+		stats.TotalSessions++
+		stats.TotalMessages += sess.msgs
+		for i := 0; i < sess.msgs; i++ {
+			if i%2 == 1 {
+				stats.TotalAssistantMessages++
+			} else {
+				stats.TotalUserMessages++
+			}
+		}
+
+		projects[sess.project] = true
+		if len(sess.start) >= 10 {
+			days[sess.start[:10]] = true
+		}
+
+		insertSession(t, d, sess.id, sess.project, func(s *Session) {
+			s.StartedAt = Ptr(sess.start)
+			s.EndedAt = Ptr(sess.end)
+			s.MessageCount = sess.msgs
+			s.Agent = sess.agent
+		})
+
+		msgs := make([]Message, sess.msgs)
+		for i := 0; i < sess.msgs; i++ {
 			role := "user"
 			if i%2 == 1 {
 				role = "assistant"
@@ -87,6 +82,10 @@ func seedAnalyticsData(t *testing.T, d *DB) seedStats {
 		}
 		insertMessages(t, d, msgs...)
 	}
+
+	stats.ActiveProjects = len(projects)
+	stats.ActiveDays = len(days)
+
 	return stats
 }
 

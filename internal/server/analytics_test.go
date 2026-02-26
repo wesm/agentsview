@@ -39,15 +39,20 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 	}
 
 	stats := seedStats{
-		TotalSessions:  len(entries),
-		TotalMessages:  0,
-		ActiveProjects: 2, // alpha and beta
-		TotalToolCalls: 0,
-		Agents:         2, // claude, codex
-		ActiveDays:     2, // June 1 and June 2
+		TotalSessions: len(entries),
 	}
 
+	projects := make(map[string]bool)
+	agents := make(map[string]bool)
+	days := make(map[string]bool)
+
 	for _, s := range entries {
+		projects[s.project] = true
+		agents[s.agent] = true
+		if len(s.started) >= 10 {
+			days[s.started[:10]] = true
+		}
+
 		stats.TotalMessages += s.msgs
 		started := s.started
 		te.seedSession(t, s.id, s.project, s.msgs,
@@ -75,6 +80,11 @@ func seedAnalyticsEnv(t *testing.T, te *testEnv) seedStats {
 			},
 		)
 	}
+
+	stats.ActiveProjects = len(projects)
+	stats.Agents = len(agents)
+	stats.ActiveDays = len(days)
+
 	return stats
 }
 
