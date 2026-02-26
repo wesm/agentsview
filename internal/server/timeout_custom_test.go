@@ -8,59 +8,77 @@ import (
 	"time"
 )
 
-func TestWithTimeout_Timeout(t *testing.T) {
+func TestWithTimeout(t *testing.T) {
 	t.Parallel()
 
-	s := newTestServerMinimal(t, 10*time.Millisecond)
-
-	slowHandler := func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("too slow"))
+	tests := []struct {
+		name           string
+		timeout        time.Duration
+		handler        http.HandlerFunc
+		wantStatus     int
+		wantBody       string
+		wantHeaderKey  string
+		wantHeaderVal  string
+		assertResponse func(t *testing.T, resp *http.Response)
+	}{
+		{
+			name:    "timeout",
+			timeout: 10 * time.Millisecond,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(50 * time.Millisecond)
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("too slow"))
+			},
+			assertResponse: assertTimeoutResponse,
+		},
+		{
+			name:    "success",
+			timeout: 100 * time.Millisecond,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-Custom", "value")
+				w.WriteHeader(http.StatusCreated)
+				w.Write([]byte(`{"status":"ok"}`))
+			},
+			wantStatus:    http.StatusCreated,
+			wantBody:      `{"status":"ok"}`,
+			wantHeaderKey: "X-Custom",
+			wantHeaderVal: "value",
+		},
 	}
 
-	wrapped := s.withTimeout(slowHandler)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := newTestServerMinimal(t, tt.timeout)
+			wrapped := s.withTimeout(tt.handler)
 
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/", nil)
+			w := httptest.NewRecorder()
+			wrapped.ServeHTTP(w, req)
 
-	wrapped.ServeHTTP(w, req)
+			resp := w.Result()
+			defer resp.Body.Close()
 
-	resp := w.Result()
-	defer resp.Body.Close()
+			if tt.assertResponse != nil {
+				tt.assertResponse(t, resp)
+				return
+			}
 
-	assertTimeoutResponse(t, resp)
-}
+			assertRecorderStatus(t, w, tt.wantStatus)
 
-func TestWithTimeout_Success(t *testing.T) {
-	t.Parallel()
+			if tt.wantHeaderKey != "" {
+				if val := resp.Header.Get(tt.wantHeaderKey); val != tt.wantHeaderVal {
+					t.Errorf("expected header %s=%q, got %q", tt.wantHeaderKey, tt.wantHeaderVal, val)
+				}
+			}
 
-	s := newTestServerMinimal(t, 100*time.Millisecond)
-
-	fastHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Custom", "value")
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"status":"ok"}`))
-	}
-
-	wrapped := s.withTimeout(fastHandler)
-
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-
-	wrapped.ServeHTTP(w, req)
-
-	assertRecorderStatus(t, w, http.StatusCreated)
-
-	resp := w.Result()
-	defer resp.Body.Close()
-
-	if val := resp.Header.Get("X-Custom"); val != "value" {
-		t.Errorf("expected X-Custom header 'value', got %q", val)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	if string(body) != `{"status":"ok"}` {
-		t.Errorf("expected body '{\"status\":\"ok\"}', got %q", string(body))
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("failed to read body: %v", err)
+			}
+			if string(body) != tt.wantBody {
+				t.Errorf("expected body %q, got %q", tt.wantBody, string(body))
+			}
+		})
 	}
 }
