@@ -6,59 +6,73 @@ import (
 	"testing"
 )
 
-func TestExtractProjectFromCwd_GitRepoRoot(t *testing.T) {
-	root := t.TempDir()
-	repo := filepath.Join(root, "my-app")
-	subdir := filepath.Join(repo, "internal", "sync")
+func TestExtractProjectFromCwd_Git(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string) string
+		want  string
+	}{
+		{
+			name: "GitRepoRoot",
+			setup: func(t *testing.T, root string) string {
+				repo := filepath.Join(root, "my-app")
+				subdir := filepath.Join(repo, "internal", "sync")
 
-	mustMkdirAll(t, filepath.Join(repo, ".git"))
-	mustMkdirAll(t, subdir)
+				mustMkdirAll(t, filepath.Join(repo, ".git"))
+				mustMkdirAll(t, subdir)
+				return subdir
+			},
+			want: "my_app",
+		},
+		{
+			name: "GitWorktree",
+			setup: func(t *testing.T, root string) string {
+				mainRepo := filepath.Join(root, "agentsview")
+				worktree := filepath.Join(root, "agentsview-worktree-tool-calls")
+				worktreeGitDir := filepath.Join(mainRepo, ".git", "worktrees", "feature")
 
-	got := ExtractProjectFromCwd(subdir)
-	if got != "my_app" {
-		t.Fatalf("ExtractProjectFromCwd(%q) = %q, want %q", subdir, got, "my_app")
+				mustMkdirAll(t, filepath.Join(mainRepo, ".git"))
+				mustMkdirAll(t, worktreeGitDir)
+				mustMkdirAll(t, filepath.Join(worktree, "internal"))
+
+				mustWriteFile(t, filepath.Join(worktree, ".git"),
+					"gitdir: "+worktreeGitDir+"\n")
+				// Matches git's linked-worktree layout.
+				mustWriteFile(t, filepath.Join(worktreeGitDir, "commondir"), "../..\n")
+
+				return filepath.Join(worktree, "internal")
+			},
+			want: "agentsview",
+		},
+		{
+			name: "GitWorktreeFallbackWithoutCommondir",
+			setup: func(t *testing.T, root string) string {
+				mainRepo := filepath.Join(root, "my-repo")
+				worktree := filepath.Join(root, "my-repo-experiment")
+				worktreeGitDir := filepath.Join(mainRepo, ".git", "worktrees", "exp")
+
+				mustMkdirAll(t, filepath.Join(mainRepo, ".git"))
+				mustMkdirAll(t, worktreeGitDir)
+				mustMkdirAll(t, worktree)
+
+				mustWriteFile(t, filepath.Join(worktree, ".git"),
+					"gitdir: "+worktreeGitDir+"\n")
+
+				return worktree
+			},
+			want: "my_repo",
+		},
 	}
-}
 
-func TestExtractProjectFromCwd_GitWorktree(t *testing.T) {
-	root := t.TempDir()
-
-	mainRepo := filepath.Join(root, "agentsview")
-	worktree := filepath.Join(root, "agentsview-worktree-tool-calls")
-	worktreeGitDir := filepath.Join(mainRepo, ".git", "worktrees", "feature")
-
-	mustMkdirAll(t, filepath.Join(mainRepo, ".git"))
-	mustMkdirAll(t, worktreeGitDir)
-	mustMkdirAll(t, filepath.Join(worktree, "internal"))
-
-	mustWriteFile(t, filepath.Join(worktree, ".git"),
-		"gitdir: "+worktreeGitDir+"\n")
-	// Matches git's linked-worktree layout.
-	mustWriteFile(t, filepath.Join(worktreeGitDir, "commondir"), "../..\n")
-
-	got := ExtractProjectFromCwd(filepath.Join(worktree, "internal"))
-	if got != "agentsview" {
-		t.Fatalf("ExtractProjectFromCwd(worktree) = %q, want %q", got, "agentsview")
-	}
-}
-
-func TestExtractProjectFromCwd_GitWorktreeFallbackWithoutCommondir(t *testing.T) {
-	root := t.TempDir()
-
-	mainRepo := filepath.Join(root, "my-repo")
-	worktree := filepath.Join(root, "my-repo-experiment")
-	worktreeGitDir := filepath.Join(mainRepo, ".git", "worktrees", "exp")
-
-	mustMkdirAll(t, filepath.Join(mainRepo, ".git"))
-	mustMkdirAll(t, worktreeGitDir)
-	mustMkdirAll(t, worktree)
-
-	mustWriteFile(t, filepath.Join(worktree, ".git"),
-		"gitdir: "+worktreeGitDir+"\n")
-
-	got := ExtractProjectFromCwd(worktree)
-	if got != "my_repo" {
-		t.Fatalf("ExtractProjectFromCwd(worktree) = %q, want %q", got, "my_repo")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			cwd := tt.setup(t, root)
+			got := ExtractProjectFromCwd(cwd)
+			if got != tt.want {
+				t.Fatalf("ExtractProjectFromCwd(%q) = %q, want %q", cwd, got, tt.want)
+			}
+		})
 	}
 }
 
