@@ -1426,6 +1426,11 @@ func TestSyncEnginePostFilterCounts(t *testing.T) {
 
 	// Verify stored counts match post-filter values.
 	assertSessionMessageCount(t, env.db, "filter-count", 3)
+	assertSessionState(t, env.db, "filter-count", func(sess *db.Session) {
+		if sess.UserMessageCount != 1 {
+			t.Errorf("user_message_count = %d, want 1", sess.UserMessageCount)
+		}
+	})
 }
 
 // TestSyncSingleSessionPostFilterCounts verifies that
@@ -1495,6 +1500,11 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 
 	// Counts should be corrected by writeSessionFull.
 	assertSessionMessageCount(t, env.db, "filter-single", 3)
+	assertSessionState(t, env.db, "filter-single", func(sess *db.Session) {
+		if sess.UserMessageCount != 1 {
+			t.Errorf("user_message_count = %d, want 1", sess.UserMessageCount)
+		}
+	})
 }
 
 func TestSyncEngineMultiClaudeDir(t *testing.T) {
