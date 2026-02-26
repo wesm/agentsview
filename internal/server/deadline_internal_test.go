@@ -10,6 +10,7 @@ import (
 )
 
 func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
+	t.Parallel()
 	s := testServer(t, 30*time.Second)
 
 	// Seed a session just in case handlers check for existence before context.
@@ -40,13 +41,14 @@ func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.requiresFTS && !s.db.HasFTS() {
 				t.Skip("skipping test: no FTS support")
 			}
 			ctx, cancel := expiredCtx(t)
 			defer cancel()
 
-			req := httptest.NewRequest("GET", "/?q=test", nil)
+			req := httptest.NewRequest(http.MethodGet, "/?q=test", nil)
 			req.SetPathValue("id", "s1")
 			req = req.WithContext(ctx)
 
