@@ -93,6 +93,70 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		assert.Equal(t, want, msgs[1].Content)
 		assert.Equal(t, "Bash", msgs[1].ToolCalls[0].Category)
 	})
+
+	t.Run("function call no name skipped", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-2", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1),
+			testjsonl.CodexFunctionCallJSON("", "", tsEarlyS5),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:fc-2", sess.ID)
+		assert.Equal(t, 1, len(msgs))
+	})
+
+	t.Run("mixed content and function calls", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-3", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "Fix it", tsEarlyS1),
+			testjsonl.CodexMsgJSON("assistant", "Looking at it", tsEarlyS5),
+			testjsonl.CodexFunctionCallJSON("shell_command", "Running rg", tsLate),
+			testjsonl.CodexMsgJSON("assistant", "Found the issue", tsLateS5),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:fc-3", sess.ID)
+		assert.Equal(t, 4, len(msgs))
+		for i, m := range msgs {
+			assert.Equal(t, i, m.Ordinal)
+			assert.Equal(t, i == 2, m.HasToolUse)
+		}
+	})
+
+	t.Run("function call without summary", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-4", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "do it", tsEarlyS1),
+			testjsonl.CodexFunctionCallJSON("exec_command", "", tsEarlyS5),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:fc-4", sess.ID)
+		assert.Equal(t, 2, len(msgs))
+		assert.Equal(t, "[Bash]", msgs[1].Content)
+	})
+
+	t.Run("empty arguments falls through to input", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-empty-args", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "run command", tsEarlyS1),
+			testjsonl.CodexFunctionCallFieldsJSON("exec_command", map[string]any{}, `{"cmd":"ls -la"}`, tsEarlyS5),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:fc-empty-args", sess.ID)
+		assert.Equal(t, 2, len(msgs))
+		assert.Equal(t, "[Bash]\n$ ls -la", msgs[1].Content)
+	})
+
+	t.Run("empty array arguments falls through to input", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-empty-arr", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "run command", tsEarlyS1),
+			testjsonl.CodexFunctionCallFieldsJSON("exec_command", []any{}, `{"cmd":"echo hello"}`, tsEarlyS5),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:fc-empty-arr", sess.ID)
+		assert.Equal(t, 2, len(msgs))
+		assert.Equal(t, "[Bash]\n$ echo hello", msgs[1].Content)
+	})
 }
 
 func TestParseCodexSession_EdgeCases(t *testing.T) {
@@ -124,5 +188,17 @@ func TestParseCodexSession_EdgeCases(t *testing.T) {
 		)
 		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
 		assert.Equal(t, 1024*1024, msgs[0].ContentLength)
+	})
+
+	t.Run("second session_meta with unparsable cwd resets project", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("multi", "/Users/alice/code/my-api", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1),
+			testjsonl.CodexSessionMetaJSON("multi", "/", "user", "2024-01-01T10:00:02Z"),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:multi", sess.ID)
+		assert.Equal(t, 1, len(msgs))
+		assert.Equal(t, "unknown", sess.Project)
 	})
 }

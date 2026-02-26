@@ -87,6 +87,24 @@ func TestParseClaudeSession_EdgeCases(t *testing.T) {
 		_, msgs := runClaudeParserTest(t, "test.jsonl", content)
 		assert.Equal(t, 1024*1024, msgs[0].ContentLength)
 	})
+
+	t.Run("skips empty lines in file", func(t *testing.T) {
+		content := "\n\n" +
+			testjsonl.ClaudeUserJSON("msg1", tsZero) +
+			"\n   \n\t\n" +
+			testjsonl.ClaudeAssistantJSON([]map[string]any{{"type": "text", "text": "reply"}}, tsZeroS1) +
+			"\n\n"
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 2, sess.MessageCount)
+	})
+
+	t.Run("skips partial/truncated JSON", func(t *testing.T) {
+		content := testjsonl.ClaudeUserJSON("first", tsZero) + "\n" +
+			`{"type":"user","truncated` + "\n" +
+			testjsonl.ClaudeAssistantJSON([]map[string]any{{"type": "text", "text": "last"}}, tsZeroS2) + "\n"
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 2, sess.MessageCount)
+	})
 }
 
 func TestParseClaudeSession_SkippedMessages(t *testing.T) {
@@ -125,6 +143,28 @@ func TestParseClaudeSession_SkippedMessages(t *testing.T) {
 		assert.Equal(t, 1, sess.MessageCount)
 		assert.Equal(t, "real user message", msgs[0].Content)
 		assert.Equal(t, "real user message", sess.FirstMessage)
+	})
+
+	t.Run("assistant with system-like content not filtered", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON("hello", tsZero),
+			testjsonl.ClaudeAssistantJSON([]map[string]any{
+				{"type": "text", "text": "This session is being continued from a previous conversation."},
+			}, tsZeroS1),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 2, sess.MessageCount)
+	})
+
+	t.Run("firstMsg from first non-system user message", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeMetaUserJSON("context data", tsZero, true, false),
+			testjsonl.ClaudeUserJSON("This session is being continued from a previous conversation.", tsZeroS1),
+			testjsonl.ClaudeUserJSON("Fix the auth bug", tsZeroS2),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 1, sess.MessageCount)
+		assert.Equal(t, "Fix the auth bug", sess.FirstMessage)
 	})
 }
 
