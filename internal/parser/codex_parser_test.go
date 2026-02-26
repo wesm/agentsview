@@ -181,6 +181,13 @@ func TestParseCodexSession_EdgeCases(t *testing.T) {
 		assert.Equal(t, "codex:test", sess.ID)
 	})
 
+	t.Run("fallback ID from hyphenated filename", func(t *testing.T) {
+		content := testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1)
+		sess, _ := runCodexParserTest(t, "my-codex-session.jsonl", content, false)
+		require.NotNil(t, sess)
+		assert.Equal(t, "codex:my-codex-session", sess.ID)
+	})
+
 	t.Run("large message within scanner limit", func(t *testing.T) {
 		content := testjsonl.JoinJSONL(
 			testjsonl.CodexSessionMetaJSON("big", "/tmp", "user", tsEarly),
