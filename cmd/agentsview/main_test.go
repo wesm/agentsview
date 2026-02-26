@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -169,7 +171,12 @@ func TestTruncateLogFileSymlink(t *testing.T) {
 		t.Fatalf("write target: %v", err)
 	}
 	if err := os.Symlink(target, link); err != nil {
-		t.Skip("symlinks not supported:", err)
+		if errors.Is(err, syscall.EPERM) ||
+			errors.Is(err, syscall.EACCES) ||
+			errors.Is(err, os.ErrPermission) {
+			t.Skip("symlinks not supported:", err)
+		}
+		t.Fatalf("symlink: %v", err)
 	}
 
 	// Truncate via symlink: should be a no-op.
