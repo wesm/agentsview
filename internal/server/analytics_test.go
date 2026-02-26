@@ -581,10 +581,16 @@ func TestAnalyticsTopSessions(t *testing.T) {
 				if resp.Metric != expectedMetric {
 					t.Errorf("Metric = %q, want %q", resp.Metric, expectedMetric)
 				}
-				if tt.project == "" && len(resp.Sessions) != stats.TotalSessions {
-					t.Errorf("len(Sessions) = %d, want %d", len(resp.Sessions), stats.TotalSessions)
+				if tt.project == "" {
+					expected := min(stats.TotalSessions, 10)
+					if len(resp.Sessions) != expected {
+						t.Errorf("len(Sessions) = %d, want %d", len(resp.Sessions), expected)
+					}
 				}
 				if tt.project != "" {
+					if len(resp.Sessions) == 0 {
+						t.Errorf("expected at least one session for project %q", tt.project)
+					}
 					for _, s := range resp.Sessions {
 						if s.Project != tt.project {
 							t.Errorf("session project = %q, want %q", s.Project, tt.project)
