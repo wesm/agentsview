@@ -889,7 +889,7 @@ func TestExtractClaudeProjectHints(t *testing.T) {
 
 func TestFormatGeminiToolCall(t *testing.T) {
 	tests := []struct {
-		name string
+		toolName string
 		json string
 		want string
 	}{
@@ -946,7 +946,11 @@ func TestFormatGeminiToolCall(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		testName := tt.toolName
+		if testName == "" {
+			testName = "empty_string"
+		}
+		t.Run(testName, func(t *testing.T) {
 			tc := gjson.Parse(tt.json)
 			got := formatGeminiToolCall(tc)
 			if got != tt.want {
