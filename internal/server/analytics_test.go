@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -609,5 +610,133 @@ func TestAnalyticsTopSessions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSessionCountConsistency verifies that session counts from
+// /api/v1/sessions, /api/v1/stats, and /api/v1/analytics/summary
+// all agree. This catches regressions where one endpoint counts
+// sub-agent, fork, or empty sessions that others exclude.
+func TestSessionCountConsistency(t *testing.T) {
+	te := setup(t)
+
+	// Seed root sessions with messages (should be counted).
+	for i := range 5 {
+		id := fmt.Sprintf("root-%d", i)
+		te.seedSession(t, id, "proj-a", 10,
+			func(s *db.Session) {
+				s.Agent = "claude"
+				s.StartedAt = dbtest.Ptr(
+					"2024-06-01T09:00:00Z")
+				s.EndedAt = dbtest.Ptr(
+					"2024-06-01T10:00:00Z")
+			},
+		)
+		te.seedMessages(t, id, 10)
+	}
+
+	// Seed sub-agent sessions (should NOT be counted).
+	for i := range 3 {
+		id := fmt.Sprintf("subagent-%d", i)
+		te.seedSession(t, id, "proj-a", 8,
+			func(s *db.Session) {
+				s.Agent = "claude"
+				s.ParentSessionID = dbtest.Ptr("root-0")
+				s.RelationshipType = "subagent"
+				s.StartedAt = dbtest.Ptr(
+					"2024-06-01T09:00:00Z")
+				s.EndedAt = dbtest.Ptr(
+					"2024-06-01T10:00:00Z")
+			},
+		)
+		te.seedMessages(t, id, 8)
+	}
+
+	// Seed fork sessions (should NOT be counted).
+	for i := range 2 {
+		id := fmt.Sprintf("fork-%d", i)
+		te.seedSession(t, id, "proj-a", 6,
+			func(s *db.Session) {
+				s.Agent = "claude"
+				s.ParentSessionID = dbtest.Ptr("root-1")
+				s.RelationshipType = "fork"
+				s.StartedAt = dbtest.Ptr(
+					"2024-06-01T09:00:00Z")
+				s.EndedAt = dbtest.Ptr(
+					"2024-06-01T10:00:00Z")
+			},
+		)
+		te.seedMessages(t, id, 6)
+	}
+
+	// Seed empty sessions (should NOT be counted).
+	for i := range 4 {
+		id := fmt.Sprintf("empty-%d", i)
+		te.seedSession(t, id, "proj-a", 0,
+			func(s *db.Session) {
+				s.Agent = "claude"
+				s.StartedAt = dbtest.Ptr(
+					"2024-06-01T09:00:00Z")
+				s.EndedAt = dbtest.Ptr(
+					"2024-06-01T10:00:00Z")
+			},
+		)
+	}
+
+	// Seed continuation sessions (SHOULD be counted).
+	te.seedSession(t, "cont-0", "proj-a", 5,
+		func(s *db.Session) {
+			s.Agent = "claude"
+			s.ParentSessionID = dbtest.Ptr("root-2")
+			s.RelationshipType = "continuation"
+			s.StartedAt = dbtest.Ptr(
+				"2024-06-01T09:00:00Z")
+			s.EndedAt = dbtest.Ptr(
+				"2024-06-01T10:00:00Z")
+		},
+	)
+	te.seedMessages(t, "cont-0", 5)
+
+	wantCount := 6 // 5 root + 1 continuation
+
+	// 1. Session list
+	w := te.get(t, "/api/v1/sessions")
+	assertStatus(t, w, http.StatusOK)
+	listResp := decode[sessionListResponse](t, w)
+
+	// 2. Stats
+	w = te.get(t, "/api/v1/stats")
+	assertStatus(t, w, http.StatusOK)
+	statsResp := decode[db.Stats](t, w)
+
+	// 3. Analytics summary
+	w = te.get(t, buildURLWithRange("summary", map[string]string{
+		"timezone": "UTC",
+	}))
+	assertStatus(t, w, http.StatusOK)
+	summaryResp := decode[db.AnalyticsSummary](t, w)
+
+	if listResp.Total != wantCount {
+		t.Errorf("session list total = %d, want %d",
+			listResp.Total, wantCount)
+	}
+	if statsResp.SessionCount != wantCount {
+		t.Errorf("stats session_count = %d, want %d",
+			statsResp.SessionCount, wantCount)
+	}
+	if summaryResp.TotalSessions != wantCount {
+		t.Errorf("analytics total_sessions = %d, want %d",
+			summaryResp.TotalSessions, wantCount)
+	}
+
+	// All three must be equal.
+	if listResp.Total != statsResp.SessionCount ||
+		statsResp.SessionCount != summaryResp.TotalSessions {
+		t.Fatalf(
+			"session counts disagree: list=%d stats=%d analytics=%d",
+			listResp.Total,
+			statsResp.SessionCount,
+			summaryResp.TotalSessions,
+		)
 	}
 }
