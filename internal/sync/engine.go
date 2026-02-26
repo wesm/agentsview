@@ -522,12 +522,6 @@ func (e *Engine) syncOneOpenCode(dir string) []pendingWrite {
 		})
 	}
 
-	if len(pending) > 0 {
-		log.Printf(
-			"sync: %d opencode session(s) updated",
-			len(pending),
-		)
-	}
 	return pending
 }
 
