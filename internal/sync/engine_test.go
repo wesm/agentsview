@@ -5,19 +5,19 @@ package sync
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/wesm/agentsview/internal/db"
 )
 
 func TestFilterEmptyMessages(t *testing.T) {
 	tests := []struct {
-		name     string
-		msgs     []db.Message
-		wantLen  int
-		wantPair map[string]int // tool_use_id → expected ResultContentLength
+		name string
+		msgs []db.Message
+		want []db.Message
 	}{
 		{
-			"removes empty-content user message after pairing",
-			[]db.Message{
+			name: "removes empty-content user message after pairing",
+			msgs: []db.Message{
 				{
 					Role:    "assistant",
 					Content: "Let me read the file.",
@@ -33,12 +33,19 @@ func TestFilterEmptyMessages(t *testing.T) {
 					},
 				},
 			},
-			1, // only assistant message remains
-			map[string]int{"t1": 500},
+			want: []db.Message{
+				{
+					Role:    "assistant",
+					Content: "Let me read the file.",
+					ToolCalls: []db.ToolCall{
+						{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 500},
+					},
+				},
+			},
 		},
 		{
-			"keeps user message with real content",
-			[]db.Message{
+			name: "keeps user message with real content",
+			msgs: []db.Message{
 				{
 					Role:    "assistant",
 					Content: "Here is the result.",
@@ -58,12 +65,23 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Content: "Thanks, now do something else.",
 				},
 			},
-			2, // assistant + user with content
-			map[string]int{"t1": 100},
+			want: []db.Message{
+				{
+					Role:    "assistant",
+					Content: "Here is the result.",
+					ToolCalls: []db.ToolCall{
+						{ToolUseID: "t1", ToolName: "Bash", ResultContentLength: 100},
+					},
+				},
+				{
+					Role:    "user",
+					Content: "Thanks, now do something else.",
+				},
+			},
 		},
 		{
-			"whitespace-only content treated as empty",
-			[]db.Message{
+			name: "whitespace-only content treated as empty",
+			msgs: []db.Message{
 				{
 					Role:    "assistant",
 					Content: "Reading...",
@@ -79,23 +97,34 @@ func TestFilterEmptyMessages(t *testing.T) {
 					},
 				},
 			},
-			1,
-			map[string]int{"t1": 300},
+			want: []db.Message{
+				{
+					Role:    "assistant",
+					Content: "Reading...",
+					ToolCalls: []db.ToolCall{
+						{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 300},
+					},
+				},
+			},
 		},
 		{
-			"preserves empty assistant message",
-			[]db.Message{
+			name: "preserves empty assistant message",
+			msgs: []db.Message{
 				{
 					Role:    "assistant",
 					Content: "",
 				},
 			},
-			1,
-			nil,
+			want: []db.Message{
+				{
+					Role:    "assistant",
+					Content: "",
+				},
+			},
 		},
 		{
-			"only removes user messages with tool results",
-			[]db.Message{
+			name: "only removes user messages with tool results",
+			msgs: []db.Message{
 				{
 					Role:    "assistant",
 					Content: "",
@@ -105,32 +134,29 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Content: "",
 				},
 			},
-			2, // both preserved: no ToolResults
-			nil,
+			want: []db.Message{
+				{
+					Role:    "assistant",
+					Content: "",
+				},
+				{
+					Role:    "user",
+					Content: "",
+				},
+			},
 		},
 		{
-			"no messages returns empty",
-			nil,
-			0,
-			nil,
+			name: "no messages returns empty",
+			msgs: nil,
+			want: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := pairAndFilter(tt.msgs)
-			if len(got) != tt.wantLen {
-				t.Errorf("len = %d, want %d", len(got), tt.wantLen)
-			}
-			for _, m := range got {
-				for _, tc := range m.ToolCalls {
-					if expected, ok := tt.wantPair[tc.ToolUseID]; ok {
-						if tc.ResultContentLength != expected {
-							t.Errorf("ToolCall %q: ResultContentLength = %d, want %d",
-								tc.ToolUseID, tc.ResultContentLength, expected)
-						}
-					}
-				}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("pairAndFilter() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -144,33 +170,37 @@ func TestPostFilterCounts(t *testing.T) {
 		wantUser  int
 	}{
 		{
-			"mixed roles",
-			[]db.Message{
+			name: "mixed roles",
+			msgs: []db.Message{
 				{Role: "user", Content: "hello"},
 				{Role: "assistant", Content: "hi"},
 				{Role: "user", Content: "thanks"},
 			},
-			3, 2,
+			wantTotal: 3,
+			wantUser:  2,
 		},
 		{
-			"no user messages",
-			[]db.Message{
+			name: "no user messages",
+			msgs: []db.Message{
 				{Role: "assistant", Content: "hi"},
 			},
-			1, 0,
+			wantTotal: 1,
+			wantUser:  0,
 		},
 		{
-			"empty slice",
-			nil,
-			0, 0,
+			name:      "empty slice",
+			msgs:      nil,
+			wantTotal: 0,
+			wantUser:  0,
 		},
 		{
-			"all user messages",
-			[]db.Message{
+			name: "all user messages",
+			msgs: []db.Message{
 				{Role: "user", Content: "a"},
 				{Role: "user", Content: "b"},
 			},
-			2, 2,
+			wantTotal: 2,
+			wantUser:  2,
 		},
 	}
 
@@ -197,11 +227,11 @@ func TestPairToolResults(t *testing.T) {
 	tests := []struct {
 		name string
 		msgs []db.Message
-		want map[string]int // tool_use_id → expected ResultContentLength
+		want []db.Message
 	}{
 		{
-			"basic pairing across messages",
-			[]db.Message{
+			name: "basic pairing across messages",
+			msgs: []db.Message{
 				{ToolCalls: []db.ToolCall{
 					{ToolUseID: "t1", ToolName: "Read"},
 					{ToolUseID: "t2", ToolName: "Grep"},
@@ -211,11 +241,20 @@ func TestPairToolResults(t *testing.T) {
 					{ToolUseID: "t2", ContentLength: 200},
 				}},
 			},
-			map[string]int{"t1": 100, "t2": 200},
+			want: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 100},
+					{ToolUseID: "t2", ToolName: "Grep", ResultContentLength: 200},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 100},
+					{ToolUseID: "t2", ContentLength: 200},
+				}},
+			},
 		},
 		{
-			"unmatched tool_result ignored",
-			[]db.Message{
+			name: "unmatched tool_result ignored",
+			msgs: []db.Message{
 				{ToolCalls: []db.ToolCall{
 					{ToolUseID: "t1", ToolName: "Read"},
 				}},
@@ -224,11 +263,19 @@ func TestPairToolResults(t *testing.T) {
 					{ToolUseID: "t_unknown", ContentLength: 999},
 				}},
 			},
-			map[string]int{"t1": 50},
+			want: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 50},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 50},
+					{ToolUseID: "t_unknown", ContentLength: 999},
+				}},
+			},
 		},
 		{
-			"unmatched tool_call keeps zero",
-			[]db.Message{
+			name: "unmatched tool_call keeps zero",
+			msgs: []db.Message{
 				{ToolCalls: []db.ToolCall{
 					{ToolUseID: "t1", ToolName: "Read"},
 					{ToolUseID: "t2", ToolName: "Bash"},
@@ -237,27 +284,28 @@ func TestPairToolResults(t *testing.T) {
 					{ToolUseID: "t1", ContentLength: 42},
 				}},
 			},
-			map[string]int{"t1": 42, "t2": 0},
+			want: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 42},
+					{ToolUseID: "t2", ToolName: "Bash", ResultContentLength: 0},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 42},
+				}},
+			},
 		},
 		{
-			"empty messages",
-			nil,
-			nil,
+			name: "empty messages",
+			msgs: nil,
+			want: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pairToolResults(tt.msgs)
-			for _, m := range tt.msgs {
-				for _, tc := range m.ToolCalls {
-					if expected, ok := tt.want[tc.ToolUseID]; ok {
-						if tc.ResultContentLength != expected {
-							t.Errorf("ToolCall %q: ResultContentLength = %d, want %d",
-								tc.ToolUseID, tc.ResultContentLength, expected)
-						}
-					}
-				}
+			if diff := cmp.Diff(tt.want, tt.msgs); diff != "" {
+				t.Errorf("pairToolResults() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
