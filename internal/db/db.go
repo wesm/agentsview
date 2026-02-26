@@ -250,6 +250,44 @@ func openAndInit(path string) (*DB, error) {
 	return db, nil
 }
 
+// DropFTS drops the FTS table and its triggers. This makes
+// bulk message delete+reinsert fast by avoiding per-row FTS
+// index updates. Call RebuildFTS after to restore search.
+func (db *DB) DropFTS() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	stmts := []string{
+		"DROP TRIGGER IF EXISTS messages_ai",
+		"DROP TRIGGER IF EXISTS messages_ad",
+		"DROP TRIGGER IF EXISTS messages_au",
+		"DROP TABLE IF EXISTS messages_fts",
+	}
+	for _, s := range stmts {
+		if _, err := db.writer.Exec(s); err != nil {
+			return fmt.Errorf("drop fts (%s): %w", s, err)
+		}
+	}
+	return nil
+}
+
+// RebuildFTS recreates the FTS table, triggers, and
+// repopulates the index from the messages table.
+func (db *DB) RebuildFTS() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if _, err := db.writer.Exec(schemaFTS); err != nil {
+		return fmt.Errorf("recreate fts: %w", err)
+	}
+	_, err := db.writer.Exec(
+		"INSERT INTO messages_fts(messages_fts)" +
+			" VALUES('rebuild')",
+	)
+	if err != nil {
+		return fmt.Errorf("rebuild fts index: %w", err)
+	}
+	return nil
+}
+
 // HasFTS checks if Full Text Search is available.
 func (db *DB) HasFTS() bool {
 	// We need to actually try to access the table, because it might exist

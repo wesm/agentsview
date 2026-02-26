@@ -322,25 +322,6 @@ func (db *DB) MaxOrdinal(sessionID string) int {
 	return int(n.Int64)
 }
 
-// MessageContentStats returns the message count and total
-// content length for a session. Used for cheap change detection
-// during resync to avoid expensive FTS5 delete+reinsert when
-// content hasn't changed.
-func (db *DB) MessageContentStats(
-	sessionID string,
-) (count, totalLen int) {
-	err := db.reader.QueryRow(
-		"SELECT COUNT(*),"+
-			" COALESCE(SUM(LENGTH(content)), 0)"+
-			" FROM messages WHERE session_id = ?",
-		sessionID,
-	).Scan(&count, &totalLen)
-	if err != nil {
-		return 0, 0
-	}
-	return
-}
-
 // DeleteSessionMessages removes all messages for a session.
 func (db *DB) DeleteSessionMessages(sessionID string) error {
 	db.mu.Lock()
