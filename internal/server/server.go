@@ -199,7 +199,25 @@ func (s *Server) githubToken() string {
 
 // Handler returns the http.Handler with middleware applied.
 func (s *Server) Handler() http.Handler {
-	return corsMiddleware(logMiddleware(s.mux))
+	allowedOrigins := buildAllowedOrigins(s.cfg.Host, s.cfg.Port)
+	return corsMiddleware(allowedOrigins, logMiddleware(s.mux))
+}
+
+// buildAllowedOrigins returns the set of origins that should be
+// permitted by CORS. For loopback addresses, both "127.0.0.1" and
+// "localhost" are allowed because browsers treat them as distinct
+// origins.
+func buildAllowedOrigins(host string, port int) map[string]bool {
+	origins := make(map[string]bool)
+	origins[fmt.Sprintf("http://%s:%d", host, port)] = true
+	// When binding to 127.0.0.1, also allow localhost (and vice
+	// versa) because browsers may use either.
+	if host == "127.0.0.1" {
+		origins[fmt.Sprintf("http://localhost:%d", port)] = true
+	} else if host == "localhost" {
+		origins[fmt.Sprintf("http://127.0.0.1:%d", port)] = true
+	}
+	return origins
 }
 
 // ListenAndServe starts the HTTP server.
@@ -243,12 +261,18 @@ func FindAvailablePort(host string, start int) int {
 	return start
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func corsMiddleware(
+	allowedOrigins map[string]bool, next http.Handler,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			w.Header().Set(
-				"Access-Control-Allow-Origin", "*",
-			)
+			origin := r.Header.Get("Origin")
+			if origin != "" && allowedOrigins[origin] {
+				w.Header().Set(
+					"Access-Control-Allow-Origin", origin,
+				)
+				w.Header().Set("Vary", "Origin")
+			}
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
 				"GET, POST, DELETE, OPTIONS",

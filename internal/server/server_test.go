@@ -1095,10 +1095,48 @@ func TestSyncStatus(t *testing.T) {
 func TestCORSHeaders(t *testing.T) {
 	te := setup(t)
 
-	w := te.get(t, "/api/v1/stats")
+	// Request with matching origin should get CORS header.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:0")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusOK)
+
 	cors := w.Header().Get("Access-Control-Allow-Origin")
-	if cors != "*" {
-		t.Fatalf("expected CORS *, got %q", cors)
+	if cors != "http://127.0.0.1:0" {
+		t.Fatalf("expected CORS origin http://127.0.0.1:0, got %q", cors)
+	}
+}
+
+func TestCORSRejectsUnknownOrigin(t *testing.T) {
+	te := setup(t)
+
+	// Request from a foreign origin should NOT get CORS header.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://evil-site.com")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusOK)
+
+	cors := w.Header().Get("Access-Control-Allow-Origin")
+	if cors != "" {
+		t.Fatalf("expected no CORS header for foreign origin, got %q", cors)
+	}
+}
+
+func TestCORSAllowsLocalhost(t *testing.T) {
+	te := setup(t)
+
+	// localhost variant should also be allowed when bound to 127.0.0.1.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://localhost:0")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusOK)
+
+	cors := w.Header().Get("Access-Control-Allow-Origin")
+	if cors != "http://localhost:0" {
+		t.Fatalf("expected CORS origin http://localhost:0, got %q", cors)
 	}
 }
 
@@ -1108,6 +1146,7 @@ func TestCORSPreflight(t *testing.T) {
 	req := httptest.NewRequest(
 		http.MethodOptions, "/api/v1/sessions", nil,
 	)
+	req.Header.Set("Origin", "http://127.0.0.1:0")
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	assertStatus(t, w, http.StatusNoContent)
@@ -1116,7 +1155,12 @@ func TestCORSPreflight(t *testing.T) {
 func TestCORSAllowMethods(t *testing.T) {
 	te := setup(t)
 
-	w := te.get(t, "/api/v1/stats")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:0")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusOK)
+
 	methods := w.Header().Get(
 		"Access-Control-Allow-Methods",
 	)
