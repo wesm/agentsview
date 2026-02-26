@@ -172,7 +172,7 @@ func (db *DB) filteredSessionIDs(
 		JOIN messages m ON m.session_id = s.id
 		WHERE ` + where + ` AND m.timestamp != ''`
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"querying filtered session IDs: %w", err,
@@ -312,7 +312,7 @@ func (db *DB) GetAnalyticsSummary(
 		FROM sessions WHERE ` + where +
 		` ORDER BY message_count ASC`
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return AnalyticsSummary{},
 			fmt.Errorf("querying analytics summary: %w", err)
@@ -498,7 +498,7 @@ func (db *DB) GetAnalyticsActivity(
 		WHERE ` + where + `
 		GROUP BY s.id, m.role, m.has_thinking`
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return ActivityResponse{},
 			fmt.Errorf("querying analytics activity: %w", err)
@@ -607,7 +607,7 @@ func (db *DB) mergeActivityToolCalls(
 		FROM tool_calls
 		WHERE session_id IN ` + ph + `
 		GROUP BY session_id`
-	rows, err := db.reader.QueryContext(ctx, q, args...)
+	rows, err := db.getReader().QueryContext(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf(
 			"querying activity tool_calls: %w", err,
@@ -680,7 +680,7 @@ func (db *DB) GetAnalyticsHeatmap(
 	query := `SELECT id, ` + dateCol + `, message_count
 		FROM sessions WHERE ` + where
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return HeatmapResponse{},
 			fmt.Errorf("querying analytics heatmap: %w", err)
@@ -840,7 +840,7 @@ func (db *DB) GetAnalyticsProjects(
 		FROM sessions WHERE ` + where +
 		` ORDER BY project, ` + dateCol
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return ProjectsAnalyticsResponse{},
 			fmt.Errorf("querying analytics projects: %w", err)
@@ -977,7 +977,7 @@ func (db *DB) GetAnalyticsHourOfWeek(
 		JOIN messages m ON m.session_id = s.id
 		WHERE ` + where + ` AND m.timestamp != ''`
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return HourOfWeekResponse{},
 			fmt.Errorf("querying hour-of-week: %w", err)
@@ -1156,7 +1156,7 @@ func (db *DB) GetAnalyticsSessionShape(
 	query := `SELECT ` + dateCol + `, started_at, ended_at,
 		message_count, id FROM sessions WHERE ` + where
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return SessionShapeResponse{},
 			fmt.Errorf("querying session shape: %w", err)
@@ -1246,7 +1246,7 @@ func (db *DB) queryAutonomyChunk(
 		WHERE session_id IN ` + ph + `
 		GROUP BY session_id`
 
-	rows, err := db.reader.QueryContext(ctx, q, args...)
+	rows, err := db.getReader().QueryContext(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("querying autonomy: %w", err)
 	}
@@ -1321,7 +1321,7 @@ func (db *DB) GetAnalyticsTools(
 	sessQ := `SELECT id, ` + dateCol + `, agent
 		FROM sessions WHERE ` + where
 
-	sessRows, err := db.reader.QueryContext(ctx, sessQ, args...)
+	sessRows, err := db.getReader().QueryContext(ctx, sessQ, args...)
 	if err != nil {
 		return ToolsAnalyticsResponse{},
 			fmt.Errorf("querying tool sessions: %w", err)
@@ -1379,7 +1379,7 @@ func (db *DB) GetAnalyticsTools(
 			q := `SELECT session_id, category
 				FROM tool_calls
 				WHERE session_id IN ` + ph
-			rows, qErr := db.reader.QueryContext(
+			rows, qErr := db.getReader().QueryContext(
 				ctx, q, chunkArgs...,
 			)
 			if qErr != nil {
@@ -1534,7 +1534,7 @@ func (db *DB) queryVelocityMsgs(
 		WHERE session_id IN ` + ph + `
 		ORDER BY session_id, ordinal`
 
-	rows, err := db.reader.QueryContext(ctx, q, args...)
+	rows, err := db.getReader().QueryContext(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf(
 			"querying velocity messages: %w", err,
@@ -1667,7 +1667,7 @@ func (db *DB) GetAnalyticsVelocity(
 	sessQuery := `SELECT id, ` + dateCol + `, agent,
 		message_count FROM sessions WHERE ` + where
 
-	sessRows, err := db.reader.QueryContext(
+	sessRows, err := db.getReader().QueryContext(
 		ctx, sessQuery, args...,
 	)
 	if err != nil {
@@ -1735,7 +1735,7 @@ func (db *DB) GetAnalyticsVelocity(
 				FROM tool_calls
 				WHERE session_id IN ` + ph + `
 				GROUP BY session_id`
-			rows, qErr := db.reader.QueryContext(
+			rows, qErr := db.getReader().QueryContext(
 				ctx, q, chunkArgs...,
 			)
 			if qErr != nil {
@@ -1981,7 +1981,7 @@ func (db *DB) GetAnalyticsTopSessions(
 		FROM sessions WHERE ` + where +
 		` ORDER BY ` + orderExpr + ` LIMIT 200`
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return TopSessionsResponse{},
 			fmt.Errorf("querying top sessions: %w", err)

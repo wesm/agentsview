@@ -5,7 +5,7 @@ import "fmt"
 // LoadSkippedFiles returns all persisted skip cache entries
 // as a map from file_path to file_mtime.
 func (db *DB) LoadSkippedFiles() (map[string]int64, error) {
-	rows, err := db.reader.Query(
+	rows, err := db.getReader().Query(
 		"SELECT file_path, file_mtime FROM skipped_files",
 	)
 	if err != nil {
@@ -38,7 +38,7 @@ func (db *DB) ReplaceSkippedFiles(
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	tx, err := db.writer.Begin()
+	tx, err := db.getWriter().Begin()
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -75,7 +75,7 @@ func (db *DB) ReplaceSkippedFiles(
 func (db *DB) DeleteSkippedFile(path string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.writer.Exec(
+	_, err := db.getWriter().Exec(
 		"DELETE FROM skipped_files WHERE file_path = ?",
 		path,
 	)

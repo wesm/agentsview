@@ -1693,7 +1693,7 @@ func TestMigrationRace(t *testing.T) {
 	requireNoError(t, err, "re-open")
 	defer dbCheck.Close()
 
-	_, err = dbCheck.writer.Exec(
+	_, err = dbCheck.getWriter().Exec(
 		"SELECT parent_session_id FROM sessions LIMIT 1",
 	)
 	if err != nil {
@@ -2192,12 +2192,13 @@ func TestFTSBackfill(t *testing.T) {
 	d1, err := Open(path)
 	requireNoError(t, err, "Open 1")
 	// Use writer directly to ensure it happens
-	if _, err := d1.writer.Exec("DROP TABLE IF EXISTS messages_fts"); err != nil {
+	w := d1.getWriter()
+	if _, err := w.Exec("DROP TABLE IF EXISTS messages_fts"); err != nil {
 		t.Fatalf("dropping fts: %v", err)
 	}
 	// Also drop triggers, otherwise inserts will fail
 	for _, tr := range []string{"messages_ai", "messages_ad", "messages_au"} {
-		if _, err := d1.writer.Exec("DROP TRIGGER IF EXISTS " + tr); err != nil {
+		if _, err := w.Exec("DROP TRIGGER IF EXISTS " + tr); err != nil {
 			t.Fatalf("dropping trigger %s: %v", tr, err)
 		}
 	}
@@ -2294,13 +2295,23 @@ func TestReopenAfterSwap(t *testing.T) {
 	insertSession(t, tempDB, "new-session", "new-proj")
 	tempDB.Close()
 
-	// Swap: rename temp over original, then reopen.
-	if err := os.Rename(tempPath, origPath); err != nil {
-		t.Fatalf("rename: %v", err)
+	// Close connections before rename (Windows-safe flow).
+	if err := origDB.CloseConnections(); err != nil {
+		t.Fatalf("CloseConnections: %v", err)
 	}
+
+	// Remove WAL/SHM while connections are closed.
 	os.Remove(origPath + "-wal")
 	os.Remove(origPath + "-shm")
 
+	// Swap: rename temp over original.
+	if err := os.Rename(tempPath, origPath); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	os.Remove(tempPath + "-wal")
+	os.Remove(tempPath + "-shm")
+
+	// Reopen to pick up the new file.
 	if err := origDB.Reopen(); err != nil {
 		t.Fatalf("Reopen: %v", err)
 	}
@@ -2310,6 +2321,153 @@ func TestReopenAfterSwap(t *testing.T) {
 	got := requireSessionExists(t, origDB, "new-session")
 	if got.Project != "new-proj" {
 		t.Errorf("project = %q, want new-proj", got.Project)
+	}
+}
+
+func TestCloseConnections(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	// Close connections.
+	if err := d.CloseConnections(); err != nil {
+		t.Fatalf("CloseConnections: %v", err)
+	}
+
+	// Queries should fail after close.
+	_, err := d.GetSession(context.Background(), "s1")
+	if err == nil {
+		t.Error("expected error querying after CloseConnections")
+	}
+
+	// Reopen should restore service.
+	if err := d.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+
+	// Queries should work again.
+	s, err := d.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetSession after Reopen: %v", err)
+	}
+	if s == nil {
+		t.Error("session s1 missing after Reopen")
+	}
+}
+
+func TestCloseRenameReopen(t *testing.T) {
+	dir := t.TempDir()
+	origPath := filepath.Join(dir, "orig.db")
+	tempPath := filepath.Join(dir, "temp.db")
+
+	// Create original with old data.
+	origDB, err := Open(origPath)
+	requireNoError(t, err, "Open orig")
+	defer origDB.Close()
+	insertSession(t, origDB, "old", "old-proj")
+
+	// Create replacement with new data.
+	tempDB, err := Open(tempPath)
+	requireNoError(t, err, "Open temp")
+	insertSession(t, tempDB, "new", "new-proj")
+	tempDB.Close()
+
+	// Simulate the ResyncAll sequence:
+	// close -> removeWAL -> rename -> reopen
+	if err := origDB.CloseConnections(); err != nil {
+		t.Fatalf("CloseConnections: %v", err)
+	}
+	for _, p := range []string{origPath, tempPath} {
+		os.Remove(p + "-wal")
+		os.Remove(p + "-shm")
+	}
+	if err := os.Rename(tempPath, origPath); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if err := origDB.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+
+	// Verify swap succeeded.
+	requireSessionGone(t, origDB, "old")
+	got := requireSessionExists(t, origDB, "new")
+	if got.Project != "new-proj" {
+		t.Errorf("project = %q, want new-proj", got.Project)
+	}
+}
+
+func TestCloseRecoveryOnRenameFail(t *testing.T) {
+	dir := t.TempDir()
+	origPath := filepath.Join(dir, "orig.db")
+
+	origDB, err := Open(origPath)
+	requireNoError(t, err, "Open orig")
+	defer origDB.Close()
+	insertSession(t, origDB, "s1", "proj")
+
+	// Close connections as ResyncAll would.
+	if err := origDB.CloseConnections(); err != nil {
+		t.Fatalf("CloseConnections: %v", err)
+	}
+
+	// Simulate rename failure (temp file doesn't exist).
+	nonexistent := filepath.Join(dir, "no-such-file.db")
+	renameErr := os.Rename(nonexistent, origPath)
+	if renameErr == nil {
+		t.Fatal("expected rename to fail")
+	}
+
+	// Recovery: reopen original to restore service.
+	if err := origDB.Reopen(); err != nil {
+		t.Fatalf("recovery Reopen: %v", err)
+	}
+
+	// Data should still be accessible.
+	s, err := origDB.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetSession after recovery: %v", err)
+	}
+	if s == nil {
+		t.Error("session s1 missing after recovery Reopen")
+	}
+}
+
+func TestConcurrentReadsWhileReopen(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	// Spin up readers that continuously query.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errs := make(chan error, 10)
+	for range 4 {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				_, err := d.GetSession(ctx, "s1")
+				if err != nil && ctx.Err() == nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+
+	// Reopen while readers are active.
+	for range 5 {
+		if err := d.Reopen(); err != nil {
+			t.Fatalf("Reopen: %v", err)
+		}
+	}
+
+	cancel()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent read error: %v", err)
 	}
 }
 

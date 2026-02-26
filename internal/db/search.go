@@ -70,7 +70,7 @@ func (db *DB) Search(
 	)
 	args = append(args, f.Limit+1, f.Cursor)
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return SearchPage{}, fmt.Errorf("searching: %w", err)
 	}

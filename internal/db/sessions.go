@@ -271,7 +271,7 @@ func (db *DB) ListSessions(
 	// the first-page total and we reuse it here.
 	if total <= 0 {
 		countQuery := "SELECT COUNT(*) FROM sessions WHERE " + where
-		if err := db.reader.QueryRowContext(
+		if err := db.getReader().QueryRowContext(
 			ctx, countQuery, args...,
 		).Scan(&total); err != nil {
 			return SessionPage{},
@@ -297,7 +297,7 @@ func (db *DB) ListSessions(
 		LIMIT ?`
 	cursorArgs = append(cursorArgs, f.Limit+1)
 
-	rows, err := db.reader.QueryContext(ctx, query, cursorArgs...)
+	rows, err := db.getReader().QueryContext(ctx, query, cursorArgs...)
 	if err != nil {
 		return SessionPage{},
 			fmt.Errorf("querying sessions: %w", err)
@@ -331,7 +331,7 @@ func (db *DB) ListSessions(
 func (db *DB) GetSession(
 	ctx context.Context, id string,
 ) (*Session, error) {
-	row := db.reader.QueryRowContext(
+	row := db.getReader().QueryRowContext(
 		ctx,
 		"SELECT "+sessionBaseCols+" FROM sessions WHERE id = ?",
 		id,
@@ -351,7 +351,7 @@ func (db *DB) GetSession(
 func (db *DB) GetSessionFull(
 	ctx context.Context, id string,
 ) (*Session, error) {
-	row := db.reader.QueryRowContext(
+	row := db.getReader().QueryRowContext(
 		ctx,
 		"SELECT "+sessionFullCols+" FROM sessions WHERE id = ?",
 		id,
@@ -380,7 +380,7 @@ func (db *DB) UpsertSession(s Session) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	_, err := db.writer.Exec(`
+	_, err := db.getWriter().Exec(`
 		INSERT INTO sessions (
 			id, project, machine, agent, first_message,
 			started_at, ended_at, message_count,
@@ -422,7 +422,7 @@ func (db *DB) GetChildSessions(
 	query := "SELECT " + sessionBaseCols +
 		" FROM sessions WHERE parent_session_id = ?" +
 		" ORDER BY started_at"
-	rows, err := db.reader.QueryContext(ctx, query, parentID)
+	rows, err := db.getReader().QueryContext(ctx, query, parentID)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"querying child sessions for %s: %w", parentID, err,
@@ -439,7 +439,7 @@ func (db *DB) GetSessionFileInfo(
 	id string,
 ) (size int64, mtime int64, ok bool) {
 	var s, m sql.NullInt64
-	err := db.reader.QueryRow(
+	err := db.getReader().QueryRow(
 		"SELECT file_size, file_mtime FROM sessions WHERE id = ?",
 		id,
 	).Scan(&s, &m)
@@ -456,7 +456,7 @@ func (db *DB) GetFileInfoByPath(
 	path string,
 ) (size int64, mtime int64, ok bool) {
 	var s, m sql.NullInt64
-	err := db.reader.QueryRow(
+	err := db.getReader().QueryRow(
 		"SELECT file_size, file_mtime FROM sessions"+
 			" WHERE file_path = ?"+
 			" ORDER BY file_mtime DESC LIMIT 1",
@@ -474,7 +474,7 @@ func (db *DB) GetFileInfoByPath(
 func (db *DB) ResetAllMtimes() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.writer.Exec(
+	_, err := db.getWriter().Exec(
 		"UPDATE sessions SET file_mtime = 0",
 	)
 	if err != nil {
@@ -487,7 +487,9 @@ func (db *DB) ResetAllMtimes() error {
 func (db *DB) DeleteSession(id string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.writer.Exec("DELETE FROM sessions WHERE id = ?", id)
+	_, err := db.getWriter().Exec(
+		"DELETE FROM sessions WHERE id = ?", id,
+	)
 	return err
 }
 
@@ -495,7 +497,7 @@ func (db *DB) DeleteSession(id string) error {
 func (db *DB) GetProjects(
 	ctx context.Context,
 ) ([]ProjectInfo, error) {
-	rows, err := db.reader.QueryContext(ctx, `
+	rows, err := db.getReader().QueryContext(ctx, `
 		SELECT project, COUNT(*) as session_count
 		FROM sessions
 		WHERE message_count > 0
@@ -528,7 +530,7 @@ type ProjectInfo struct {
 func (db *DB) GetMachines(
 	ctx context.Context,
 ) ([]string, error) {
-	rows, err := db.reader.QueryContext(ctx,
+	rows, err := db.getReader().QueryContext(ctx,
 		"SELECT DISTINCT machine FROM sessions ORDER BY machine",
 	)
 	if err != nil {
@@ -629,7 +631,7 @@ func (db *DB) FindPruneCandidates(
 			ended_at, started_at, created_at
 		) DESC`
 
-	rows, err := db.reader.Query(query, args...)
+	rows, err := db.getReader().Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("finding prune candidates: %w", err)
 	}
@@ -664,7 +666,7 @@ func (db *DB) DeleteSessions(ids []string) (int, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	tx, err := db.writer.Begin()
+	tx, err := db.getWriter().Begin()
 	if err != nil {
 		return 0, fmt.Errorf("beginning transaction: %w", err)
 	}

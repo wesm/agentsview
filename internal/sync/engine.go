@@ -394,8 +394,21 @@ func (e *Engine) ResyncAll(
 		time.Since(tInsights).Round(time.Millisecond),
 	)
 
-	// 5. Close the temp DB, swap files, reopen original.
+	// 5. Close temp DB and original connections, swap files,
+	// then reopen. On Windows, mandatory file locking
+	// prevents renaming over an open file, so we must
+	// close origDB's connections before the rename.
 	newDB.Close()
+
+	if err := origDB.CloseConnections(); err != nil {
+		log.Printf("resync: close orig db: %v", err)
+		stats.Warnings = append(stats.Warnings,
+			"close before swap failed: "+err.Error(),
+		)
+	}
+
+	// Remove WAL/SHM while connections are closed.
+	removeWAL(origPath)
 
 	if err := os.Rename(tempPath, origPath); err != nil {
 		log.Printf("resync: rename temp db: %v", err)
@@ -403,12 +416,13 @@ func (e *Engine) ResyncAll(
 			"resync swap failed: "+err.Error(),
 		)
 		removeTempDB(tempPath)
+		// Restore service even on rename failure.
+		if rerr := origDB.Reopen(); rerr != nil {
+			log.Printf("resync: recovery reopen: %v", rerr)
+		}
 		return stats
 	}
-	// Remove stale WAL/SHM for both temp and original
-	// paths so the reopened DB starts clean.
 	removeWAL(tempPath)
-	removeWAL(origPath)
 
 	if err := origDB.Reopen(); err != nil {
 		log.Printf("resync: reopen db: %v", err)

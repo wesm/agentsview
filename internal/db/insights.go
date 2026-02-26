@@ -69,7 +69,7 @@ func (db *DB) InsertInsight(s Insight) (int64, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	res, err := db.writer.Exec(`
+	res, err := db.getWriter().Exec(`
 		INSERT INTO insights (
 			type, date_from, date_to, project,
 			agent, model, prompt, content
@@ -96,7 +96,7 @@ func (db *DB) ListInsights(
 		" ORDER BY created_at DESC, id DESC" +
 		" LIMIT " + fmt.Sprintf("%d", maxInsights)
 
-	rows, err := db.reader.QueryContext(ctx, query, args...)
+	rows, err := db.getReader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying insights: %w", err)
 	}
@@ -118,7 +118,7 @@ func (db *DB) ListInsights(
 func (db *DB) GetInsight(
 	ctx context.Context, id int64,
 ) (*Insight, error) {
-	row := db.reader.QueryRowContext(
+	row := db.getReader().QueryRowContext(
 		ctx,
 		"SELECT "+insightBaseCols+
 			" FROM insights WHERE id = ?",
@@ -142,16 +142,17 @@ func (db *DB) CopyInsightsFrom(sourcePath string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if _, err := db.writer.Exec(
+	w := db.getWriter()
+	if _, err := w.Exec(
 		"ATTACH DATABASE ? AS old_db", sourcePath,
 	); err != nil {
 		return fmt.Errorf("attaching source db: %w", err)
 	}
 	defer func() {
-		_, _ = db.writer.Exec("DETACH DATABASE old_db")
+		_, _ = w.Exec("DETACH DATABASE old_db")
 	}()
 
-	_, err := db.writer.Exec(`
+	_, err := w.Exec(`
 		INSERT OR IGNORE INTO insights
 			(type, date_from, date_to, project,
 			 agent, model, prompt, content, created_at)
@@ -168,7 +169,7 @@ func (db *DB) CopyInsightsFrom(sourcePath string) error {
 func (db *DB) DeleteInsight(id int64) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.writer.Exec(
+	_, err := db.getWriter().Exec(
 		"DELETE FROM insights WHERE id = ?", id,
 	)
 	return err

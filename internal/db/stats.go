@@ -24,7 +24,7 @@ func (db *DB) GetStats(ctx context.Context) (Stats, error) {
 			(SELECT COUNT(DISTINCT machine) FROM sessions)`
 
 	var s Stats
-	err := db.reader.QueryRowContext(ctx, query).Scan(
+	err := db.getReader().QueryRowContext(ctx, query).Scan(
 		&s.SessionCount,
 		&s.MessageCount,
 		&s.ProjectCount,
