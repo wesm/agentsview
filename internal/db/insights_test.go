@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func ptr(s string) *string { return &s }
@@ -12,7 +15,7 @@ func TestInsights_InsertAndGet(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
-	s := Insight{
+	want := &Insight{
 		Type:     "daily_activity",
 		DateFrom: "2025-01-15",
 		DateTo:   "2025-01-15",
@@ -23,7 +26,7 @@ func TestInsights_InsertAndGet(t *testing.T) {
 		Content:  "# Summary\nStuff happened.",
 	}
 
-	id, err := d.InsertInsight(s)
+	id, err := d.InsertInsight(*want)
 	if err != nil {
 		t.Fatalf("InsertInsight: %v", err)
 	}
@@ -38,26 +41,9 @@ func TestInsights_InsertAndGet(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected insight, got nil")
 	}
-	if got.Type != "daily_activity" {
-		t.Errorf("type = %q, want daily_activity", got.Type)
-	}
-	if got.DateFrom != "2025-01-15" {
-		t.Errorf(
-			"date_from = %q, want 2025-01-15",
-			got.DateFrom,
-		)
-	}
-	if got.DateTo != "2025-01-15" {
-		t.Errorf(
-			"date_to = %q, want 2025-01-15",
-			got.DateTo,
-		)
-	}
-	if got.Project == nil || *got.Project != "my-app" {
-		t.Errorf("project = %v, want my-app", got.Project)
-	}
-	if got.Content != "# Summary\nStuff happened." {
-		t.Errorf("content = %q", got.Content)
+
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(Insight{}, "ID", "CreatedAt")); diff != "" {
+		t.Errorf("Insight mismatch (-want +got):\n%s", diff)
 	}
 	if got.CreatedAt == "" {
 		t.Error("expected created_at to be set")
@@ -82,6 +68,9 @@ func TestInsights_InsertDateRange(t *testing.T) {
 	got, err := d.GetInsight(ctx, id)
 	if err != nil {
 		t.Fatalf("GetInsight: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected insight, got nil")
 	}
 	if got.DateFrom != "2025-01-13" {
 		t.Errorf(
@@ -146,35 +135,35 @@ func TestInsights_ListWithFilters(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
-		f     InsightFilter
-		count int
+		name        string
+		f           InsightFilter
+		wantContent []string
 	}{
 		{
 			"AllInsights",
 			InsightFilter{},
-			4,
+			[]string{"Day 2 app-a", "Analysis", "Day 1 app-b", "Day 1 app-a"},
 		},
 		{
 			"ByType",
 			InsightFilter{Type: "daily_activity"},
-			3,
+			[]string{"Day 2 app-a", "Day 1 app-b", "Day 1 app-a"},
 		},
 		{
 			"ByProject",
 			InsightFilter{Project: "app-a"},
-			2,
+			[]string{"Day 2 app-a", "Day 1 app-a"},
 		},
 		{
 			"GlobalOnly",
 			InsightFilter{GlobalOnly: true},
-			1,
+			[]string{"Analysis"},
 		},
 		{
 			"NoMatch",
 			InsightFilter{Type: "agent_analysis",
 				Project: "nonexistent"},
-			0,
+			[]string{},
 		},
 	}
 
@@ -184,11 +173,16 @@ func TestInsights_ListWithFilters(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ListInsights: %v", err)
 			}
-			if len(got) != tt.count {
-				t.Errorf(
+			if len(got) != len(tt.wantContent) {
+				t.Fatalf(
 					"got %d insights, want %d",
-					len(got), tt.count,
+					len(got), len(tt.wantContent),
 				)
+			}
+			for i, want := range tt.wantContent {
+				if got[i].Content != want {
+					t.Errorf("got[%d].Content = %q, want %q", i, got[i].Content, want)
+				}
 			}
 		})
 	}
