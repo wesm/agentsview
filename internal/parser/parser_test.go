@@ -947,6 +947,11 @@ func TestFormatGeminiToolCall(t *testing.T) {
 			`{"name":"custom_tool","args":{}}`,
 			"[Tool: custom_tool]",
 		},
+		{
+			"",
+			`{"name":"empty_tool","args":{}}`,
+			"[Tool: empty_tool]",
+		},
 	}
 
 	for _, tt := range tests {
