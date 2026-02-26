@@ -100,6 +100,9 @@ func (e *Engine) SyncPaths(paths []string) {
 		return
 	}
 
+	e.syncMu.Lock()
+	defer e.syncMu.Unlock()
+
 	results := e.startWorkers(files)
 	stats := e.collectAndBatch(
 		results, len(files), nil, false,
@@ -1092,6 +1095,9 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 // Unlike the bulk SyncAll path, this includes exec-originated
 // Codex sessions and uses the existing DB project as fallback.
 func (e *Engine) SyncSingleSession(sessionID string) error {
+	e.syncMu.Lock()
+	defer e.syncMu.Unlock()
+
 	if strings.HasPrefix(sessionID, "opencode:") {
 		return e.syncSingleOpenCode(sessionID)
 	}
