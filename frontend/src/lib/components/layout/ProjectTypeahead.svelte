@@ -192,7 +192,7 @@
     left: 0;
     right: 0;
     margin-top: 2px;
-    max-height: 400px;
+    max-height: min(400px, 50vh);
     overflow-y: auto;
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
