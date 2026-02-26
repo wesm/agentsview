@@ -231,11 +231,15 @@ func setupLogFile(dataDir string) {
 }
 
 // truncateLogFile truncates the log file if it exceeds limit
-// bytes. Errors are silently ignored since logging is
+// bytes. Symlinks are skipped to avoid truncating unrelated
+// files. Errors are silently ignored since logging is
 // best-effort.
 func truncateLogFile(path string, limit int64) {
-	info, err := os.Stat(path)
-	if err != nil || info.Size() <= limit {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	if info.Size() <= limit {
 		return
 	}
 	_ = os.Truncate(path, 0)

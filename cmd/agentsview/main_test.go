@@ -154,5 +154,31 @@ func TestTruncateLogFileUnderLimit(t *testing.T) {
 
 func TestTruncateLogFileMissing(t *testing.T) {
 	// Non-existent file: should not panic.
-	truncateLogFile("/nonexistent/path/log.txt", 1024)
+	missing := filepath.Join(t.TempDir(), "missing", "log.txt")
+	truncateLogFile(missing, 1024)
+}
+
+func TestTruncateLogFileSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real.log")
+	link := filepath.Join(dir, "link.log")
+
+	// Write a target file larger than the limit.
+	big := bytes.Repeat([]byte("x"), 1024)
+	os.WriteFile(target, big, 0o644)
+	os.Symlink(target, link)
+
+	// Truncate via symlink: should be a no-op.
+	truncateLogFile(link, 512)
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if len(data) != 1024 {
+		t.Errorf(
+			"symlink target was truncated: size=%d, want 1024",
+			len(data),
+		)
+	}
 }
