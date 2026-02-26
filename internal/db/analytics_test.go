@@ -957,7 +957,71 @@ func bucketMap(
 	return m
 }
 
-func TestGetAnalyticsVelocity(t *testing.T) {
+
+func assertEq[T comparable](t *testing.T, name string, got, want T) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s = %v, want %v", name, got, want)
+	}
+}
+
+type testClock struct {
+	curr time.Time
+}
+
+func newTestClock(start string) *testClock {
+	t, _ := time.Parse(time.RFC3339, start)
+	return &testClock{curr: t}
+}
+
+func (c *testClock) Now() string {
+	return c.curr.Format(time.RFC3339)
+}
+
+func (c *testClock) Next(d time.Duration) string {
+	c.curr = c.curr.Add(d)
+	return c.Now()
+}
+
+func insertConversation(t *testing.T, d *DB, id, proj, agent, start string, delays []time.Duration) {
+	t.Helper()
+	clock := newTestClock(start)
+	
+	insertSession(t, d, id, proj, func(s *Session) {
+		s.StartedAt = Ptr(start)
+		s.MessageCount = len(delays)
+		s.Agent = agent
+		if len(delays) > 0 {
+			endClock := newTestClock(start)
+			for _, delay := range delays {
+				endClock.Next(delay)
+			}
+			s.EndedAt = Ptr(endClock.Now())
+		}
+	})
+	
+	var msgs []Message
+	for i, delay := range delays {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs = append(msgs, Message{
+			SessionID:     id,
+			Ordinal:       i,
+			Role:          role,
+			Content:       fmt.Sprintf("msg %d", i),
+			ContentLength: 5,
+			Timestamp:     clock.Next(delay),
+		})
+	}
+	if len(msgs) > 0 {
+		insertMessages(t, d, msgs...)
+	}
+}
+
+
+func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
@@ -966,65 +1030,20 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if len(resp.ByAgent) != 0 {
-			t.Errorf(
-				"len(ByAgent) = %d, want 0",
-				len(resp.ByAgent),
-			)
-		}
+		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 0)
 	})
 
 	// Session with messages at precise timestamps (10s apart)
-	insertSession(t, d, "v1", "proj", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-		s.EndedAt = Ptr("2024-06-01T09:01:00Z")
-		s.MessageCount = 6
-		s.Agent = "claude"
+	insertConversation(t, d, "v1", "proj", "claude", "2024-06-01T09:00:00Z", []time.Duration{
+		0, 10 * time.Second, 10 * time.Second, 10 * time.Second, 10 * time.Second, 10 * time.Second,
 	})
-	insertMessages(t, d,
-		Message{
-			SessionID: "v1", Ordinal: 0, Role: "user",
-			Content: "hi", ContentLength: 2,
-			Timestamp: "2024-06-01T09:00:00Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 1, Role: "assistant",
-			Content: "hello there", ContentLength: 11,
-			Timestamp: "2024-06-01T09:00:10Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 2, Role: "user",
-			Content: "do X", ContentLength: 4,
-			Timestamp: "2024-06-01T09:00:20Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 3, Role: "assistant",
-			Content: "done X ok", ContentLength: 9,
-			Timestamp: "2024-06-01T09:00:30Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 4, Role: "user",
-			Content: "do Y", ContentLength: 4,
-			Timestamp: "2024-06-01T09:00:40Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 5, Role: "assistant",
-			Content: "done Y ok", ContentLength: 9,
-			Timestamp: "2024-06-01T09:00:50Z",
-		},
-	)
 
 	t.Run("TurnCycle", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// Turn cycles: user→asst at 0→10 (10s), 20→30 (10s),
-		// 40→50 (10s). All 10s.
-		if resp.Overall.TurnCycleSec.P50 != 10.0 {
-			t.Errorf("TurnCycle P50 = %f, want 10.0",
-				resp.Overall.TurnCycleSec.P50)
-		}
+		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 10.0)
 	})
 
 	t.Run("FirstResponse", func(t *testing.T) {
@@ -1032,11 +1051,7 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// First user at 09:00:00, first asst at 09:00:10 = 10s
-		if resp.Overall.FirstResponseSec.P50 != 10.0 {
-			t.Errorf("FirstResponse P50 = %f, want 10.0",
-				resp.Overall.FirstResponseSec.P50)
-		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 10.0)
 	})
 
 	t.Run("Throughput", func(t *testing.T) {
@@ -1046,10 +1061,8 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		}
 		// Active time: 5 gaps of 10s = 50s ≈ 0.833 min
 		// 6 msgs / 0.833 = ~7.2 msgs/min
-		if resp.Overall.MsgsPerActiveMin < 7.0 ||
-			resp.Overall.MsgsPerActiveMin > 7.5 {
-			t.Errorf("MsgsPerActiveMin = %f, want ~7.2",
-				resp.Overall.MsgsPerActiveMin)
+		if resp.Overall.MsgsPerActiveMin < 7.0 || resp.Overall.MsgsPerActiveMin > 7.5 {
+			t.Errorf("MsgsPerActiveMin = %f, want ~7.2", resp.Overall.MsgsPerActiveMin)
 		}
 	})
 
@@ -1058,20 +1071,9 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if len(resp.ByAgent) != 1 {
-			t.Fatalf(
-				"len(ByAgent) = %d, want 1",
-				len(resp.ByAgent),
-			)
-		}
-		if resp.ByAgent[0].Label != "claude" {
-			t.Errorf("ByAgent[0].Label = %q, want claude",
-				resp.ByAgent[0].Label)
-		}
-		if resp.ByAgent[0].Sessions != 1 {
-			t.Errorf("ByAgent[0].Sessions = %d, want 1",
-				resp.ByAgent[0].Sessions)
-		}
+		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 1)
+		assertEq(t, "ByAgent[0].Label", resp.ByAgent[0].Label, "claude")
+		assertEq(t, "ByAgent[0].Sessions", resp.ByAgent[0].Sessions, 1)
 	})
 
 	t.Run("ByComplexity", func(t *testing.T) {
@@ -1079,375 +1081,192 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// 6 messages → "1-15" bucket
-		if len(resp.ByComplexity) != 1 {
-			t.Fatalf("len(ByComplexity) = %d, want 1",
-				len(resp.ByComplexity))
-		}
-		if resp.ByComplexity[0].Label != "1-15" {
-			t.Errorf(
-				"ByComplexity[0].Label = %q, want 1-15",
-				resp.ByComplexity[0].Label,
-			)
-		}
+		assertEq(t, "len(ByComplexity)", len(resp.ByComplexity), 1)
+		assertEq(t, "ByComplexity[0].Label", resp.ByComplexity[0].Label, "1-15")
 	})
+}
+
+func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("LargeCycleExcluded", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v2", "proj", func(s *Session) {
-			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-			s.MessageCount = 2
-			s.Agent = "claude"
+		d := testDB(t)
+		insertConversation(t, d, "v2", "proj", "claude", "2024-06-01T09:00:00Z", []time.Duration{
+			0, 45 * time.Minute,
 		})
-		// 45min gap → exceeds 1800s threshold
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v2", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "v2", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp: "2024-06-01T09:45:00Z",
-			},
-		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if resp.Overall.TurnCycleSec.P50 != 0 {
-			t.Errorf(
-				"TurnCycle P50 = %f, want 0 (excluded)",
-				resp.Overall.TurnCycleSec.P50,
-			)
-		}
+		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 0.0)
 	})
 
 	t.Run("EmptyTimestampsSkipped", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v3", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "v3", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 2
 			s.Agent = "claude"
 		})
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v3", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "",
-			},
-			Message{
-				SessionID: "v3", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp: "",
-			},
+		insertMessages(t, d,
+			Message{SessionID: "v3", Ordinal: 0, Role: "user", Content: "q", ContentLength: 1, Timestamp: ""},
+			Message{SessionID: "v3", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1, Timestamp: ""},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if resp.Overall.TurnCycleSec.P50 != 0 {
-			t.Errorf(
-				"TurnCycle P50 = %f, want 0 (empty ts)",
-				resp.Overall.TurnCycleSec.P50,
-			)
-		}
+		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 0.0)
 	})
 
 	t.Run("AssistantBeforeUser", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v4", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "v4", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 3
 			s.Agent = "claude"
 		})
-		// Assistant at ordinal 0, user at ordinal 1,
-		// assistant at ordinal 2
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v4", Ordinal: 0,
-				Role:    "assistant",
-				Content: "system greeting", ContentLength: 15,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "v4", Ordinal: 1, Role: "user",
-				Content: "hi", ContentLength: 2,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-			Message{
-				SessionID: "v4", Ordinal: 2,
-				Role:    "assistant",
-				Content: "hello", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:20Z",
-			},
+		insertMessages(t, d,
+			Message{SessionID: "v4", Ordinal: 0, Role: "assistant", Content: "system greeting", ContentLength: 15, Timestamp: "2024-06-01T09:00:00Z"},
+			Message{SessionID: "v4", Ordinal: 1, Role: "user", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:10Z"},
+			Message{SessionID: "v4", Ordinal: 2, Role: "assistant", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:20Z"},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// First response: user@09:00:10 → asst@09:00:20 = 10s
-		// (should not use the assistant at ordinal 0)
-		if resp.Overall.FirstResponseSec.P50 != 10.0 {
-			t.Errorf(
-				"FirstResponse P50 = %f, want 10.0",
-				resp.Overall.FirstResponseSec.P50,
-			)
-		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 10.0)
 	})
 
 	t.Run("OrdinalVsTimestampSkew", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v5", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "v5", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 3
 			s.Agent = "claude"
 		})
-		// Ordinal 1 is user, ordinal 2 is assistant, but
-		// assistant has an earlier timestamp than the user
-		// (clock skew). First-response should still pair
-		// ordinal 1 → ordinal 2 since we scan by ordinal.
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v5", Ordinal: 0, Role: "user",
-				Content: "setup", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "v5", Ordinal: 1, Role: "user",
-				Content: "real question", ContentLength: 13,
-				Timestamp: "2024-06-01T09:00:30Z",
-			},
-			Message{
-				SessionID: "v5", Ordinal: 2,
-				Role:    "assistant",
-				Content: "answer", ContentLength: 6,
-				Timestamp: "2024-06-01T09:00:20Z",
-			},
+		insertMessages(t, d,
+			Message{SessionID: "v5", Ordinal: 0, Role: "user", Content: "setup", ContentLength: 5, Timestamp: "2024-06-01T09:00:00Z"},
+			Message{SessionID: "v5", Ordinal: 1, Role: "user", Content: "real question", ContentLength: 13, Timestamp: "2024-06-01T09:00:30Z"},
+			Message{SessionID: "v5", Ordinal: 2, Role: "assistant", Content: "answer", ContentLength: 6, Timestamp: "2024-06-01T09:00:20Z"},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// First user is ordinal 0. First assistant after it
-		// (by ordinal) is ordinal 2. Delta = |20s - 0s| = 20s.
-		// Even though ordinal 2 has an earlier timestamp than
-		// ordinal 1, we pair by ordinal order.
-		if resp.Overall.FirstResponseSec.P50 != 20.0 {
-			t.Errorf(
-				"FirstResponse P50 = %f, want 20.0",
-				resp.Overall.FirstResponseSec.P50,
-			)
-		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 20.0)
 	})
 
+	t.Run("NegativeDeltaClampsToZero", func(t *testing.T) {
+		d := testDB(t)
+		insertSession(t, d, "v6", "proj", func(s *Session) {
+			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
+			s.MessageCount = 2
+			s.Agent = "claude"
+		})
+		insertMessages(t, d,
+			Message{SessionID: "v6", Ordinal: 0, Role: "user", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:30Z"},
+			Message{SessionID: "v6", Ordinal: 1, Role: "assistant", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:10Z"},
+		)
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
+		if err != nil {
+			t.Fatalf("GetAnalyticsVelocity: %v", err)
+		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 0.0)
+	})
+}
+
+func TestGetAnalyticsVelocity_ToolUsage(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("ToolCallsPerActiveMin", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "vt1", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "vt1", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 4
 			s.Agent = "claude"
 		})
-		insertMessages(t, d2,
+		insertMessages(t, d,
+			Message{SessionID: "vt1", Ordinal: 0, Role: "user", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:00Z"},
+			Message{SessionID: "vt1", Ordinal: 1, Role: "assistant", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:10Z"},
+			Message{SessionID: "vt1", Ordinal: 2, Role: "user", Content: "do X", ContentLength: 4, Timestamp: "2024-06-01T09:00:20Z"},
 			Message{
-				SessionID: "vt1", Ordinal: 0, Role: "user",
-				Content: "hi", ContentLength: 2,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "vt1", Ordinal: 1,
-				Role:    "assistant",
-				Content: "hello", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-			Message{
-				SessionID: "vt1", Ordinal: 2, Role: "user",
-				Content: "do X", ContentLength: 4,
-				Timestamp: "2024-06-01T09:00:20Z",
-			},
-			Message{
-				SessionID: "vt1", Ordinal: 3,
-				Role:    "assistant",
-				Content: "done", ContentLength: 4,
-				Timestamp:  "2024-06-01T09:00:30Z",
-				HasToolUse: true,
+				SessionID: "vt1", Ordinal: 3, Role: "assistant", Content: "done", ContentLength: 4,
+				Timestamp: "2024-06-01T09:00:30Z", HasToolUse: true,
 				ToolCalls: []ToolCall{
-					{SessionID: "vt1", ToolName: "Read",
-						Category: "Read"},
-					{SessionID: "vt1", ToolName: "Bash",
-						Category: "Bash"},
-					{SessionID: "vt1", ToolName: "Edit",
-						Category: "Edit"},
+					{SessionID: "vt1", ToolName: "Read", Category: "Read"},
+					{SessionID: "vt1", ToolName: "Bash", Category: "Bash"},
+					{SessionID: "vt1", ToolName: "Edit", Category: "Edit"},
 				},
 			},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// 3 tool calls, active time = 3 gaps of 10s = 30s = 0.5 min
-		// 3 / 0.5 = 6.0
-		if resp.Overall.ToolCallsPerActiveMin != 6.0 {
-			t.Errorf("ToolCallsPerActiveMin = %f, want 6.0",
-				resp.Overall.ToolCallsPerActiveMin)
-		}
+		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 6.0)
 	})
 
 	t.Run("ToolCallsByAgentBreakdown", func(t *testing.T) {
-		d2 := testDB(t)
-		// Two sessions, different agents, each with tool calls
-		insertSession(t, d2, "vta1", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "vta1", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 2
 			s.Agent = "claude"
 		})
-		insertMessages(t, d2,
+		insertMessages(t, d,
+			Message{SessionID: "vta1", Ordinal: 0, Role: "user", Content: "q", ContentLength: 1, Timestamp: "2024-06-01T09:00:00Z"},
 			Message{
-				SessionID: "vta1", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "vta1", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp:  "2024-06-01T09:00:30Z",
-				HasToolUse: true,
-				ToolCalls: []ToolCall{
-					{SessionID: "vta1", ToolName: "Read",
-						Category: "Read"},
-				},
+				SessionID: "vta1", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1,
+				Timestamp: "2024-06-01T09:00:30Z", HasToolUse: true,
+				ToolCalls: []ToolCall{{SessionID: "vta1", ToolName: "Read", Category: "Read"}},
 			},
 		)
-		insertSession(t, d2, "vta2", "proj", func(s *Session) {
+		insertSession(t, d, "vta2", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T10:00:00Z")
 			s.MessageCount = 2
 			s.Agent = "codex"
 		})
-		insertMessages(t, d2,
+		insertMessages(t, d,
+			Message{SessionID: "vta2", Ordinal: 0, Role: "user", Content: "q", ContentLength: 1, Timestamp: "2024-06-01T10:00:00Z"},
 			Message{
-				SessionID: "vta2", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T10:00:00Z",
-			},
-			Message{
-				SessionID: "vta2", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp:  "2024-06-01T10:00:30Z",
-				HasToolUse: true,
+				SessionID: "vta2", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1,
+				Timestamp: "2024-06-01T10:00:30Z", HasToolUse: true,
 				ToolCalls: []ToolCall{
-					{SessionID: "vta2", ToolName: "Bash",
-						Category: "Bash"},
-					{SessionID: "vta2", ToolName: "Edit",
-						Category: "Edit"},
+					{SessionID: "vta2", ToolName: "Bash", Category: "Bash"},
+					{SessionID: "vta2", ToolName: "Edit", Category: "Edit"},
 				},
 			},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// Both agents should appear in ByAgent
 		if len(resp.ByAgent) < 2 {
-			t.Fatalf("ByAgent has %d entries, want >= 2",
-				len(resp.ByAgent))
+			t.Fatalf("ByAgent has %d entries, want >= 2", len(resp.ByAgent))
 		}
 		agentMap := make(map[string]VelocityBreakdown)
 		for _, b := range resp.ByAgent {
 			agentMap[b.Label] = b
 		}
-		claude, ok := agentMap["claude"]
-		if !ok {
-			t.Fatal("missing claude in ByAgent")
-		}
-		if claude.Overview.ToolCallsPerActiveMin != 2.0 {
-			t.Errorf(
-				"claude ToolCallsPerActiveMin = %f, want 2.0",
-				claude.Overview.ToolCallsPerActiveMin,
-			)
-		}
-		codex, ok := agentMap["codex"]
-		if !ok {
-			t.Fatal("missing codex in ByAgent")
-		}
-		if codex.Overview.ToolCallsPerActiveMin != 4.0 {
-			t.Errorf(
-				"codex ToolCallsPerActiveMin = %f, want 4.0",
-				codex.Overview.ToolCallsPerActiveMin,
-			)
-		}
+		assertEq(t, "claude ToolCallsPerActiveMin", agentMap["claude"].Overview.ToolCallsPerActiveMin, 2.0)
+		assertEq(t, "codex ToolCallsPerActiveMin", agentMap["codex"].Overview.ToolCallsPerActiveMin, 4.0)
 	})
 
 	t.Run("ToolCallsPerActiveMinZero", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "vt2", "proj", func(s *Session) {
-			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-			s.MessageCount = 2
-			s.Agent = "claude"
+		d := testDB(t)
+		insertConversation(t, d, "vt2", "proj", "claude", "2024-06-01T09:00:00Z", []time.Duration{
+			0, 10 * time.Second,
 		})
-		insertMessages(t, d2,
-			Message{
-				SessionID: "vt2", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "vt2", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if resp.Overall.ToolCallsPerActiveMin != 0 {
-			t.Errorf("ToolCallsPerActiveMin = %f, want 0",
-				resp.Overall.ToolCallsPerActiveMin)
-		}
-	})
-
-	t.Run("NegativeDeltaClampsToZero", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v6", "proj", func(s *Session) {
-			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-			s.MessageCount = 2
-			s.Agent = "claude"
-		})
-		// First user has a later timestamp than the first
-		// assistant (extreme clock skew). Delta would be
-		// negative; we clamp to 0 rather than dropping.
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v6", Ordinal: 0, Role: "user",
-				Content: "hello", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:30Z",
-			},
-			Message{
-				SessionID: "v6", Ordinal: 1,
-				Role:    "assistant",
-				Content: "hi", ContentLength: 2,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
-		// Negative delta clamped to 0
-		if resp.Overall.FirstResponseSec.P50 != 0.0 {
-			t.Errorf(
-				"FirstResponse P50 = %f, want 0.0",
-				resp.Overall.FirstResponseSec.P50,
-			)
-		}
+		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 0.0)
 	})
 }
+
+
 
 func TestVelocityChunkedQuery(t *testing.T) {
 	d := testDB(t)
