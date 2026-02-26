@@ -11,6 +11,7 @@
     { label: "30d", days: 30 },
     { label: "90d", days: 90 },
     { label: "1y", days: 365 },
+    { label: "All", days: 0 },
   ];
 
   function localDateStr(d: Date): string {
@@ -30,12 +31,19 @@
     return localDateStr(new Date());
   }
 
+  const ALL_FROM = "1970-01-01";
+
   function applyPreset(days: number) {
-    analytics.setDateRange(daysAgo(days), todayStr());
+    if (days === 0) {
+      analytics.setDateRange(ALL_FROM, todayStr());
+    } else {
+      analytics.setDateRange(daysAgo(days), todayStr());
+    }
   }
 
   function isActive(days: number): boolean {
-    return analytics.from === daysAgo(days) &&
+    const from = days === 0 ? ALL_FROM : daysAgo(days);
+    return analytics.from === from &&
       analytics.to === todayStr();
   }
 </script>

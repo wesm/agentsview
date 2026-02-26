@@ -14,7 +14,7 @@ import (
 
 // geminiInsightModel is the model passed to the gemini CLI
 // for insight generation.
-const geminiInsightModel = "gemini-3-pro-preview"
+const geminiInsightModel = "gemini-3.1-pro-preview"
 
 // Result holds the output from an AI agent invocation.
 type Result struct {

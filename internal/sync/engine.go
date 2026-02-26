@@ -850,12 +850,14 @@ type pendingWrite struct {
 
 func (e *Engine) writeBatch(batch []pendingWrite) {
 	for _, pw := range batch {
+		msgs := toDBMessages(pw)
 		s := toDBSession(pw)
+		s.MessageCount, s.UserMessageCount =
+			postFilterCounts(msgs)
 		if err := e.db.UpsertSession(s); err != nil {
 			log.Printf("upsert session %s: %v", s.ID, err)
 			continue
 		}
-		msgs := toDBMessages(pw)
 		e.writeMessages(pw.sess.ID, msgs)
 	}
 }
@@ -908,12 +910,14 @@ func (e *Engine) writeMessages(
 // single-session re-syncs where existing content may have
 // changed (not just appended).
 func (e *Engine) writeSessionFull(pw pendingWrite) {
+	msgs := toDBMessages(pw)
 	s := toDBSession(pw)
+	s.MessageCount, s.UserMessageCount =
+		postFilterCounts(msgs)
 	if err := e.db.UpsertSession(s); err != nil {
 		log.Printf("upsert session %s: %v", s.ID, err)
 		return
 	}
-	msgs := toDBMessages(pw)
 	if err := e.db.ReplaceSessionMessages(
 		pw.sess.ID, msgs,
 	); err != nil {
@@ -972,6 +976,17 @@ func toDBMessages(pw pendingWrite) []db.Message {
 		}
 	}
 	return pairAndFilter(msgs)
+}
+
+// postFilterCounts returns the total and user message counts
+// from a filtered message slice.
+func postFilterCounts(msgs []db.Message) (total, user int) {
+	for _, m := range msgs {
+		if m.Role == "user" {
+			user++
+		}
+	}
+	return len(msgs), user
 }
 
 func countMessages(batch []pendingWrite) int {

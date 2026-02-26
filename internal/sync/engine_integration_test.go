@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1327,6 +1328,166 @@ func TestSyncEngineConcurrentSerialization(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestSyncEnginePostFilterCounts verifies that writeBatch
+// stores post-filter message counts (after pairAndFilter
+// removes empty user+tool_result messages), not the raw
+// parser counts.
+func TestSyncEnginePostFilterCounts(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Build a session with 4 raw messages:
+	//   1. user with content (kept)
+	//   2. assistant with tool_use (kept)
+	//   3. user with only tool_result, no text (filtered)
+	//   4. assistant with text (kept)
+	// Post-filter: 3 messages, 1 user message.
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Read main.go").
+		AddRaw(testjsonl.ClaudeAssistantJSON(
+			[]map[string]any{{
+				"type": "tool_use",
+				"id":   "toolu_1",
+				"name": "Read",
+				"input": map[string]string{
+					"file_path": "main.go",
+				},
+			}},
+			tsEarlyS1,
+		)).
+		AddRaw(testjsonl.ClaudeToolResultUserJSON(
+			"toolu_1", "package main", tsEarlyS5,
+		)).
+		AddClaudeAssistant(tsEarlyS5, "Here it is.").
+		String()
+
+	env.writeClaudeSession(
+		t, "test-proj",
+		"filter-count.jsonl", content,
+	)
+
+	runSyncAndAssert(t, env.engine, 1, 0)
+
+	// Verify stored counts match post-filter values.
+	assertSessionState(
+		t, env.db, "filter-count",
+		func(sess *db.Session) {
+			if sess.MessageCount != 3 {
+				t.Errorf(
+					"MessageCount = %d, want 3"+
+						" (post-filter)",
+					sess.MessageCount,
+				)
+			}
+			if sess.UserMessageCount != 1 {
+				t.Errorf(
+					"UserMessageCount = %d, want 1",
+					sess.UserMessageCount,
+				)
+			}
+		},
+	)
+
+	// Verify actual message rows match the stored count.
+	msgs, err := env.db.GetAllMessages(
+		context.Background(), "filter-count",
+	)
+	if err != nil {
+		t.Fatalf("GetAllMessages: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Errorf(
+			"stored message rows = %d, want 3",
+			len(msgs),
+		)
+	}
+}
+
+// TestSyncSingleSessionPostFilterCounts verifies that
+// writeSessionFull (used by SyncSingleSession) also stores
+// post-filter counts.
+func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content2 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Read main.go").
+		AddRaw(testjsonl.ClaudeAssistantJSON(
+			[]map[string]any{{
+				"type": "tool_use",
+				"id":   "toolu_1",
+				"name": "Read",
+				"input": map[string]string{
+					"file_path": "main.go",
+				},
+			}},
+			tsEarlyS1,
+		)).
+		AddRaw(testjsonl.ClaudeToolResultUserJSON(
+			"toolu_1", "package main", tsEarlyS5,
+		)).
+		AddClaudeAssistant(tsEarlyS5, "Here it is.").
+		String()
+
+	env.writeClaudeSession(
+		t, "test-proj",
+		"filter-single.jsonl", content2,
+	)
+
+	// SyncAll to populate the session in the DB.
+	env.engine.SyncAll(nil)
+
+	// Corrupt stored counts and clear mtime so
+	// SyncSingleSession re-parses via writeSessionFull.
+	err := env.db.Update(func(tx *sql.Tx) error {
+		res, err := tx.Exec(
+			"UPDATE sessions"+
+				" SET message_count = 999,"+
+				" user_message_count = 999,"+
+				" file_mtime = NULL"+
+				" WHERE id = ?",
+			"filter-single",
+		)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n != 1 {
+			return fmt.Errorf(
+				"expected 1 row affected, got %d", n,
+			)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("corrupt counts: %v", err)
+	}
+
+	if err := env.engine.SyncSingleSession(
+		"filter-single",
+	); err != nil {
+		t.Fatalf("SyncSingleSession: %v", err)
+	}
+
+	// Counts should be corrected by writeSessionFull.
+	assertSessionState(
+		t, env.db, "filter-single",
+		func(sess *db.Session) {
+			if sess.MessageCount != 3 {
+				t.Errorf(
+					"MessageCount = %d, want 3"+
+						" (post-filter)",
+					sess.MessageCount,
+				)
+			}
+			if sess.UserMessageCount != 1 {
+				t.Errorf(
+					"UserMessageCount = %d, want 1",
+					sess.UserMessageCount,
+				)
+			}
+		},
+	)
 }
 
 func TestSyncEngineMultiClaudeDir(t *testing.T) {
