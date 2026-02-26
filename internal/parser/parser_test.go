@@ -380,9 +380,8 @@ func TestFormatToolUseVariants(t *testing.T) {
 			"[SendMessage: message to researcher]",
 		},
 		{
-			"",
-			`{"type":"tool_use","name":"empty_tool","input":{}}`,
-			"[Tool: empty_tool]",
+			json: `{"type":"tool_use","name":"empty_tool","input":{}}`,
+			want: "[Tool: empty_tool]",
 		},
 	}
 
