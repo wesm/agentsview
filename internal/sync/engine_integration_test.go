@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	gosync "sync"
 	"testing"
@@ -1777,6 +1778,13 @@ func TestResyncAllAbortsOnFailures(t *testing.T) {
 
 	env.engine.SyncAll(nil)
 	assertSessionMessageCount(t, env.db, "abort-test", 2)
+
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod(0) does not prevent reads on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("root can read mode-0 files")
+	}
 
 	// Make the file unreadable so the parser returns a hard
 	// error. This is deterministic: os.Open will fail with

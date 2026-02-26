@@ -173,7 +173,9 @@ func TestTruncateLogFileSymlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		if errors.Is(err, syscall.EPERM) ||
 			errors.Is(err, syscall.EACCES) ||
-			errors.Is(err, os.ErrPermission) {
+			errors.Is(err, os.ErrPermission) ||
+			errors.Is(err, syscall.ENOSYS) ||
+			errors.Is(err, syscall.ENOTSUP) {
 			t.Skip("symlinks not supported:", err)
 		}
 		t.Fatalf("symlink: %v", err)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/wesm/agentsview/internal/db"
@@ -61,7 +62,9 @@ func assertSessionProject(t *testing.T, database *db.DB, sessionID string, want 
 func runSyncAndAssert(t *testing.T, engine *sync.Engine, want sync.SyncStats) sync.SyncStats {
 	t.Helper()
 	stats := engine.SyncAll(nil)
-	if diff := cmp.Diff(want, stats); diff != "" {
+	if diff := cmp.Diff(want, stats,
+		cmpopts.IgnoreUnexported(sync.SyncStats{}),
+	); diff != "" {
 		t.Fatalf("SyncAll() mismatch (-want +got):\n%s", diff)
 	}
 	return stats

@@ -359,8 +359,10 @@ func (e *Engine) ResyncAll(
 	// failed than succeeded (e.g. permission errors, disk
 	// issues). A few permanent parse failures are tolerated
 	// since those files were broken in the old DB too.
+	// Both Failed and FilesOK count files, so the comparison
+	// is unit-consistent.
 	abortSwap := (stats.Synced == 0 && stats.TotalSessions > 0) ||
-		(stats.Failed > 0 && stats.Failed > stats.Synced)
+		(stats.Failed > 0 && stats.Failed > stats.filesOK)
 	if abortSwap {
 		log.Printf(
 			"resync: aborting swap, %d synced / %d failed / %d total",
@@ -682,6 +684,7 @@ func (e *Engine) collectAndBatch(
 			continue
 		}
 		e.clearSkip(r.path)
+		stats.filesOK++
 
 		for _, pr := range r.results {
 			pending = append(pending, pendingWrite{

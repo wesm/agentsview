@@ -30,12 +30,19 @@ type SyncResult struct {
 }
 
 // SyncStats summarizes a full sync run.
+//
+// TotalSessions and Failed count discovered files. Synced counts
+// sessions (one file can produce multiple sessions via fork
+// detection). filesOK is an internal file-level counter used by
+// ResyncAll to compare against Failed on the same unit.
 type SyncStats struct {
 	TotalSessions int      `json:"total_sessions"`
 	Synced        int      `json:"synced"`
 	Skipped       int      `json:"skipped"`
 	Failed        int      `json:"failed"`
 	Warnings      []string `json:"warnings,omitempty"`
+
+	filesOK int // unexported: file-level success counter
 }
 
 // RecordSkip increments the skipped session counter.
