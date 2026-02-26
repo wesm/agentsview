@@ -31,7 +31,7 @@
     return localDateStr(new Date());
   }
 
-  const ALL_FROM = "2020-01-01";
+  const ALL_FROM = "1970-01-01";
 
   function applyPreset(days: number) {
     if (days === 0) {

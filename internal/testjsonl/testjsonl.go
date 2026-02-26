@@ -65,6 +65,26 @@ func ClaudeMetaUserJSON(
 	return mustMarshal(m)
 }
 
+// ClaudeToolResultUserJSON returns a Claude user message
+// containing only a tool_result block (no text content).
+// These messages are filtered out by pairAndFilter.
+func ClaudeToolResultUserJSON(
+	toolUseID, resultContent, timestamp string,
+) string {
+	m := map[string]any{
+		"type":      "user",
+		"timestamp": timestamp,
+		"message": map[string]any{
+			"content": []map[string]any{{
+				"type":        "tool_result",
+				"tool_use_id": toolUseID,
+				"content":     resultContent,
+			}},
+		},
+	}
+	return mustMarshal(m)
+}
+
 // ClaudeAssistantJSON returns a Claude assistant message as a
 // JSON string.
 func ClaudeAssistantJSON(content any, timestamp string) string {
