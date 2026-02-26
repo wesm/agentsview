@@ -4,14 +4,10 @@
   import { sync } from "../../stores/sync.svelte.js";
   import { router } from "../../stores/router.svelte.js";
   import { getExportUrl } from "../../api/client.js";
+  import ProjectTypeahead from "./ProjectTypeahead.svelte";
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const modKey = isMac ? "Cmd" : "Ctrl";
-
-  function handleProjectChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    sessions.setProjectFilter(select.value);
-  }
 
   function handleExport() {
     if (sessions.activeSessionId) {
@@ -47,18 +43,11 @@
       <span class="header-title">AgentsView</span>
     </button>
 
-    <select
-      class="project-select"
+    <ProjectTypeahead
+      projects={sessions.projects}
       value={sessions.filters.project}
-      onchange={handleProjectChange}
-    >
-      <option value="">All Projects</option>
-      {#each sessions.projects as project}
-        <option value={project.name}>
-          {project.name} ({project.session_count})
-        </option>
-      {/each}
-    </select>
+      onselect={(v) => sessions.setProjectFilter(v)}
+    />
 
     <button
       class="nav-btn"
@@ -257,25 +246,7 @@
     letter-spacing: -0.01em;
   }
 
-  .project-select {
-    height: 26px;
-    padding: 0 8px;
-    background: var(--bg-inset);
-    border: 1px solid var(--border-muted);
-    border-radius: var(--radius-sm);
-    font-size: 11px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    max-width: 200px;
-    transition: border-color 0.15s;
-  }
-
-  .project-select:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-  }
-
-  .nav-btn {
+.nav-btn {
     height: 26px;
     display: flex;
     align-items: center;
