@@ -60,6 +60,27 @@ Key assumptions reviewers MUST account for:
     A full resync recovers any partial state. Do not flag non-atomic
     multi-session writes as a data corruption risk.
 
+11. TOCTOU ON LOCAL FILES: File operations on user-owned paths inside
+    ~/.agentsview/ (e.g. log truncation, config reads) do not need
+    TOCTOU protection. An attacker who can create symlinks or modify
+    files in the user's home directory already has equivalent access.
+    Do not flag Lstat-then-Truncate or similar patterns on local-only
+    user-owned paths as TOCTOU vulnerabilities.
+
+12. SCHEMA NOT NULL CONSTRAINTS: Before flagging SQL NULL handling
+    issues (e.g. NOT IN excluding NULLs), check the schema. The
+    sessions table defines `relationship_type TEXT NOT NULL DEFAULT ''`
+    (schema.sql), so NULL values cannot exist. The NOT IN clause works
+    correctly for non-NULL columns. Do not flag NULL filtering issues
+    without verifying the actual column constraints.
+
+13. VERIFY CONTROL FLOW BEFORE FLAGGING: When claiming a counter or
+    guard is incorrect, trace the actual control flow including early
+    returns, continue statements, and conditionals. For example, if
+    code has `if len(results) == 0 { continue }` before incrementing
+    a counter, the counter is NOT incremented for zero-result cases.
+    Read the code carefully before reporting logic errors.
+
 Do NOT flag issues that only apply to public-facing, multi-tenant,
 or network-exposed services. Focus on bugs, logic errors, data
 corruption risks, and code quality issues.
