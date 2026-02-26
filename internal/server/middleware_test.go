@@ -74,13 +74,20 @@ func TestContentTypeWrapper(t *testing.T) {
 			resp := w.Result()
 			defer resp.Body.Close()
 
-			if gotCT := resp.Header.Get("Content-Type"); gotCT != tt.wantContentType {
-				t.Errorf("Content-Type = %q, want %q", gotCT, tt.wantContentType)
+			gotCT := resp.Header.Get("Content-Type")
+			if tt.wantContentType != "" {
+				if gotCT != tt.wantContentType {
+					t.Errorf("Content-Type = %q, want %q", gotCT, tt.wantContentType)
+				}
+			} else if gotCT == "application/json" {
+				// Wrapper shouldn't improperly force its Content-Type
+				t.Errorf("Content-Type = %q, unexpectedly forced by wrapper", gotCT)
 			}
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				t.Fatalf("failed to read body: %v", err)
+				t.Errorf("failed to read body: %v", err)
+				return
 			}
 			if string(body) != tt.wantBody {
 				t.Errorf("body = %q, want %q", string(body), tt.wantBody)
@@ -124,7 +131,9 @@ func TestMiddlewareTimeout(t *testing.T) {
 			defer resp.Body.Close()
 
 			if tt.wantTimeout {
-				assertTimeoutResponse(t, resp)
+				if !isTimeoutResponse(t, resp) {
+					t.Errorf("%s: expected timeout response", tt.path)
+				}
 			} else {
 				if isTimeoutResponse(t, resp) {
 					t.Errorf("%s: unexpected timeout for unwrapped route", tt.path)
