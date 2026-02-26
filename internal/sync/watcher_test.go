@@ -93,10 +93,7 @@ func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 
 	// Wait for fsnotify to process the mkdir and add the watch
 	pollUntil(t, func() bool {
-		w.mu.Lock()
-		defer w.mu.Unlock()
-		_, ok := w.pending[subdir]
-		return ok
+		return slices.Contains(w.watcher.WatchList(), subdir)
 	})
 
 	nestedPath := filepath.Join(subdir, "nested.jsonl")
@@ -145,8 +142,11 @@ func TestWatcherStopIdempotency(t *testing.T) {
 	w.Stop()
 
 	// 2. Concurrent stop attempts
+	pathsCh2 := make(chan []string, 10)
 	w2, dir2 := startTestWatcherNoCleanup(
-		t, func(_ []string) {}, 50*time.Millisecond,
+		t, func(paths []string) {
+			pathsCh2 <- paths
+		}, 50*time.Millisecond,
 	)
 
 	stressPath := filepath.Join(dir2, "stress.txt")
@@ -155,12 +155,11 @@ func TestWatcherStopIdempotency(t *testing.T) {
 	}
 
 	// Wait for fsnotify to process it before concurrent stop
-	pollUntil(t, func() bool {
-		w2.mu.Lock()
-		defer w2.mu.Unlock()
-		_, ok := w2.pending[stressPath]
-		return ok
-	})
+	select {
+	case <-pathsCh2:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for stress file to be processed")
+	}
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -239,17 +238,14 @@ func TestWatcherDebounceLogic(t *testing.T) {
 	}
 	w.mu.Unlock()
 
-	path := filepath.Join(dir, "recent.txt")
-	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	path := filepath.Join(dir, "recent_dir")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
 	}
 
-	// Wait for fsnotify to process the write
+	// Wait for fsnotify to process the mkdir and add the watch
 	pollUntil(t, func() bool {
-		w.mu.Lock()
-		defer w.mu.Unlock()
-		_, ok := w.pending[path]
-		return ok
+		return slices.Contains(w.watcher.WatchList(), path)
 	})
 
 	// 1. Flush before debounce period
