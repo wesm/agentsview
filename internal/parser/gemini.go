@@ -127,22 +127,7 @@ func extractGeminiContent(
 		hasToolUse  bool
 	)
 
-	// Extract main content (string or Part[] array)
-	content := msg.Get("content")
-	if content.Type == gjson.String {
-		if t := content.Str; t != "" {
-			parts = append(parts, t)
-		}
-	} else if content.IsArray() {
-		content.ForEach(func(_, part gjson.Result) bool {
-			if t := part.Get("text").Str; t != "" {
-				parts = append(parts, t)
-			}
-			return true
-		})
-	}
-
-	// Extract thoughts
+	// Extract thoughts (appear before content chronologically)
 	thoughts := msg.Get("thoughts")
 	if thoughts.IsArray() {
 		thoughts.ForEach(func(_, thought gjson.Result) bool {
@@ -161,6 +146,21 @@ func extractGeminiContent(
 						"[Thinking]\n"+desc,
 					)
 				}
+			}
+			return true
+		})
+	}
+
+	// Extract main content (string or Part[] array)
+	content := msg.Get("content")
+	if content.Type == gjson.String {
+		if t := content.Str; t != "" {
+			parts = append(parts, t)
+		}
+	} else if content.IsArray() {
+		content.ForEach(func(_, part gjson.Result) bool {
+			if t := part.Get("text").Str; t != "" {
+				parts = append(parts, t)
 			}
 			return true
 		})

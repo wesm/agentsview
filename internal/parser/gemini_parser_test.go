@@ -44,6 +44,12 @@ func TestParseGeminiSession_ToolCalls(t *testing.T) {
 		assert.True(t, msgs[1].HasThinking)
 		assert.True(t, strings.Contains(msgs[1].Content, "[Thinking]\nPlanning\n"))
 		assert.True(t, strings.Contains(msgs[1].Content, "[Read: main.go]"))
+		// Chronological: thinking before content before tool calls
+		thinkIdx := strings.Index(msgs[1].Content, "[Thinking]")
+		contentIdx := strings.Index(msgs[1].Content, "Let me read it.")
+		toolIdx := strings.Index(msgs[1].Content, "[Read:")
+		assert.Less(t, thinkIdx, contentIdx)
+		assert.Less(t, contentIdx, toolIdx)
 		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolName: "read_file", Category: "Read"}})
 	})
 
