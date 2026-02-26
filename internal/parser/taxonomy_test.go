@@ -4,8 +4,8 @@ import "testing"
 
 func TestNormalizeToolCategory(t *testing.T) {
 	tests := []struct {
-		name string
-		want string
+		toolName string
+		want     string
 	}{
 		// Claude Code tools
 		{"Read", "Read"},
@@ -59,12 +59,16 @@ func TestNormalizeToolCategory(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeToolCategory(tt.name)
+		testName := tt.toolName
+		if testName == "" {
+			testName = "empty_string"
+		}
+		t.Run(testName, func(t *testing.T) {
+			got := NormalizeToolCategory(tt.toolName)
 			if got != tt.want {
 				t.Errorf(
 					"NormalizeToolCategory(%q) = %q, want %q",
-					tt.name, got, tt.want,
+					tt.toolName, got, tt.want,
 				)
 			}
 		})
