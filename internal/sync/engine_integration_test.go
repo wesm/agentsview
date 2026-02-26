@@ -2011,7 +2011,7 @@ func TestResyncAllPostReopenAvailability(t *testing.T) {
 	// Verify a subsequent SyncAll still works (engine state
 	// is consistent with the reopened DB).
 	stats2 := env.engine.SyncAll(nil)
-	if stats2.Synced != 0 && stats2.Skipped != 1 {
+	if stats2.Synced != 0 || stats2.Skipped != 1 {
 		t.Errorf(
 			"post-resync SyncAll: synced=%d skipped=%d",
 			stats2.Synced, stats2.Skipped,
@@ -2048,7 +2048,19 @@ func TestResyncAllConcurrentReads(t *testing.T) {
 
 	for range 4 {
 		wg.Go(func() {
-			readyCount.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				s, _ := env.db.GetSession(ctx, "conc")
+				// Signal ready after first successful read.
+				if s != nil {
+					readyCount.Done()
+					break
+				}
+			}
 			for {
 				select {
 				case <-ctx.Done():
@@ -2062,7 +2074,7 @@ func TestResyncAllConcurrentReads(t *testing.T) {
 		})
 	}
 
-	// Wait for all readers to start.
+	// Wait for all readers to complete one successful read.
 	go func() {
 		readyCount.Wait()
 		close(readersReady)
