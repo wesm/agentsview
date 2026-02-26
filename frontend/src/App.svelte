@@ -323,7 +323,7 @@
   }
 
   .agent-gemini {
-    background: var(--accent-teal);
+    background: var(--accent-rose);
   }
 
   .agent-opencode {

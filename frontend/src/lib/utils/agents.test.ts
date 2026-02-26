@@ -35,7 +35,7 @@ describe("agentColor", () => {
       "var(--accent-amber)",
     );
     expect(agentColor("gemini")).toBe(
-      "var(--accent-teal)",
+      "var(--accent-rose)",
     );
     expect(agentColor("opencode")).toBe(
       "var(--accent-purple)",
