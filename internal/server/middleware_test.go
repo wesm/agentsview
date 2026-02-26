@@ -139,7 +139,7 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 	// the deadline regardless of platform timer resolution.
 	t.Run("WrappedRoutesTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServerOpts(
+		srv := testServer(
 			t, 10*time.Millisecond,
 			withHandlerDelay(100*time.Millisecond),
 		)
@@ -181,7 +181,7 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 	// and this test would catch the regression.
 	t.Run("UnwrappedRoutesNoTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServerOpts(
+		srv := testServer(
 			t, 10*time.Millisecond,
 			withHandlerDelay(100*time.Millisecond),
 		)

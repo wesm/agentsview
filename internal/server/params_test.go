@@ -55,7 +55,7 @@ func TestParseIntParam(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w, r := newTestContext(t, tt.query)
+			w, r := newTestRequest(t, tt.query)
 
 			val, ok := parseIntParam(w, r, tt.param)
 			if ok != tt.wantOK {

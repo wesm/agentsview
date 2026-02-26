@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -20,13 +21,6 @@ import (
 // write timeout. It registers cleanup of the database via
 // t.Cleanup.
 func testServer(
-	t *testing.T, writeTimeout time.Duration,
-) *Server {
-	t.Helper()
-	return testServerOpts(t, writeTimeout)
-}
-
-func testServerOpts(
 	t *testing.T, writeTimeout time.Duration,
 	opts ...Option,
 ) *Server {
@@ -70,7 +64,11 @@ func assertTimeoutResponse(
 			resp.StatusCode, http.StatusServiceUnavailable,
 		)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	resp.Body = io.NopCloser(bytes.NewBuffer(body))
 	var je jsonError
 	if err := json.Unmarshal(body, &je); err != nil {
 		t.Fatalf(
@@ -79,13 +77,13 @@ func assertTimeoutResponse(
 		)
 	}
 	if je.Error != "request timed out" {
-		t.Errorf(
+		t.Fatalf(
 			"error = %q, want %q",
 			je.Error, "request timed out",
 		)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
-		t.Errorf(
+		t.Fatalf(
 			"Content-Type = %q, want %q",
 			ct, "application/json",
 		)
@@ -102,7 +100,11 @@ func isTimeoutResponse(
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		return false
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	resp.Body = io.NopCloser(bytes.NewBuffer(body))
 	var je jsonError
 	if json.Unmarshal(body, &je) != nil {
 		return false
@@ -110,9 +112,9 @@ func isTimeoutResponse(
 	return je.Error == "request timed out"
 }
 
-// newTestContext returns a recorder and request for lightweight
+// newTestRequest returns a recorder and request for lightweight
 // handler tests. Pass an empty query for no query string.
-func newTestContext(
+func newTestRequest(
 	t *testing.T, query string,
 ) (*httptest.ResponseRecorder, *http.Request) {
 	t.Helper()
