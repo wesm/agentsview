@@ -259,8 +259,11 @@
             data-index={row.index}
             style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start}px);"
             use:measureElement={virtualizer.instance}
-            onclick={() =>
-              ui.selectOrdinal(item.ordinals[0]!)}
+            onclick={() => {
+              const sel = window.getSelection();
+              if (sel && sel.toString().length > 0) return;
+              ui.selectOrdinal(item.ordinals[0]!);
+            }}
           >
             {#if item.kind === "tool-group"}
               <ToolCallGroup

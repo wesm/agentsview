@@ -99,7 +99,11 @@
 <div class="tool-block">
   <button
     class="tool-header"
-    onclick={() => (collapsed = !collapsed)}
+    onclick={() => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      collapsed = !collapsed;
+    }}
   >
     <span class="tool-chevron" class:open={!collapsed}>
       &#9656;
@@ -153,6 +157,7 @@
     min-width: 0;
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     transition: background 0.1s;
+    user-select: text;
   }
 
   .tool-header:hover {
