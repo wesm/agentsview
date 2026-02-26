@@ -10,156 +10,137 @@ import (
 	"testing"
 )
 
-func TestParseCodexStream_AgentMessages(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"thread.started","thread_id":"abc"}`,
-		`{"type":"turn.started"}`,
-		`{"type":"item.started","item":{"id":"m1","type":"agent_message"}}`,
-		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"partial"}}`,
-		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"# Summary\nDone."}}`,
-		`{"type":"turn.completed"}`,
-	}, "\n") + "\n"
-
-	result, err := parseCodexStream(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseCodexStream: %v", err)
+func TestParseCodexStream(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		wantError string
+	}{
+		{
+			name: "agent messages",
+			input: `{"type":"thread.started","thread_id":"abc"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"m1","type":"agent_message"}}
+{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"partial"}}
+{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"# Summary\nDone."}}
+{"type":"turn.completed"}
+`,
+			want: `# Summary
+Done.`,
+		},
+		{
+			name: "multiple messages",
+			input: `{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"First"}}
+{"type":"item.completed","item":{"id":"m2","type":"agent_message","text":"Second"}}
+`,
+			want: `First
+Second`,
+		},
+		{
+			name: "turn failed",
+			input: `{"type":"turn.started"}
+{"type":"turn.failed","error":{"message":"rate limit"}}
+`,
+			wantError: "rate limit",
+		},
+		{
+			name: "deduplicates by id",
+			input: `{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"v1"}}
+{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"v2"}}
+{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"v3"}}
+`,
+			want: "v3",
+		},
+		{
+			name: "skips malformed json",
+			input: `not valid json
+{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"OK"}}
+`,
+			want: "OK",
+		},
 	}
-	if result != "# Summary\nDone." {
-		t.Errorf("result = %q", result)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseCodexStream(strings.NewReader(tt.input))
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.want {
+				t.Errorf("got %q, want %q", result, tt.want)
+			}
+		})
 	}
 }
 
-func TestParseCodexStream_MultipleMessages(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"First"}}`,
-		`{"type":"item.completed","item":{"id":"m2","type":"agent_message","text":"Second"}}`,
-	}, "\n") + "\n"
+func TestParseStreamJSON(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		wantError string
+	}{
+		{
+			name: "result event",
+			input: `{"type":"system","subtype":"init"}
+{"type":"assistant","message":{"content":"Working..."}}
+{"type":"result","result":"# Final Summary"}
+`,
+			want: "# Final Summary",
+		},
+		{
+			name: "falls back to assistant messages",
+			input: `{"type":"assistant","message":{"content":"Part 1"}}
+{"type":"assistant","message":{"content":"Part 2"}}
+`,
+			want: `Part 1
+Part 2`,
+		},
+		{
+			name: "gemini format",
+			input: `{"type":"system","subtype":"init"}
+{"type":"message","role":"assistant","content":"Analysis done.","delta":true}
+{"type":"result","result":"# Full Result"}
+`,
+			want: "# Full Result",
+		},
+		{
+			name: "error event",
+			input: `{"type":"system","subtype":"init"}
+{"type":"error","error":{"message":"rate limited"}}
+`,
+			wantError: "rate limited",
+		},
+		{
+			name: "empty",
+			input: "",
+			want:  "",
+		},
+	}
 
-	result, err := parseCodexStream(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseCodexStream: %v", err)
-	}
-	if result != "First\nSecond" {
-		t.Errorf("result = %q", result)
-	}
-}
-
-func TestParseCodexStream_TurnFailed(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"turn.started"}`,
-		`{"type":"turn.failed","error":{"message":"rate limit"}}`,
-	}, "\n") + "\n"
-
-	_, err := parseCodexStream(strings.NewReader(input))
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "rate limit") {
-		t.Errorf("error = %q, want rate limit", err.Error())
-	}
-}
-
-func TestParseCodexStream_DeduplicatesByID(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"v1"}}`,
-		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","text":"v2"}}`,
-		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"v3"}}`,
-	}, "\n") + "\n"
-
-	result, err := parseCodexStream(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseCodexStream: %v", err)
-	}
-	if result != "v3" {
-		t.Errorf("result = %q, want v3", result)
-	}
-}
-
-func TestParseStreamJSON_ResultEvent(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"system","subtype":"init"}`,
-		`{"type":"assistant","message":{"content":"Working..."}}`,
-		`{"type":"result","result":"# Final Summary"}`,
-	}, "\n") + "\n"
-
-	result, err := parseStreamJSON(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseStreamJSON: %v", err)
-	}
-	if result != "# Final Summary" {
-		t.Errorf("result = %q", result)
-	}
-}
-
-func TestParseStreamJSON_FallsBackToAssistantMessages(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"assistant","message":{"content":"Part 1"}}`,
-		`{"type":"assistant","message":{"content":"Part 2"}}`,
-	}, "\n") + "\n"
-
-	result, err := parseStreamJSON(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseStreamJSON: %v", err)
-	}
-	if result != "Part 1\nPart 2" {
-		t.Errorf("result = %q", result)
-	}
-}
-
-func TestParseStreamJSON_GeminiFormat(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"system","subtype":"init"}`,
-		`{"type":"message","role":"assistant","content":"Analysis done.","delta":true}`,
-		`{"type":"result","result":"# Full Result"}`,
-	}, "\n") + "\n"
-
-	result, err := parseStreamJSON(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseStreamJSON: %v", err)
-	}
-	if result != "# Full Result" {
-		t.Errorf("result = %q", result)
-	}
-}
-
-func TestParseStreamJSON_ErrorEvent(t *testing.T) {
-	input := strings.Join([]string{
-		`{"type":"system","subtype":"init"}`,
-		`{"type":"error","error":{"message":"rate limited"}}`,
-	}, "\n") + "\n"
-
-	_, err := parseStreamJSON(strings.NewReader(input))
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "rate limited") {
-		t.Errorf("error = %q, want rate limited",
-			err.Error())
-	}
-}
-
-func TestParseCodexStream_SkipsMalformedJSON(t *testing.T) {
-	input := strings.Join([]string{
-		`not valid json`,
-		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"OK"}}`,
-	}, "\n") + "\n"
-
-	result, err := parseCodexStream(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("parseCodexStream: %v", err)
-	}
-	if result != "OK" {
-		t.Errorf("result = %q, want OK", result)
-	}
-}
-
-func TestParseStreamJSON_Empty(t *testing.T) {
-	result, err := parseStreamJSON(strings.NewReader(""))
-	if err != nil {
-		t.Fatalf("parseStreamJSON: %v", err)
-	}
-	if result != "" {
-		t.Errorf("result = %q, want empty", result)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseStreamJSON(strings.NewReader(tt.input))
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.want {
+				t.Errorf("got %q, want %q", result, tt.want)
+			}
+		})
 	}
 }
 
@@ -263,45 +244,54 @@ func TestValidAgents(t *testing.T) {
 	}
 }
 
+func createMockBinary(
+	t *testing.T, stdout string, exitCode int, writeArgs bool, name string,
+) (bin, argsFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	dataFile := filepath.Join(dir, "stdout.txt")
+	if err := os.WriteFile(dataFile, []byte(stdout), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if writeArgs {
+		argsFile = filepath.Join(dir, "args.txt")
+	}
+
+	if runtime.GOOS == "windows" {
+		bin = filepath.Join(dir, name+".cmd")
+		var script string
+		if writeArgs {
+			script = fmt.Sprintf("@echo %%* > %q\r\n@type %q\r\n@exit /b %d\r\n", argsFile, dataFile, exitCode)
+		} else {
+			script = fmt.Sprintf("@type %q\r\n@exit /b %d\r\n", dataFile, exitCode)
+		}
+		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return bin, argsFile
+	}
+
+	bin = filepath.Join(dir, name)
+	var script string
+	if writeArgs {
+		script = fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %s\ncat %s\nexit %d\n", shellQuote(argsFile), shellQuote(dataFile), exitCode)
+	} else {
+		script = fmt.Sprintf("#!/bin/sh\ncat %s\nexit %d\n", shellQuote(dataFile), exitCode)
+	}
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, argsFile
+}
+
 // fakeClaudeBin writes a script that prints the given stdout
 // and exits with the given code, ignoring all flags. Uses a
 // .cmd batch file on Windows and a shell script elsewhere.
 func fakeClaudeBin(
 	t *testing.T, stdout string, exitCode int,
 ) string {
-	t.Helper()
-	dir := t.TempDir()
-	dataFile := filepath.Join(dir, "stdout.txt")
-	if err := os.WriteFile(
-		dataFile, []byte(stdout), 0o644,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	if runtime.GOOS == "windows" {
-		bin := filepath.Join(dir, "claude.cmd")
-		script := fmt.Sprintf(
-			"@type %q\r\n@exit /b %d\r\n",
-			dataFile, exitCode,
-		)
-		if err := os.WriteFile(
-			bin, []byte(script), 0o755,
-		); err != nil {
-			t.Fatal(err)
-		}
-		return bin
-	}
-
-	bin := filepath.Join(dir, "claude")
-	script := fmt.Sprintf(
-		"#!/bin/sh\ncat %s\nexit %d\n",
-		shellQuote(dataFile), exitCode,
-	)
-	if err := os.WriteFile(
-		bin, []byte(script), 0o755,
-	); err != nil {
-		t.Fatal(err)
-	}
+	bin, _ := createMockBinary(t, stdout, exitCode, false, "claude")
 	return bin
 }
 
@@ -395,33 +385,7 @@ func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
 func fakeGeminiBin(
 	t *testing.T, stdout string, exitCode int,
 ) (bin, argsFile string) {
-	t.Helper()
-	dir := t.TempDir()
-	dataFile := filepath.Join(dir, "stdout.txt")
-	argsFile = filepath.Join(dir, "args.txt")
-	if err := os.WriteFile(
-		dataFile, []byte(stdout), 0o644,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	bin = filepath.Join(dir, "gemini")
-	// Write all args to args file, then output the canned
-	// stream-json data.
-	script := fmt.Sprintf(
-		"#!/bin/sh\n"+
-			"printf '%%s\\n' \"$@\" > %s\n"+
-			"cat %s\nexit %d\n",
-		shellQuote(argsFile),
-		shellQuote(dataFile),
-		exitCode,
-	)
-	if err := os.WriteFile(
-		bin, []byte(script), 0o755,
-	); err != nil {
-		t.Fatal(err)
-	}
-	return bin, argsFile
+	return createMockBinary(t, stdout, exitCode, true, "gemini")
 }
 
 func TestGenerateGemini_ModelFlag(t *testing.T) {
@@ -429,10 +393,9 @@ func TestGenerateGemini_ModelFlag(t *testing.T) {
 		t.Skip("shell script test not supported on windows")
 	}
 
-	streamJSON := strings.Join([]string{
-		`{"type":"message","role":"assistant","content":"Hello"}`,
-		`{"type":"result","result":"# Analysis"}`,
-	}, "\n") + "\n"
+	streamJSON := `{"type":"message","role":"assistant","content":"Hello"}
+{"type":"result","result":"# Analysis"}
+`
 
 	bin, argsFile := fakeGeminiBin(t, streamJSON, 0)
 
