@@ -69,7 +69,7 @@ describe("triggerSync SSE parsing", () => {
   it("should parse CRLF-terminated SSE frames", async () => {
     const { handle, progress } = startSync([
       "event: progress\r\ndata: {\"phase\":\"scanning\",\"projects_total\":1,\"projects_done\":0,\"sessions_total\":0,\"sessions_done\":0,\"messages_indexed\":0}\r\n\r\n",
-      "event: done\r\ndata: {\"total_sessions\":5,\"synced\":3,\"skipped\":2}\r\n\r\n",
+      "event: done\r\ndata: {\"total_sessions\":5,\"synced\":3,\"skipped\":2,\"failed\":0}\r\n\r\n",
     ]);
 
     const stats = await handle.done;
@@ -83,7 +83,7 @@ describe("triggerSync SSE parsing", () => {
   it("should handle multi-line data: payloads", async () => {
     const { handle, progress } = startSync([
       'event: progress\ndata: {"phase":"scanning",\ndata: "projects_total":2,"projects_done":1,\ndata: "sessions_total":10,"sessions_done":5,"messages_indexed":50}\n\n',
-      'event: done\ndata: {"total_sessions":10,"synced":5,"skipped":5}\n\n',
+      'event: done\ndata: {"total_sessions":10,"synced":5,"skipped":5,"failed":0}\n\n',
     ]);
 
     await handle.done;
@@ -95,7 +95,7 @@ describe("triggerSync SSE parsing", () => {
 
   it("should process trailing frame on EOF", async () => {
     const { handle } = startSync([
-      'event: done\ndata: {"total_sessions":1,"synced":1,"skipped":0}',
+      'event: done\ndata: {"total_sessions":1,"synced":1,"skipped":0,"failed":0}',
     ]);
 
     const stats = await handle.done;
@@ -106,7 +106,7 @@ describe("triggerSync SSE parsing", () => {
 
   it("should trigger done once and stop processing after done", async () => {
     const { handle, progress } = startSync([
-      'event: done\ndata: {"total_sessions":1,"synced":1,"skipped":0}\n\n',
+      'event: done\ndata: {"total_sessions":1,"synced":1,"skipped":0,"failed":0}\n\n',
       'event: progress\ndata: {"phase":"extra","projects_total":0,"projects_done":0,"sessions_total":0,"sessions_done":0,"messages_indexed":0}\n\n',
     ]);
 
@@ -121,7 +121,7 @@ describe("triggerSync SSE parsing", () => {
 
   it("should handle data: without space after colon", async () => {
     const { handle } = startSync([
-      'event: done\ndata:{"total_sessions":3,"synced":2,"skipped":1}\n\n',
+      'event: done\ndata:{"total_sessions":3,"synced":2,"skipped":1,"failed":0}\n\n',
     ]);
 
     const stats = await handle.done;
@@ -145,7 +145,7 @@ describe("triggerSync SSE parsing", () => {
   it("should handle chunks split across frame boundaries", async () => {
     const { handle, progress } = startSync([
       'event: progress\ndata: {"phase":"scan',
-      'ning","projects_total":1,"projects_done":0,"sessions_total":0,"sessions_done":0,"messages_indexed":0}\n\nevent: done\ndata: {"total_sessions":1,"synced":1,"skipped":0}\n\n',
+      'ning","projects_total":1,"projects_done":0,"sessions_total":0,"sessions_done":0,"messages_indexed":0}\n\nevent: done\ndata: {"total_sessions":1,"synced":1,"skipped":0,"failed":0}\n\n',
     ]);
 
     await handle.done;

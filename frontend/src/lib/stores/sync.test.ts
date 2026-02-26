@@ -21,6 +21,7 @@ vi.mock("../api/client.js", () => ({
 const MOCK_STATS: SyncStats = {
   synced: 5,
   skipped: 3,
+  failed: 0,
   total_sessions: 8,
 };
 

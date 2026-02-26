@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -113,13 +114,23 @@ Data is stored in ~/.agentsview/ by default.
 }
 
 // warnMissingDirs prints a warning to stderr for each
-// configured directory that does not exist.
+// configured directory that does not exist or is
+// inaccessible.
 func warnMissingDirs(dirs []string, label string) {
 	for _, d := range dirs {
-		if _, err := os.Stat(d); err != nil {
+		_, err := os.Stat(d)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(os.Stderr,
 				"warning: %s directory not found: %s\n",
 				label, d,
+			)
+		} else {
+			fmt.Fprintf(os.Stderr,
+				"warning: %s directory inaccessible: %v\n",
+				label, err,
 			)
 		}
 	}
@@ -188,7 +199,7 @@ func runServe(args []string) {
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
-		log.Fatalf("server error: %v", err)
+		fatal("server error: %v", err)
 	}
 }
 
@@ -250,18 +261,26 @@ func truncateLogFile(path string, limit int64) {
 func mustOpenDB(cfg config.Config) *db.DB {
 	database, err := db.Open(cfg.DBPath)
 	if err != nil {
-		log.Fatalf("opening database: %v", err)
+		fatal("opening database: %v", err)
 	}
 
 	if cfg.CursorSecret != "" {
 		secret, err := base64.StdEncoding.DecodeString(cfg.CursorSecret)
 		if err != nil {
-			log.Fatalf("invalid cursor secret: %v", err)
+			fatal("invalid cursor secret: %v", err)
 		}
 		database.SetCursorSecret(secret)
 	}
 
 	return database
+}
+
+// fatal prints a formatted error to stderr and exits.
+// Use instead of log.Fatalf after setupLogFile redirects
+// log output to the debug log file.
+func fatal(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "fatal: "+format+"\n", args...)
+	os.Exit(1)
 }
 
 // cleanResyncTemp removes leftover temp database files from
