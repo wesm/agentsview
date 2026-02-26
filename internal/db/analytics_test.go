@@ -239,7 +239,7 @@ func TestGetAnalyticsSummary(t *testing.T) {
 func TestGetAnalyticsActivity(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("DayGranularity", func(t *testing.T) {
 		resp := mustActivity(t, d, ctx, baseFilter(), "day")
@@ -270,6 +270,9 @@ func TestGetAnalyticsActivity(t *testing.T) {
 		if len(resp.Series) != 1 {
 			t.Errorf("len(Series) = %d, want 1", len(resp.Series))
 		}
+		if resp.Series[0].Sessions != stats.TotalSessions {
+			t.Errorf("month sessions = %d, want %d", resp.Series[0].Sessions, stats.TotalSessions)
+		}
 	})
 
 	t.Run("HasRoleCounts", func(t *testing.T) {
@@ -279,6 +282,9 @@ func TestGetAnalyticsActivity(t *testing.T) {
 		for _, e := range resp.Series {
 			totalUser += e.UserMessages
 			totalAsst += e.AssistantMessages
+		}
+		if totalUser+totalAsst != stats.TotalMessages {
+			t.Errorf("total messages = %d, want %d", totalUser+totalAsst, stats.TotalMessages)
 		}
 		if totalUser == 0 {
 			t.Error("expected non-zero user messages")
@@ -292,7 +298,7 @@ func TestGetAnalyticsActivity(t *testing.T) {
 func TestGetAnalyticsHeatmap(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("MessageMetric", func(t *testing.T) {
 		resp := mustHeatmap(t, d, ctx, baseFilter(), "messages")
@@ -303,6 +309,15 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 		if len(resp.Entries) != 3 {
 			t.Fatalf("len(Entries) = %d, want 3", len(resp.Entries))
 		}
+
+		totalMessages := 0
+		for _, e := range resp.Entries {
+			totalMessages += e.Value
+		}
+		if totalMessages != stats.TotalMessages {
+			t.Errorf("total messages across heatmap = %d, want %d", totalMessages, stats.TotalMessages)
+		}
+
 		// Jun 1: 10+20=30, Jun 2: 30+15=45, Jun 3: 5
 		if resp.Entries[0].Value != 30 {
 			t.Errorf("Jun1 value = %d, want 30", resp.Entries[0].Value)
@@ -320,6 +335,15 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 		if resp.Metric != "sessions" {
 			t.Errorf("Metric = %q, want sessions", resp.Metric)
 		}
+
+		totalSessions := 0
+		for _, e := range resp.Entries {
+			totalSessions += e.Value
+		}
+		if totalSessions != stats.TotalSessions {
+			t.Errorf("total sessions across heatmap = %d, want %d", totalSessions, stats.TotalSessions)
+		}
+
 		// Jun 1: 2, Jun 2: 2, Jun 3: 1
 		if resp.Entries[0].Value != 2 {
 			t.Errorf("Jun1 sessions = %d, want 2",
