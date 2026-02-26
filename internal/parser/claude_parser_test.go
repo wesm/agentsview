@@ -25,12 +25,12 @@ func runClaudeParserTest(t *testing.T, fileName, content string) (ParsedSession,
 func TestParseClaudeSession_Basic(t *testing.T) {
 	content := loadFixture(t, "claude/valid_session.jsonl")
 	sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
-	
+
 	assertMessageCount(t, len(msgs), 4)
 	assertMessageCount(t, sess.MessageCount, 4)
 	assertSessionMeta(t, &sess, "test", "my_app", AgentClaude)
 	assert.Equal(t, "Fix the login bug", sess.FirstMessage)
-	
+
 	assertMessage(t, msgs[0], RoleUser, "")
 	assertMessage(t, msgs[1], RoleAssistant, "")
 	assert.True(t, msgs[1].HasToolUse)

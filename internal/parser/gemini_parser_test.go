@@ -21,13 +21,13 @@ func runGeminiParserTest(t *testing.T, content string) (*ParsedSession, []Parsed
 func TestParseGeminiSession_Basic(t *testing.T) {
 	content := loadFixture(t, "gemini/standard_session.json")
 	sess, msgs := runGeminiParserTest(t, content)
-	
+
 	require.NotNil(t, sess)
 	assertMessageCount(t, len(msgs), 4)
 	assertMessageCount(t, sess.MessageCount, 4)
 	assertSessionMeta(t, sess, "gemini:sess-uuid-1", "my_project", AgentGemini)
 	assert.Equal(t, "Fix the login bug", sess.FirstMessage)
-	
+
 	assertMessage(t, msgs[0], RoleUser, "Fix the login bug")
 	assertMessage(t, msgs[1], RoleAssistant, "Looking at")
 	assert.Equal(t, 0, msgs[0].Ordinal)
@@ -38,7 +38,7 @@ func TestParseGeminiSession_ToolCalls(t *testing.T) {
 	t.Run("basic tool calls", func(t *testing.T) {
 		content := loadFixture(t, "gemini/tool_calls.json")
 		_, msgs := runGeminiParserTest(t, content)
-		
+
 		assert.Equal(t, 2, len(msgs))
 		assert.True(t, msgs[1].HasToolUse)
 		assert.True(t, msgs[1].HasThinking)
@@ -86,13 +86,13 @@ func TestParseGeminiSession_EdgeCases(t *testing.T) {
 		require.NotNil(t, sess)
 		assert.Equal(t, 303, len(sess.FirstMessage))
 	})
-	
+
 	t.Run("malformed JSON", func(t *testing.T) {
 		path := createTestFile(t, "session.json", "not valid json {{{")
 		_, _, err := ParseGeminiSession(path, "my_project", "local")
 		assert.Error(t, err)
 	})
-	
+
 	t.Run("missing file", func(t *testing.T) {
 		_, _, err := ParseGeminiSession("/nonexistent.json", "my_project", "local")
 		assert.Error(t, err)

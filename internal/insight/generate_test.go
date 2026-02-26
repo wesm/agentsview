@@ -119,7 +119,7 @@ Part 2`,
 			wantError: "rate limited",
 		},
 		{
-			name: "empty",
+			name:  "empty",
 			input: "",
 			want:  "",
 		},

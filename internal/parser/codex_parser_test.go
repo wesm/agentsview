@@ -22,7 +22,7 @@ func runCodexParserTest(t *testing.T, fileName, content string, includeExec bool
 func TestParseCodexSession_Basic(t *testing.T) {
 	content := loadFixture(t, "codex/standard_session.jsonl")
 	sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
-	
+
 	require.NotNil(t, sess)
 	assert.Equal(t, "codex:abc-123", sess.ID)
 	assert.Equal(t, 2, len(msgs))
@@ -52,22 +52,22 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 	t.Run("function calls", func(t *testing.T) {
 		content := loadFixture(t, "codex/function_calls.jsonl")
 		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
-		
+
 		require.NotNil(t, sess)
 		assert.Equal(t, "codex:fc-1", sess.ID)
 		assert.Equal(t, 3, len(msgs))
-		
+
 		assert.Equal(t, RoleUser, msgs[0].Role)
 		assert.False(t, msgs[0].HasToolUse)
-		
+
 		assert.Equal(t, RoleAssistant, msgs[1].Role)
 		assert.True(t, msgs[1].HasToolUse)
 		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolName: "shell_command", Category: "Bash"}})
 		assert.Equal(t, "[Bash: Running tests]", msgs[1].Content)
-		
+
 		assert.True(t, msgs[2].HasToolUse)
 		assertToolCalls(t, msgs[2].ToolCalls, []ParsedToolCall{{ToolName: "apply_patch", Category: "Edit"}})
-		
+
 		for i, m := range msgs {
 			assert.Equal(t, i, m.Ordinal)
 		}
@@ -85,7 +85,7 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		want := "[Edit: internal/parser/codex.go (+1 more)]\ninternal/parser/codex.go\ninternal/parser/parser_test.go"
 		assert.Equal(t, want, msgs[1].Content)
 	})
-	
+
 	t.Run("write_stdin formats with session and chars", func(t *testing.T) {
 		content := loadFixture(t, "codex/fc_stdin.jsonl")
 		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
