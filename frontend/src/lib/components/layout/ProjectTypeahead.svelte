@@ -127,8 +127,8 @@
 <style>
   .typeahead {
     position: relative;
-    min-width: 120px;
-    max-width: 240px;
+    min-width: 180px;
+    max-width: 300px;
   }
 
   .typeahead-trigger {
