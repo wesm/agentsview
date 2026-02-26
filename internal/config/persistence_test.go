@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+func readConfigFile(t *testing.T, dir string) Config {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, configFileName))
+	if err != nil {
+		t.Fatalf("reading config file: %v", err)
+	}
+	var fileCfg Config
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		t.Fatalf("parsing config file: %v", err)
+	}
+	return fileCfg
+}
+
 func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
 	dir := setupTestEnv(t)
 
@@ -25,14 +38,7 @@ func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
 	}
 
 	// Verify file existence and content
-	data, err := os.ReadFile(filepath.Join(dir, configFileName))
-	if err != nil {
-		t.Fatalf("reading config file: %v", err)
-	}
-	var fileCfg Config
-	if err := json.Unmarshal(data, &fileCfg); err != nil {
-		t.Fatalf("parsing config file: %v", err)
-	}
+	fileCfg := readConfigFile(t, dir)
 
 	if fileCfg.CursorSecret != cfg1.CursorSecret {
 		t.Errorf(
@@ -56,10 +62,9 @@ func TestCursorSecret_GeneratedAndPersisted(t *testing.T) {
 
 func TestCursorSecret_RegeneratedIfMissing(t *testing.T) {
 	dir := setupTestEnv(t)
-	configPath := filepath.Join(dir, configFileName)
 
 	initialContent := `{"cursor_secret": ""}`
-	if err := os.WriteFile(configPath, []byte(initialContent), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, configFileName), []byte(initialContent), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -72,12 +77,9 @@ func TestCursorSecret_RegeneratedIfMissing(t *testing.T) {
 	}
 
 	// Verify it was updated in the file
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) == initialContent {
-		t.Error("config file was not updated")
+	fileCfg := readConfigFile(t, dir)
+	if fileCfg.CursorSecret == "" {
+		t.Error("cursor secret was not updated in the file")
 	}
 }
 
@@ -117,14 +119,7 @@ func TestCursorSecret_PreservesOtherFields(t *testing.T) {
 	}
 
 	// Verify file content has both
-	data, err := os.ReadFile(filepath.Join(dir, configFileName))
-	if err != nil {
-		t.Fatalf("reading config file: %v", err)
-	}
-	var fileCfg Config
-	if err := json.Unmarshal(data, &fileCfg); err != nil {
-		t.Fatalf("parsing config file: %v", err)
-	}
+	fileCfg := readConfigFile(t, dir)
 
 	if fileCfg.CursorSecret == "" {
 		t.Error("cursor_secret missing in file")
