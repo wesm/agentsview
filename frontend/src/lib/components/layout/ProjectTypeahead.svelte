@@ -75,6 +75,17 @@
     highlightIndex = 0;
   }
 
+  function highlightSegments(label: string, q: string): { text: string; match: boolean }[] {
+    if (!q) return [{ text: label, match: false }];
+    const idx = label.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return [{ text: label, match: false }];
+    return [
+      ...(idx > 0 ? [{ text: label.slice(0, idx), match: false }] : []),
+      { text: label.slice(idx, idx + q.length), match: true },
+      ...(idx + q.length < label.length ? [{ text: label.slice(idx + q.length), match: false }] : []),
+    ];
+  }
+
   function handleBlur(e: FocusEvent) {
     // Close if focus leaves the container entirely
     const related = e.relatedTarget as Node | null;
@@ -108,7 +119,7 @@
           onmousedown={() => select(option.name)}
           onmouseenter={() => (highlightIndex = i)}
         >
-          {option.label}
+          {#each highlightSegments(option.label, query) as seg}{#if seg.match}<mark class="match">{seg.text}</mark>{:else}{seg.text}{/if}{/each}
         </li>
       {:else}
         <li class="typeahead-empty">No matching projects</li>
@@ -222,6 +233,12 @@
   .typeahead-option.selected {
     color: var(--accent-blue);
     font-weight: 600;
+  }
+
+  .match {
+    background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
+    color: inherit;
+    border-radius: 1px;
   }
 
   .typeahead-empty {
