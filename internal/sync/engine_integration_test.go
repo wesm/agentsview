@@ -1826,3 +1826,118 @@ func TestResyncAllAbortsOnFailures(t *testing.T) {
 		"original content", "original reply",
 	)
 }
+
+// TestResyncAllAbortsWithForkAndFailures exercises the abort
+// guard's file-level counting. A fork-producing file yields
+// Synced=2 from filesOK=1. Two unreadable files add Failed=2.
+// The abort guard should fire because Failed(2) > filesOK(1),
+// even though Failed(2) == Synced(2) would pass a naive
+// session-level comparison.
+func TestResyncAllAbortsWithForkAndFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod(0) does not prevent reads on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("root can read mode-0 files")
+	}
+
+	env := setupTestEnv(t)
+
+	// File 1: fork-producing session (1 file → 2 sessions).
+	// Main branch has 5 user turns; fork from b creates a
+	// 4-turn gap (>3) which triggers fork detection.
+	forkContent := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithUUID(
+			"2024-01-01T10:00:00Z", "start", "a", "",
+		).
+		AddClaudeAssistantWithUUID(
+			"2024-01-01T10:00:01Z", "ok", "b", "a",
+		).
+		AddClaudeUserWithUUID(
+			"2024-01-01T10:00:02Z", "s2", "c", "b",
+		).
+		AddClaudeAssistantWithUUID(
+			"2024-01-01T10:00:03Z", "ok2", "d", "c",
+		).
+		AddClaudeUserWithUUID(
+			"2024-01-01T10:00:04Z", "s3", "e", "d",
+		).
+		AddClaudeAssistantWithUUID(
+			"2024-01-01T10:00:05Z", "ok3", "f", "e",
+		).
+		AddClaudeUserWithUUID(
+			"2024-01-01T10:00:06Z", "s4", "g", "f",
+		).
+		AddClaudeAssistantWithUUID(
+			"2024-01-01T10:00:07Z", "ok4", "h", "g",
+		).
+		AddClaudeUserWithUUID(
+			"2024-01-01T10:00:08Z", "s5", "k", "h",
+		).
+		AddClaudeAssistantWithUUID(
+			"2024-01-01T10:00:09Z", "ok5", "l", "k",
+		).
+		AddClaudeUserWithUUID(
+			"2024-01-01T10:01:00Z", "fork", "i", "b",
+		).
+		AddClaudeAssistantWithUUID(
+			"2024-01-01T10:01:01Z", "fork-ok", "j", "i",
+		).
+		String()
+
+	env.writeClaudeSession(
+		t, "proj", "forked.jsonl", forkContent,
+	)
+
+	// Files 2 & 3: normal sessions that we'll make unreadable.
+	for _, name := range []string{"bad1.jsonl", "bad2.jsonl"} {
+		c := testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsEarly, "hello").
+			String()
+		env.writeClaudeSession(t, "proj", name, c)
+	}
+
+	// Initial sync: all 3 files parse fine.
+	// Fork file produces 2 sessions: "forked" (10 msgs)
+	// and "forked-i" (2 msgs).
+	env.engine.SyncAll(nil)
+	assertSessionMessageCount(t, env.db, "forked", 10)
+	assertSessionMessageCount(t, env.db, "forked-i", 2)
+
+	// Make both normal files unreadable.
+	for _, name := range []string{"bad1.jsonl", "bad2.jsonl"} {
+		p := filepath.Join(env.claudeDir, "proj", name)
+		if err := os.Chmod(p, 0); err != nil {
+			t.Fatalf("chmod %s: %v", name, err)
+		}
+		t.Cleanup(func() { os.Chmod(p, 0o644) })
+	}
+
+	stats := env.engine.ResyncAll(nil)
+
+	// Expect: filesOK=1, Failed=2, Synced=2.
+	// Abort should fire because Failed(2) > filesOK(1).
+	if stats.Failed != 2 {
+		t.Fatalf("Failed = %d, want 2", stats.Failed)
+	}
+	if stats.Synced != 2 {
+		t.Fatalf("Synced = %d, want 2", stats.Synced)
+	}
+
+	hasAbortWarning := false
+	for _, w := range stats.Warnings {
+		if strings.Contains(w, "resync aborted") {
+			hasAbortWarning = true
+		}
+	}
+	if !hasAbortWarning {
+		t.Error(
+			"expected abort: Failed(2) > filesOK(1) " +
+				"should trigger even though Failed == Synced",
+		)
+	}
+
+	// Original data preserved.
+	assertSessionMessageCount(t, env.db, "forked", 10)
+	assertSessionMessageCount(t, env.db, "forked-i", 2)
+}

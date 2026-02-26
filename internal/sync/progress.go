@@ -31,10 +31,12 @@ type SyncResult struct {
 
 // SyncStats summarizes a full sync run.
 //
-// TotalSessions and Failed count discovered files. Synced counts
-// sessions (one file can produce multiple sessions via fork
-// detection). filesOK is an internal file-level counter used by
-// ResyncAll to compare against Failed on the same unit.
+// TotalSessions counts discovered files plus OpenCode sessions.
+// Synced counts sessions (one file can produce multiple via fork
+// detection; OpenCode adds sessions directly). Failed counts
+// files with hard parse/stat errors. filesOK counts files that
+// produced at least one session — used by ResyncAll to compare
+// against Failed on the same unit.
 type SyncStats struct {
 	TotalSessions int      `json:"total_sessions"`
 	Synced        int      `json:"synced"`
