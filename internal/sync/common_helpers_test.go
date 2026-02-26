@@ -19,7 +19,7 @@ func requirePathError(t *testing.T, err error) {
 	}
 	var pathErr *fs.PathError
 	if !errors.As(err, &pathErr) {
-		t.Errorf("expected *fs.PathError, got %T: %v", err, err)
+		t.Fatalf("expected *fs.PathError, got %T: %v", err, err)
 	}
 }
 
@@ -28,6 +28,6 @@ type failingReader struct {
 	err error
 }
 
-func (f *failingReader) Read(p []byte) (n int, err error) {
+func (f failingReader) Read(p []byte) (n int, err error) {
 	return 0, f.err
 }
