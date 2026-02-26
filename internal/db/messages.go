@@ -335,65 +335,6 @@ func (db *DB) MaxOrdinal(sessionID string) int {
 	return int(n.Int64)
 }
 
-// DeleteSessionMessages removes all messages for a session.
-func (db *DB) DeleteSessionMessages(sessionID string) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	_, err := db.writer.Exec(
-		"DELETE FROM messages WHERE session_id = ?", sessionID,
-	)
-	return err
-}
-
-// DeleteMessagesForSessions bulk-deletes messages and tool_calls
-// for multiple sessions in a single transaction.
-func (db *DB) DeleteMessagesForSessions(
-	sessionIDs []string,
-) error {
-	if len(sessionIDs) == 0 {
-		return nil
-	}
-	t := time.Now()
-	defer func() {
-		if d := time.Since(t); d > slowOpThreshold {
-			log.Printf(
-				"db: DeleteMessagesForSessions (%d): %s",
-				len(sessionIDs), d.Round(time.Millisecond),
-			)
-		}
-	}()
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	tx, err := db.writer.Begin()
-	if err != nil {
-		return fmt.Errorf("beginning tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	for _, id := range sessionIDs {
-		if _, err := tx.Exec(
-			"DELETE FROM tool_calls WHERE session_id = ?",
-			id,
-		); err != nil {
-			return fmt.Errorf(
-				"delete tool_calls for %s: %w", id, err,
-			)
-		}
-		if _, err := tx.Exec(
-			"DELETE FROM messages WHERE session_id = ?",
-			id,
-		); err != nil {
-			return fmt.Errorf(
-				"delete messages for %s: %w", id, err,
-			)
-		}
-	}
-
-	return tx.Commit()
-}
-
 // ReplaceSessionMessages deletes existing and inserts new messages
 // in a single transaction.
 func (db *DB) ReplaceSessionMessages(

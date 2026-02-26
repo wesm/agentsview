@@ -105,7 +105,7 @@ func (e *Engine) SyncPaths(paths []string) {
 
 	results := e.startWorkers(files)
 	stats := e.collectAndBatch(
-		results, len(files), nil, false,
+		results, len(files), nil,
 	)
 	e.persistSkipCache()
 
@@ -311,63 +311,88 @@ func (e *Engine) classifyOnePath(
 	return DiscoveredFile{}, false
 }
 
-// ResyncAll clears all skip caches and resets stored mtimes so
-// that the subsequent SyncAll re-parses every file. This is the
-// "full resync" path triggered from the UI when schema changes
-// or parser fixes require re-processing without deleting the DB.
+// resyncTempSuffix is appended to the original DB path to
+// form the temp database path during resync.
+const resyncTempSuffix = "-resync"
+
+// ResyncAll builds a fresh database from scratch, syncs all
+// sessions into it, copies insights from the old DB, then
+// atomically swaps the files and reopens the original DB
+// handle. This avoids the per-row trigger overhead of bulk
+// deleting hundreds of thousands of messages in place.
 func (e *Engine) ResyncAll(
 	onProgress ProgressFunc,
 ) SyncStats {
-	// Serialize with SyncAll so pre-steps and the sync
-	// itself run atomically.
 	e.syncMu.Lock()
 	defer e.syncMu.Unlock()
+
+	origDB := e.db
+	origPath := origDB.Path()
+	tempPath := origPath + resyncTempSuffix
+
+	// Clean up stale temp DB from a prior crash.
+	removeTempDB(tempPath)
 
 	// 1. Clear in-memory skip cache.
 	e.skipMu.Lock()
 	e.skipCache = make(map[string]int64)
 	e.skipMu.Unlock()
 
-	// 2. Clear persisted skip cache.
-	if err := e.db.ReplaceSkippedFiles(
-		map[string]int64{},
-	); err != nil {
-		log.Printf("resync: clear skipped files: %v", err)
+	// 2. Open a fresh DB at the temp path.
+	newDB, err := db.Open(tempPath)
+	if err != nil {
+		log.Printf("resync: open temp db: %v", err)
+		return SyncStats{
+			Warnings: []string{
+				"resync failed: " + err.Error(),
+			},
+		}
 	}
 
-	// 3. Zero all stored mtimes so shouldSkipFile returns false.
-	if err := e.db.ResetAllMtimes(); err != nil {
-		log.Printf("resync: reset mtimes: %v", err)
-	}
+	// 3. Point engine at newDB and sync into it.
+	e.db = newDB
+	stats := e.syncAllLocked(onProgress)
+	e.db = origDB // restore immediately
 
-	// 4. Drop FTS triggers so bulk message replacement is
-	//    fast (no per-row index updates). Rebuilt after sync.
-	tFTS := time.Now()
-	if err := e.db.DropFTS(); err != nil {
-		log.Printf("resync: drop fts: %v", err)
-	}
-	log.Printf(
-		"resync: drop fts: %s",
-		time.Since(tFTS).Round(time.Millisecond),
-	)
-
-	stats := e.syncAllLocked(onProgress, true)
-
-	// 5. Recreate FTS table and rebuild index from content.
-	tFTS = time.Now()
-	if err := e.db.RebuildFTS(); err != nil {
-		log.Printf("resync: rebuild fts: %v", err)
+	// 4. Copy insights from old DB into new DB.
+	tInsights := time.Now()
+	if err := newDB.CopyInsightsFrom(origPath); err != nil {
+		log.Printf("resync: copy insights: %v", err)
 		stats.Warnings = append(stats.Warnings,
-			"search index rebuild failed: "+err.Error(),
+			"insights copy failed: "+err.Error(),
 		)
 	}
 	log.Printf(
-		"resync: rebuild fts: %s",
-		time.Since(tFTS).Round(time.Millisecond),
+		"resync: copy insights: %s",
+		time.Since(tInsights).Round(time.Millisecond),
 	)
 
-	// Update cached stats so /api/v1/sync/status includes
-	// any warnings appended after syncAllLocked returned.
+	// 5. Close the temp DB, swap files, reopen original.
+	newDB.Close()
+
+	if err := os.Rename(tempPath, origPath); err != nil {
+		log.Printf("resync: rename temp db: %v", err)
+		stats.Warnings = append(stats.Warnings,
+			"resync swap failed: "+err.Error(),
+		)
+		removeTempDB(tempPath)
+		return stats
+	}
+	// Remove stale WAL/SHM for both temp and original
+	// paths so the reopened DB starts clean.
+	removeWAL(tempPath)
+	removeWAL(origPath)
+
+	if err := origDB.Reopen(); err != nil {
+		log.Printf("resync: reopen db: %v", err)
+		stats.Warnings = append(stats.Warnings,
+			"reopen after resync failed: "+err.Error(),
+		)
+	}
+
+	// 6. Persist skip cache into the new DB.
+	e.persistSkipCache()
+
 	e.mu.Lock()
 	e.lastSyncStats = stats
 	e.mu.Unlock()
@@ -375,15 +400,28 @@ func (e *Engine) ResyncAll(
 	return stats
 }
 
+// removeTempDB removes a temp database and its WAL/SHM files.
+func removeTempDB(path string) {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		os.Remove(path + suffix)
+	}
+}
+
+// removeWAL removes WAL and SHM files for a database path.
+func removeWAL(path string) {
+	os.Remove(path + "-wal")
+	os.Remove(path + "-shm")
+}
+
 // SyncAll discovers and syncs all session files from all agents.
 func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	e.syncMu.Lock()
 	defer e.syncMu.Unlock()
-	return e.syncAllLocked(onProgress, false)
+	return e.syncAllLocked(onProgress)
 }
 
 func (e *Engine) syncAllLocked(
-	onProgress ProgressFunc, forceReplace bool,
+	onProgress ProgressFunc,
 ) SyncStats {
 	t0 := time.Now()
 
@@ -430,7 +468,7 @@ func (e *Engine) syncAllLocked(
 	tWorkers := time.Now()
 	results := e.startWorkers(all)
 	stats := e.collectAndBatch(
-		results, len(all), onProgress, forceReplace,
+		results, len(all), onProgress,
 	)
 	if verbose {
 		log.Printf(
@@ -577,11 +615,9 @@ func (e *Engine) startWorkers(
 
 // collectAndBatch drains the results channel, batches
 // successful parses, and writes them to the database.
-// When forceReplace is true (full resync), messages are
-// deleted and reinserted instead of incrementally appended.
 func (e *Engine) collectAndBatch(
 	results <-chan syncJob, total int,
-	onProgress ProgressFunc, forceReplace bool,
+	onProgress ProgressFunc,
 ) SyncStats {
 	var stats SyncStats
 	stats.TotalSessions = total
@@ -631,7 +667,7 @@ func (e *Engine) collectAndBatch(
 		if len(pending) >= batchSize {
 			stats.RecordSynced(len(pending))
 			progress.MessagesIndexed += countMessages(pending)
-			e.writeBatch(pending, forceReplace)
+			e.writeBatch(pending)
 			pending = pending[:0]
 		}
 
@@ -644,7 +680,7 @@ func (e *Engine) collectAndBatch(
 	if len(pending) > 0 {
 		stats.RecordSynced(len(pending))
 		progress.MessagesIndexed += countMessages(pending)
-		e.writeBatch(pending, forceReplace)
+		e.writeBatch(pending)
 	}
 
 	progress.Phase = PhaseDone
@@ -917,53 +953,7 @@ type pendingWrite struct {
 	msgs []parser.ParsedMessage
 }
 
-func (e *Engine) writeBatch(
-	batch []pendingWrite, forceReplace bool,
-) {
-	bulkDeleted := false
-	if forceReplace {
-		// Bulk-delete all existing messages in one tx,
-		// then the normal writeMessages path will see
-		// maxOrd=-1 and INSERT all.
-		tDel := time.Now()
-		ids := make([]string, len(batch))
-		for i, pw := range batch {
-			ids[i] = pw.sess.ID
-		}
-		if err := e.db.DeleteMessagesForSessions(
-			ids,
-		); err != nil {
-			log.Printf("bulk delete messages: %v", err)
-			// Fall back to per-session atomic replace so
-			// we don't proceed with incremental writes
-			// against stale data.
-		} else {
-			bulkDeleted = true
-		}
-		log.Printf(
-			"resync: bulk delete %d sessions (ok=%v): %s",
-			len(ids), bulkDeleted,
-			time.Since(tDel).Round(time.Millisecond),
-		)
-	}
-
-	// When forceReplace was requested but bulk delete failed,
-	// fall back to per-session ReplaceSessionMessages which
-	// keeps delete+insert atomic per session.
-	if forceReplace && !bulkDeleted {
-		tWrite := time.Now()
-		for _, pw := range batch {
-			e.writeSessionFull(pw)
-		}
-		log.Printf(
-			"resync: write batch fallback (%d sessions): %s",
-			len(batch),
-			time.Since(tWrite).Round(time.Millisecond),
-		)
-		return
-	}
-
-	tWrite := time.Now()
+func (e *Engine) writeBatch(batch []pendingWrite) {
 	for _, pw := range batch {
 		msgs := toDBMessages(pw)
 		s := toDBSession(pw)
@@ -974,13 +964,6 @@ func (e *Engine) writeBatch(
 			continue
 		}
 		e.writeMessages(pw.sess.ID, msgs)
-	}
-	if forceReplace {
-		log.Printf(
-			"resync: write batch (%d sessions): %s",
-			len(batch),
-			time.Since(tWrite).Round(time.Millisecond),
-		)
 	}
 }
 

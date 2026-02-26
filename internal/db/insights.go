@@ -136,6 +136,34 @@ func (db *DB) GetInsight(
 	return &s, nil
 }
 
+// CopyInsightsFrom copies all insights from the database at
+// sourcePath into this database using ATTACH/DETACH.
+func (db *DB) CopyInsightsFrom(sourcePath string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if _, err := db.writer.Exec(
+		"ATTACH DATABASE ? AS old_db", sourcePath,
+	); err != nil {
+		return fmt.Errorf("attaching source db: %w", err)
+	}
+	defer func() {
+		_, _ = db.writer.Exec("DETACH DATABASE old_db")
+	}()
+
+	_, err := db.writer.Exec(`
+		INSERT OR IGNORE INTO insights
+			(type, date_from, date_to, project,
+			 agent, model, prompt, content, created_at)
+		SELECT type, date_from, date_to, project,
+			agent, model, prompt, content, created_at
+		FROM old_db.insights`)
+	if err != nil {
+		return fmt.Errorf("copying insights: %w", err)
+	}
+	return nil
+}
+
 // DeleteInsight removes an insight by ID.
 func (db *DB) DeleteInsight(id int64) error {
 	db.mu.Lock()

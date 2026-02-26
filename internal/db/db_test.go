@@ -2232,3 +2232,127 @@ func TestFTSBackfill(t *testing.T) {
 		t.Errorf("result session_id = %q, want s1", page.Results[0].SessionID)
 	}
 }
+
+func TestPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+	d, err := Open(path)
+	requireNoError(t, err, "Open")
+	defer d.Close()
+
+	if got := d.Path(); got != path {
+		t.Errorf("Path() = %q, want %q", got, path)
+	}
+}
+
+func TestReopen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+	d, err := Open(path)
+	requireNoError(t, err, "Open")
+	defer d.Close()
+
+	// Insert data before reopen.
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, userMsg("s1", 0, "hello"))
+
+	if err := d.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+
+	// Data should still be accessible after reopen.
+	got := requireSessionExists(t, d, "s1")
+	if got.Project != "proj" {
+		t.Errorf("project = %q, want proj", got.Project)
+	}
+
+	msgs, err := d.GetAllMessages(context.Background(), "s1")
+	requireNoError(t, err, "GetAllMessages")
+	if len(msgs) != 1 || msgs[0].Content != "hello" {
+		t.Errorf("messages = %v, want [hello]", msgs)
+	}
+
+	// Writes should work after reopen.
+	insertSession(t, d, "s2", "proj2")
+	requireSessionExists(t, d, "s2")
+}
+
+func TestReopenAfterSwap(t *testing.T) {
+	dir := t.TempDir()
+	origPath := filepath.Join(dir, "orig.db")
+	tempPath := filepath.Join(dir, "temp.db")
+
+	// Create original DB with data.
+	origDB, err := Open(origPath)
+	requireNoError(t, err, "Open orig")
+	defer origDB.Close()
+	insertSession(t, origDB, "old-session", "old-proj")
+
+	// Create temp DB with different data.
+	tempDB, err := Open(tempPath)
+	requireNoError(t, err, "Open temp")
+	insertSession(t, tempDB, "new-session", "new-proj")
+	tempDB.Close()
+
+	// Swap: rename temp over original, then reopen.
+	if err := os.Rename(tempPath, origPath); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	os.Remove(origPath + "-wal")
+	os.Remove(origPath + "-shm")
+
+	if err := origDB.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+
+	// Original DB handle should now see the new data.
+	requireSessionGone(t, origDB, "old-session")
+	got := requireSessionExists(t, origDB, "new-session")
+	if got.Project != "new-proj" {
+		t.Errorf("project = %q, want new-proj", got.Project)
+	}
+}
+
+func TestCopyInsightsFrom(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source DB with insights.
+	srcPath := filepath.Join(dir, "src.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	_, err = srcDB.InsertInsight(Insight{
+		Type:     "daily_activity",
+		DateFrom: "2025-01-15",
+		DateTo:   "2025-01-15",
+		Agent:    "claude",
+		Content:  "test insight content",
+	})
+	requireNoError(t, err, "InsertInsight")
+	srcDB.Close()
+
+	// Destination DB (empty).
+	dstPath := filepath.Join(dir, "dst.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	// Copy insights from source.
+	if err := dstDB.CopyInsightsFrom(srcPath); err != nil {
+		t.Fatalf("CopyInsightsFrom: %v", err)
+	}
+
+	// Verify insights were copied.
+	insights, err := dstDB.ListInsights(
+		context.Background(), InsightFilter{},
+	)
+	requireNoError(t, err, "ListInsights")
+	if len(insights) != 1 {
+		t.Fatalf("got %d insights, want 1", len(insights))
+	}
+	if insights[0].Content != "test insight content" {
+		t.Errorf(
+			"content = %q, want %q",
+			insights[0].Content, "test insight content",
+		)
+	}
+}

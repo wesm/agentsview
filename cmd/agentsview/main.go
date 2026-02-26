@@ -136,6 +136,9 @@ func runServe(args []string) {
 	warnMissingDirs(cfg.ResolveGeminiDirs(), "gemini")
 	warnMissingDirs(cfg.ResolveOpenCodeDirs(), "opencode")
 
+	// Remove stale temp DB from a prior crashed resync.
+	cleanResyncTemp(cfg.DBPath)
+
 	engine := sync.NewEngine(
 		database,
 		cfg.ResolveClaudeDirs(),
@@ -253,6 +256,15 @@ func mustOpenDB(cfg config.Config) *db.DB {
 	}
 
 	return database
+}
+
+// cleanResyncTemp removes leftover temp database files from
+// a prior crashed resync.
+func cleanResyncTemp(dbPath string) {
+	tempPath := dbPath + "-resync"
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		os.Remove(tempPath + suffix)
+	}
 }
 
 func runInitialSync(engine *sync.Engine) {

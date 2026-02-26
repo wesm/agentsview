@@ -44,12 +44,18 @@ END;
 
 // DB manages a write connection and a read-only pool.
 type DB struct {
+	path   string
 	writer *sql.DB
 	reader *sql.DB
 	mu     sync.Mutex // serializes writes
 
 	cursorMu     sync.RWMutex
 	cursorSecret []byte
+}
+
+// Path returns the file path of the database.
+func (db *DB) Path() string {
+	return db.path
 }
 
 // SetCursorSecret updates the secret key used for cursor signing.
@@ -232,7 +238,7 @@ func openAndInit(path string) (*DB, error) {
 	}
 	reader.SetMaxOpenConns(4)
 
-	db := &DB{writer: writer, reader: reader}
+	db := &DB{path: path, writer: writer, reader: reader}
 
 	db.cursorSecret = make([]byte, 32)
 	if _, err := rand.Read(db.cursorSecret); err != nil {
@@ -333,6 +339,42 @@ func (db *DB) init() error {
 // Close closes both writer and reader connections.
 func (db *DB) Close() error {
 	return errors.Join(db.writer.Close(), db.reader.Close())
+}
+
+// Reopen closes and reopens both connections to the same
+// path. Used after an atomic file swap to pick up the new
+// database contents. Preserves cursorSecret.
+func (db *DB) Reopen() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.reopenLocked()
+}
+
+// reopenLocked performs the reopen while db.mu is already held.
+func (db *DB) reopenLocked() error {
+	_ = db.writer.Close()
+	_ = db.reader.Close()
+
+	writer, err := sql.Open(
+		"sqlite3", makeDSN(db.path, false),
+	)
+	if err != nil {
+		return fmt.Errorf("reopening writer: %w", err)
+	}
+	writer.SetMaxOpenConns(1)
+
+	reader, err := sql.Open(
+		"sqlite3", makeDSN(db.path, true),
+	)
+	if err != nil {
+		writer.Close()
+		return fmt.Errorf("reopening reader: %w", err)
+	}
+	reader.SetMaxOpenConns(4)
+
+	db.writer = writer
+	db.reader = reader
+	return nil
 }
 
 // Update executes fn within a write lock and transaction.
