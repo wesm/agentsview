@@ -54,13 +54,15 @@ func TestInsights_InsertDateRange(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
-	id, err := d.InsertInsight(Insight{
+	want := &Insight{
 		Type:     "daily_activity",
 		DateFrom: "2025-01-13",
 		DateTo:   "2025-01-17",
 		Agent:    "claude",
 		Content:  "Weekly summary",
-	})
+	}
+
+	id, err := d.InsertInsight(*want)
 	if err != nil {
 		t.Fatalf("InsertInsight: %v", err)
 	}
@@ -72,17 +74,9 @@ func TestInsights_InsertDateRange(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected insight, got nil")
 	}
-	if got.DateFrom != "2025-01-13" {
-		t.Errorf(
-			"date_from = %q, want 2025-01-13",
-			got.DateFrom,
-		)
-	}
-	if got.DateTo != "2025-01-17" {
-		t.Errorf(
-			"date_to = %q, want 2025-01-17",
-			got.DateTo,
-		)
+
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(Insight{}, "ID", "CreatedAt")); diff != "" {
+		t.Errorf("Insight mismatch (-want +got):\n%s", diff)
 	}
 }
 

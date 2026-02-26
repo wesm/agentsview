@@ -55,6 +55,32 @@ func requireCount(
 	}
 }
 
+// requireSessions lists sessions with filter and asserts the exact IDs returned.
+func requireSessions(
+	t *testing.T, d *DB, f SessionFilter, wantIDs []string,
+) {
+	t.Helper()
+	page, err := d.ListSessions(
+		context.Background(), f,
+	)
+	requireNoError(t, err, "ListSessions")
+	
+	if len(page.Sessions) != len(wantIDs) {
+		t.Fatalf("got %d sessions, want %d. got: %v, want: %v", len(page.Sessions), len(wantIDs), collectIDs(page.Sessions), wantIDs)
+	}
+	
+	gotMap := make(map[string]bool)
+	for _, s := range page.Sessions {
+		gotMap[s.ID] = true
+	}
+	
+	for _, id := range wantIDs {
+		if !gotMap[id] {
+			t.Errorf("missing expected session %q", id)
+		}
+	}
+}
+
 // requireNoError fails the test if err is not nil.
 func requireNoError(t *testing.T, err error, msg string) {
 	t.Helper()
@@ -895,38 +921,38 @@ func TestFindPruneCandidates(t *testing.T) {
 	tests := []struct {
 		name   string
 		filter PruneFilter
-		want   int
+		want   []string
 	}{
 		{
 			name:   "ProjectSubstring",
 			filter: PruneFilter{Project: "spicy"},
-			want:   3,
+			want:   []string{"s1", "s2", "s4"},
 		},
 		{
 			name:   "MaxMessages",
 			filter: PruneFilter{MaxMessages: Ptr(2)},
-			want:   3,
+			want:   []string{"s1", "s2", "s3"},
 		},
 		{
 			name: "BeforeDate",
 			filter: PruneFilter{
 				Before: "2024-02-01",
 			},
-			want: 1,
+			want: []string{"s1"},
 		},
 		{
 			name: "FirstMessagePrefix",
 			filter: PruneFilter{
 				FirstMessage: "You are a code reviewer",
 			},
-			want: 2,
+			want: []string{"s1", "s3"},
 		},
 		{
 			name: "CombinedProjectAndMaxMessages",
 			filter: PruneFilter{
 				Project: "spicytakes", MaxMessages: Ptr(2),
 			},
-			want: 2,
+			want: []string{"s1", "s2"},
 		},
 		{
 			name: "AllFiltersNoMatch",
@@ -936,7 +962,7 @@ func TestFindPruneCandidates(t *testing.T) {
 				Before:       "2024-02-01",
 				FirstMessage: "Analyze",
 			},
-			want: 0,
+			want: []string{},
 		},
 	}
 
@@ -944,9 +970,20 @@ func TestFindPruneCandidates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := d.FindPruneCandidates(tt.filter)
 			requireNoError(t, err, "FindPruneCandidates")
-			if len(got) != tt.want {
-				t.Errorf("got %d candidates, want %d",
-					len(got), tt.want)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d candidates, want %d. got: %v",
+					len(got), len(tt.want), collectIDs(got))
+			}
+			
+			gotMap := make(map[string]bool)
+			for _, s := range got {
+				gotMap[s.ID] = true
+			}
+			
+			for _, id := range tt.want {
+				if !gotMap[id] {
+					t.Errorf("missing expected session %q", id)
+				}
 			}
 		})
 	}
