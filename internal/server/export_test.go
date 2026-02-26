@@ -40,20 +40,15 @@ func stubServer(
 	return httptest.NewServer(
 		http.HandlerFunc(
 			func(w http.ResponseWriter, r *http.Request) {
-				if expectedMethod != "" && r.Method != expectedMethod {
+				if r.Method != expectedMethod {
 					t.Errorf("expected method %q, got %q", expectedMethod, r.Method)
 				}
 				if r.Header.Get("User-Agent") != "agentsview" {
 					t.Errorf("expected User-Agent %q, got %q", "agentsview", r.Header.Get("User-Agent"))
 				}
-				auth := r.Header.Get("Authorization")
-				if auth == "" {
-					t.Errorf("missing Authorization header")
-				} else if expectedToken != "" {
-					expectedAuth := "token " + expectedToken
-					if auth != expectedAuth {
-						t.Errorf("expected Authorization header %q, got %q", expectedAuth, auth)
-					}
+				expectedAuth := "token " + expectedToken
+				if auth := r.Header.Get("Authorization"); auth != expectedAuth {
+					t.Errorf("expected Authorization header %q, got %q", expectedAuth, auth)
 				}
 				w.WriteHeader(status)
 				if body != "" {
@@ -603,7 +598,7 @@ func TestCreateGist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ts := stubServer(t, "POST", "tok", tt.respStatus, tt.respBody)
+			ts := stubServer(t, http.MethodPost, "tok", tt.respStatus, tt.respBody)
 			defer ts.Close()
 
 			ctx := context.Background()
@@ -689,7 +684,7 @@ func TestValidateGithubToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ts := stubServer(t, "GET", "tok", tt.respStatus, tt.respBody)
+			ts := stubServer(t, http.MethodGet, "tok", tt.respStatus, tt.respBody)
 			defer ts.Close()
 
 			ctx := context.Background()
