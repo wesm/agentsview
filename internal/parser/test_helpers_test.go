@@ -156,9 +156,7 @@ func assertToolCall(t *testing.T, i int, got, want ParsedToolCall) {
 	if want.SkillName != "" {
 		assertToolCallField(t, i, "SkillName", got.SkillName, want.SkillName)
 	}
-	if want.SubagentSessionID != "" {
-		assertToolCallField(t, i, "SubagentSessionID", got.SubagentSessionID, want.SubagentSessionID)
-	}
+	assertToolCallField(t, i, "SubagentSessionID", got.SubagentSessionID, want.SubagentSessionID)
 }
 
 func assertToolCalls(
