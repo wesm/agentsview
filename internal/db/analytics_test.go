@@ -8,18 +8,24 @@ import (
 )
 
 type seedStats struct {
-	TotalSessions  int
-	TotalMessages  int
-	ActiveProjects int
+	TotalSessions          int
+	TotalMessages          int
+	TotalUserMessages      int
+	TotalAssistantMessages int
+	ActiveProjects         int
+	ActiveDays             int
 }
 
 func seedAnalyticsData(t *testing.T, d *DB) seedStats {
 	t.Helper()
 
 	stats := seedStats{
-		TotalSessions:  5,
-		TotalMessages:  80,
-		ActiveProjects: 2,
+		TotalSessions:          5,
+		TotalMessages:          80,
+		TotalUserMessages:      41,
+		TotalAssistantMessages: 39,
+		ActiveProjects:         2,
+		ActiveDays:             3,
 	}
 
 	// Project A: 3 sessions across 2 days, mixed agents
@@ -171,8 +177,8 @@ func TestGetAnalyticsSummary(t *testing.T) {
 		if s.ActiveProjects != stats.ActiveProjects {
 			t.Errorf("ActiveProjects = %d, want %d", s.ActiveProjects, stats.ActiveProjects)
 		}
-		if s.ActiveDays != 3 {
-			t.Errorf("ActiveDays = %d, want 3", s.ActiveDays)
+		if s.ActiveDays != stats.ActiveDays {
+			t.Errorf("ActiveDays = %d, want %d", s.ActiveDays, stats.ActiveDays)
 		}
 		if s.MostActive != "project-beta" {
 			t.Errorf("MostActive = %q, want project-beta", s.MostActive)
@@ -246,8 +252,8 @@ func TestGetAnalyticsActivity(t *testing.T) {
 		if resp.Granularity != "day" {
 			t.Errorf("Granularity = %q, want day", resp.Granularity)
 		}
-		if len(resp.Series) != 3 {
-			t.Fatalf("len(Series) = %d, want 3", len(resp.Series))
+		if len(resp.Series) != stats.ActiveDays {
+			t.Fatalf("len(Series) = %d, want %d", len(resp.Series), stats.ActiveDays)
 		}
 		// Day 1: 2 sessions (a1, a2)
 		if resp.Series[0].Sessions != 2 {
@@ -286,11 +292,11 @@ func TestGetAnalyticsActivity(t *testing.T) {
 		if totalUser+totalAsst != stats.TotalMessages {
 			t.Errorf("total messages = %d, want %d", totalUser+totalAsst, stats.TotalMessages)
 		}
-		if totalUser == 0 {
-			t.Error("expected non-zero user messages")
+		if totalUser != stats.TotalUserMessages {
+			t.Errorf("total user messages = %d, want %d", totalUser, stats.TotalUserMessages)
 		}
-		if totalAsst == 0 {
-			t.Error("expected non-zero assistant messages")
+		if totalAsst != stats.TotalAssistantMessages {
+			t.Errorf("total assistant messages = %d, want %d", totalAsst, stats.TotalAssistantMessages)
 		}
 	})
 }
@@ -306,8 +312,8 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 			t.Errorf("Metric = %q, want messages", resp.Metric)
 		}
 		// 3 days in range: Jun 1, 2, 3
-		if len(resp.Entries) != 3 {
-			t.Fatalf("len(Entries) = %d, want 3", len(resp.Entries))
+		if len(resp.Entries) != stats.ActiveDays {
+			t.Fatalf("len(Entries) = %d, want %d", len(resp.Entries), stats.ActiveDays)
 		}
 
 		totalMessages := 0
@@ -390,6 +396,15 @@ func TestGetAnalyticsProjects(t *testing.T) {
 		if len(resp.Projects) != stats.ActiveProjects {
 			t.Fatalf("len(Projects) = %d, want %d", len(resp.Projects), stats.ActiveProjects)
 		}
+
+		totalMessages := 0
+		for _, p := range resp.Projects {
+			totalMessages += p.Messages
+		}
+		if totalMessages != stats.TotalMessages {
+			t.Errorf("total messages across projects = %d, want %d", totalMessages, stats.TotalMessages)
+		}
+
 		// Sorted by message count desc: beta (45) > alpha (35)
 		if resp.Projects[0].Name != "project-beta" {
 			t.Errorf("first project = %q, want project-beta",
