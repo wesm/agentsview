@@ -14,6 +14,7 @@ export interface SyncStats {
   total_sessions: number;
   synced: number;
   skipped: number;
+  failed: number;
 }
 
 export interface SyncStatus {

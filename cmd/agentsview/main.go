@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -113,12 +112,15 @@ Data is stored in ~/.agentsview/ by default.
 `, version)
 }
 
-// warnMissingDirs logs a warning for each configured
-// directory that does not exist.
+// warnMissingDirs prints a warning to stderr for each
+// configured directory that does not exist.
 func warnMissingDirs(dirs []string, label string) {
 	for _, d := range dirs {
 		if _, err := os.Stat(d); err != nil {
-			log.Printf("warning: %s directory not found: %s", label, d)
+			fmt.Fprintf(os.Stderr,
+				"warning: %s directory not found: %s\n",
+				label, d,
+			)
 		}
 	}
 }
@@ -227,7 +229,7 @@ func setupLogFile(dataDir string) {
 		log.Printf("warning: cannot open log file: %v", err)
 		return
 	}
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	log.SetOutput(f)
 }
 
 // truncateLogFile truncates the log file if it exceeds limit
@@ -275,11 +277,17 @@ func runInitialSync(engine *sync.Engine) {
 	fmt.Println("Running initial sync...")
 	t := time.Now()
 	stats := engine.SyncAll(printSyncProgress)
-	fmt.Printf(
-		"\nSync complete: %d sessions (%d synced, %d skipped) in %s\n",
-		stats.TotalSessions, stats.Synced, stats.Skipped,
-		time.Since(t).Round(time.Millisecond),
+	summary := fmt.Sprintf(
+		"\nSync complete: %d sessions synced",
+		stats.Synced,
 	)
+	if stats.Failed > 0 {
+		summary += fmt.Sprintf(", %d failed", stats.Failed)
+	}
+	summary += fmt.Sprintf(
+		" in %s\n", time.Since(t).Round(time.Millisecond),
+	)
+	fmt.Print(summary)
 }
 
 func printSyncProgress(p sync.Progress) {

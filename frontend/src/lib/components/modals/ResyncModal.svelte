@@ -117,20 +117,14 @@
       {:else if view === "done"}
         <div class="done-view">
           {#if sync.lastSyncStats}
-            <div class="stats-grid">
-              <span class="stat-label">Synced</span>
-              <span class="stat-value">
-                {sync.lastSyncStats.synced}
-              </span>
-              <span class="stat-label">Skipped</span>
-              <span class="stat-value">
-                {sync.lastSyncStats.skipped}
-              </span>
-              <span class="stat-label">Total</span>
-              <span class="stat-value">
-                {sync.lastSyncStats.total_sessions}
-              </span>
-            </div>
+            <p class="done-summary">
+              Sessions synced: {sync.lastSyncStats.synced}
+            </p>
+            {#if sync.lastSyncStats.failed > 0}
+              <p class="done-warning">
+                Failed: {sync.lastSyncStats.failed}
+              </p>
+            {/if}
           {/if}
           <div class="done-actions">
             <button
@@ -215,20 +209,15 @@
     gap: 16px;
   }
 
-  .stats-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 12px;
+  .done-summary {
     font-size: 12px;
-  }
-
-  .stat-label {
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-
-  .stat-value {
     color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .done-warning {
+    font-size: 12px;
+    color: var(--accent-orange, #e09040);
     font-variant-numeric: tabular-nums;
   }
 
