@@ -59,26 +59,26 @@ func TestExtractProjectFromCwd(t *testing.T) {
 		cwd  string
 		want string
 	}{
-		{"/Users/alice/code/my-app", "my_app"},
-		{"/home/user/projects/api-server", "api_server"},
-		{"", ""},
-		{"/", ""},
-		{".", ""},
-		{"..", ""},
+		{cwd: "/Users/alice/code/my-app", want: "my_app"},
+		{cwd: "/home/user/projects/api-server", want: "api_server"},
+		{cwd: ""},
+		{cwd: "/"},
+		{cwd: "."},
+		{cwd: ".."},
 	}
 
 	// Platform-specific behavior for Windows paths
 	if runtime.GOOS == "windows" {
 		tests = append(tests, []struct{ cwd, want string }{
-			{`C:\Users\me\my-app`, "my_app"},
-			{`D:\projects\frontend`, "frontend"},
-			{`/mixed\path/to\project`, "project"},
+			{cwd: `C:\Users\me\my-app`, want: "my_app"},
+			{cwd: `D:\projects\frontend`, want: "frontend"},
+			{cwd: `/mixed\path/to\project`, want: "project"},
 		}...)
 	} else {
 		tests = append(tests, []struct{ cwd, want string }{
-			{`C:\Users\me\my-app`, ""},
-			{`D:\projects\frontend`, ""},
-			{`/mixed\path/to\project`, ""},
+			{cwd: `C:\Users\me\my-app`},
+			{cwd: `D:\projects\frontend`},
+			{cwd: `/mixed\path/to\project`},
 		}...)
 	}
 
