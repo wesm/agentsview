@@ -153,7 +153,7 @@ func extractGeminiContent(
 				if subj != "" {
 					parts = append(parts,
 						fmt.Sprintf(
-							"[Thinking: %s]\n%s", subj, desc,
+							"[Thinking]\n%s\n%s", subj, desc,
 						),
 					)
 				} else {

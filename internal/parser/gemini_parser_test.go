@@ -42,7 +42,7 @@ func TestParseGeminiSession_ToolCalls(t *testing.T) {
 		assert.Equal(t, 2, len(msgs))
 		assert.True(t, msgs[1].HasToolUse)
 		assert.True(t, msgs[1].HasThinking)
-		assert.True(t, strings.Contains(msgs[1].Content, "[Thinking: Planning]"))
+		assert.True(t, strings.Contains(msgs[1].Content, "[Thinking]\nPlanning\n"))
 		assert.True(t, strings.Contains(msgs[1].Content, "[Read: main.go]"))
 		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolName: "read_file", Category: "Read"}})
 	})
