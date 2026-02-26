@@ -394,6 +394,7 @@ func (e *Engine) ResyncAll(
 		stats.Warnings = append(stats.Warnings,
 			"close before swap failed: "+err.Error(),
 		)
+		newDB.Close()
 		removeTempDB(tempPath)
 		// Connections may be partially closed; reopen to
 		// restore service before returning.

@@ -1673,6 +1673,11 @@ func TestResyncAllReplacesMessageContent(t *testing.T) {
 		t.Fatal("SyncAll should not have replaced content")
 	}
 
+	// Capture FTS state before resync so a regression that
+	// breaks FTS isn't masked by HasFTS() returning false
+	// post-resync.
+	hadFTS := env.db.HasFTS()
+
 	// ResyncAll should re-parse and replace message content.
 	env.engine.ResyncAll(nil)
 	msgs = fetchMessages(t, env.db, fullID)
@@ -1695,8 +1700,13 @@ func TestResyncAllReplacesMessageContent(t *testing.T) {
 	}
 
 	// FTS search should work after resync (index was dropped
-	// and rebuilt). Skip if FTS5 module is unavailable.
-	if env.db.HasFTS() {
+	// and rebuilt).
+	if hadFTS {
+		if !env.db.HasFTS() {
+			t.Fatal(
+				"FTS available before resync but not after",
+			)
+		}
 		page, err := env.db.Search(
 			context.Background(),
 			db.SearchFilter{Query: "explanation"},
