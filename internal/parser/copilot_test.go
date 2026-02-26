@@ -250,7 +250,12 @@ func TestParseCopilotSession_ObjectArguments(t *testing.T) {
 
 	_, msgs := parseAndValidateHelper(t, path, "m", 3)
 
-	assertToolCallField(t, 0, "InputJSON", msgs[1].ToolCalls[0].InputJSON, `{"pattern":"*.go"}`)
+	assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{
+		ToolName:  "glob",
+		Category:  "Glob",
+		ToolUseID: "tc-5",
+		InputJSON: `{"pattern":"*.go"}`,
+	}})
 }
 
 func TestCopilotUserMessageCount(t *testing.T) {

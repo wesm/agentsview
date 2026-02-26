@@ -195,13 +195,12 @@ func TestParseOpenCodeDB_ToolParts(t *testing.T) {
 	assertEq(t, "HasToolUse", ast.HasToolUse, true)
 	assertEq(t, "ToolCalls len", len(ast.ToolCalls), 1)
 
-	tc := ast.ToolCalls[0]
-	assertToolCallField(t, 0, "ToolName", tc.ToolName, "read")
-	assertToolCallField(t, 0, "Category", tc.Category, "Read")
-	assertToolCallField(t, 0, "ToolUseID", tc.ToolUseID, "call_1")
-	if tc.InputJSON == "" {
-		t.Error("expected non-empty InputJSON")
-	}
+	assertToolCalls(t, ast.ToolCalls, []ParsedToolCall{{
+		ToolName:  "read",
+		Category:  "Read",
+		ToolUseID: "call_1",
+		InputJSON: `{"file_path":"main.go"}`,
+	}})
 }
 
 func TestParseOpenCodeDB_EmptySession(t *testing.T) {
