@@ -47,11 +47,13 @@
   data-session-id={session.id}
   onclick={() => sessions.selectSession(session.id)}
 >
-  <span
-    class="agent-pill"
-    class:recently-active={recentlyActive}
-    style:background={agentColor}
-  >{session.agent}</span>
+  <div class="agent-indicator" style:--agent-c={agentColor}>
+    <span
+      class="agent-dot"
+      class:recently-active={recentlyActive}
+    ></span>
+    <span class="agent-label">{session.agent}</span>
+  </div>
   <div class="session-info">
     <div class="session-name">{displayName}</div>
     <div class="session-meta">
@@ -87,20 +89,22 @@
     border-left-color: var(--accent-blue);
   }
 
-  .agent-pill {
-    font-size: 8px;
-    font-weight: 600;
-    padding: 1px 5px;
-    border-radius: 6px;
-    color: white;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+  .agent-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     flex-shrink: 0;
-    line-height: 1.4;
-    white-space: nowrap;
   }
 
-  .agent-pill.recently-active {
+  .agent-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--agent-c);
+    flex-shrink: 0;
+  }
+
+  .agent-dot.recently-active {
     animation: pulse-glow 3s ease-in-out infinite;
     will-change: box-shadow;
   }
@@ -117,6 +121,15 @@
         transparent
       );
     }
+  }
+
+  .agent-label {
+    font-size: 9px;
+    font-weight: 550;
+    color: var(--agent-c);
+    text-transform: capitalize;
+    letter-spacing: 0.01em;
+    line-height: 1;
   }
 
   .session-info {
