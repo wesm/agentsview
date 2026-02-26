@@ -1117,7 +1117,7 @@ func TestCORSAllowMethods(t *testing.T) {
 		"Access-Control-Allow-Methods",
 	)
 	for _, want := range []string{
-		http.MethodGet, "POST", "DELETE", "OPTIONS",
+		http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions,
 	} {
 		if !strings.Contains(methods, want) {
 			t.Errorf(
