@@ -160,16 +160,9 @@ func TestSyncEngineIntegration(t *testing.T) {
 	}
 
 	// Verify session was stored
-	assertSessionState(t, env.db, "test-session", func(sess *db.Session) {
-		if sess.Project != "my_app" {
-			t.Errorf("project = %q, want %q",
-				sess.Project, "my_app")
-		}
-		if sess.MessageCount != 2 {
-			t.Errorf("message_count = %d, want 2",
-				sess.MessageCount)
-		}
-	})
+	assertSessionProject(t, env.db, "test-session", "my_app")
+	assertSessionMessageCount(t, env.db, "test-session", 2)
+	assertSessionState(t, env.db, "test-session", nil)
 
 	// Verify messages
 	assertMessageRoles(
@@ -289,12 +282,10 @@ func TestSyncEngineCodex(t *testing.T) {
 		t.Errorf("total = %d, want 1", stats.TotalSessions)
 	}
 
+	assertSessionProject(t, env.db, "codex:test-uuid", "api")
 	assertSessionState(t, env.db, "codex:test-uuid", func(sess *db.Session) {
 		if sess.Agent != "codex" {
 			t.Errorf("agent = %q", sess.Agent)
-		}
-		if sess.Project != "api" {
-			t.Errorf("project = %q", sess.Project)
 		}
 	})
 }
@@ -846,14 +837,9 @@ func TestSyncPathsGemini(t *testing.T) {
 				t.Errorf("agent = %q, want gemini",
 					sess.Agent)
 			}
-			if sess.MessageCount != 2 {
-				t.Errorf(
-					"message_count = %d, want 2",
-					sess.MessageCount,
-				)
-			}
 		},
 	)
+	assertSessionMessageCount(t, env.db, "gemini:"+sessionID, 2)
 }
 
 func TestSyncPathsCodexRejectsFlat(t *testing.T) {
@@ -1065,12 +1051,9 @@ func TestSyncSubagentSetsParentSessionID(t *testing.T) {
 				t.Errorf("agent = %q, want claude",
 					sess.Agent)
 			}
-			if sess.MessageCount != 2 {
-				t.Errorf("message_count = %d, want 2",
-					sess.MessageCount)
-			}
 		},
 	)
+	assertSessionMessageCount(t, env.db, "agent-worker1", 2)
 
 	// Verify FindSourceFile works for subagent
 	src := env.engine.FindSourceFile("agent-worker1")
@@ -1224,12 +1207,9 @@ func TestSyncEngineOpenCodeBulkSync(t *testing.T) {
 				t.Errorf("agent = %q, want opencode",
 					sess.Agent)
 			}
-			if sess.MessageCount != 2 {
-				t.Errorf("message_count = %d, want 2",
-					sess.MessageCount)
-			}
 		},
 	)
+	assertSessionMessageCount(t, env.db, agentviewID, 2)
 	assertMessageContent(
 		t, env.db, agentviewID,
 		"original question", "original answer",
@@ -1460,16 +1440,10 @@ func TestSyncEnginePostFilterCounts(t *testing.T) {
 	runSyncAndAssert(t, env.engine, 1, 0)
 
 	// Verify stored counts match post-filter values.
+	assertSessionMessageCount(t, env.db, "filter-count", 3)
 	assertSessionState(
 		t, env.db, "filter-count",
 		func(sess *db.Session) {
-			if sess.MessageCount != 3 {
-				t.Errorf(
-					"MessageCount = %d, want 3"+
-						" (post-filter)",
-					sess.MessageCount,
-				)
-			}
 			if sess.UserMessageCount != 1 {
 				t.Errorf(
 					"UserMessageCount = %d, want 1",
@@ -1560,16 +1534,10 @@ func TestSyncSingleSessionPostFilterCounts(t *testing.T) {
 	}
 
 	// Counts should be corrected by writeSessionFull.
+	assertSessionMessageCount(t, env.db, "filter-single", 3)
 	assertSessionState(
 		t, env.db, "filter-single",
 		func(sess *db.Session) {
-			if sess.MessageCount != 3 {
-				t.Errorf(
-					"MessageCount = %d, want 3"+
-						" (post-filter)",
-					sess.MessageCount,
-				)
-			}
 			if sess.UserMessageCount != 1 {
 				t.Errorf(
 					"UserMessageCount = %d, want 1",
@@ -1651,27 +1619,19 @@ func TestSyncForkDetection(t *testing.T) {
 		t.Fatalf("expected at least 2 synced sessions, got %d", stats.Synced)
 	}
 
-	main, err := env.db.GetSession(context.Background(), "parent-uuid")
-	if err != nil || main == nil {
-		t.Fatalf("main session not found: %v", err)
-	}
-	if main.MessageCount != 10 {
-		t.Errorf("main message_count = %d, want 10", main.MessageCount)
-	}
+	assertSessionMessageCount(t, env.db, "parent-uuid", 10)
 
-	fork, err := env.db.GetSession(context.Background(), "parent-uuid-i")
-	if err != nil || fork == nil {
-		t.Fatalf("fork session not found: %v", err)
-	}
-	if fork.MessageCount != 2 {
-		t.Errorf("fork message_count = %d, want 2", fork.MessageCount)
-	}
-	if fork.ParentSessionID == nil || *fork.ParentSessionID != "parent-uuid" {
-		t.Errorf("fork parent = %v, want parent-uuid", fork.ParentSessionID)
-	}
-	if fork.RelationshipType != "fork" {
-		t.Errorf("fork relationship_type = %q, want fork", fork.RelationshipType)
-	}
+	assertSessionState(t, env.db, "parent-uuid-i", func(sess *db.Session) {
+		if sess.MessageCount != 2 {
+			t.Errorf("fork message_count = %d, want 2", sess.MessageCount)
+		}
+		if sess.ParentSessionID == nil || *sess.ParentSessionID != "parent-uuid" {
+			t.Errorf("fork parent = %v, want parent-uuid", sess.ParentSessionID)
+		}
+		if sess.RelationshipType != "fork" {
+			t.Errorf("fork relationship_type = %q, want fork", sess.RelationshipType)
+		}
+	})
 }
 
 func TestSyncSmallGapRetry(t *testing.T) {
@@ -1695,11 +1655,5 @@ func TestSyncSmallGapRetry(t *testing.T) {
 		t.Fatalf("expected 1 synced session, got %d", stats.Synced)
 	}
 
-	main, err := env.db.GetSession(context.Background(), "retry-uuid")
-	if err != nil || main == nil {
-		t.Fatalf("session not found: %v", err)
-	}
-	if main.MessageCount != 4 {
-		t.Errorf("message_count = %d, want 4", main.MessageCount)
-	}
+	assertSessionMessageCount(t, env.db, "retry-uuid", 4)
 }
