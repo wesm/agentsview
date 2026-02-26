@@ -331,7 +331,13 @@ func (e *Engine) ResyncAll(
 	tempPath := origPath + resyncTempSuffix
 
 	// Snapshot old session count to detect empty-discovery.
-	oldStats, _ := origDB.GetStats(context.Background())
+	// Fail closed: if we can't read stats, assume the old DB
+	// has data worth protecting.
+	oldStats, err := origDB.GetStats(context.Background())
+	if err != nil {
+		log.Printf("resync: get old stats: %v", err)
+		oldStats.SessionCount = 1
+	}
 
 	// Clean up stale temp DB from a prior crash.
 	removeTempDB(tempPath)
@@ -369,7 +375,7 @@ func (e *Engine) ResyncAll(
 	//   disk issues)
 	// A few permanent parse failures are tolerated since those
 	// files were broken in the old DB too.
-	emptyDiscovery := stats.TotalSessions == 0 &&
+	emptyDiscovery := stats.filesDiscovered == 0 &&
 		stats.filesOK == 0 &&
 		oldStats.SessionCount > 0
 	abortSwap := emptyDiscovery ||
@@ -421,8 +427,18 @@ func (e *Engine) ResyncAll(
 	if err := newDB.CopyInsightsFrom(origPath); err != nil {
 		log.Printf("resync: copy insights: %v", err)
 		stats.Warnings = append(stats.Warnings,
-			"insights copy failed: "+err.Error(),
+			"insights copy failed, aborting swap: "+
+				err.Error(),
 		)
+		newDB.Close()
+		removeTempDB(tempPath)
+		if rerr := origDB.Reopen(); rerr != nil {
+			log.Printf("resync: recovery reopen: %v", rerr)
+		}
+		e.mu.Lock()
+		e.lastSyncStats = stats
+		e.mu.Unlock()
+		return stats
 	}
 	log.Printf(
 		"resync: copy insights: %s",
@@ -689,6 +705,7 @@ func (e *Engine) collectAndBatch(
 ) SyncStats {
 	var stats SyncStats
 	stats.TotalSessions = total
+	stats.filesDiscovered = total
 
 	progress := Progress{
 		Phase:         PhaseSyncing,

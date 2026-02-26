@@ -44,7 +44,8 @@ type SyncStats struct {
 	Failed        int      `json:"failed"`
 	Warnings      []string `json:"warnings,omitempty"`
 
-	filesOK int // unexported: file-level success counter
+	filesOK         int // unexported: file-level success counter
+	filesDiscovered int // file-based total, excludes OpenCode
 }
 
 // RecordSkip increments the skipped session counter.
