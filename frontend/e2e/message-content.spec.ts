@@ -182,15 +182,15 @@ test.describe("Mixed content rendering", () => {
     const sid = await selectSession(page, project, count);
     await expectSessionLoaded(page, sid, displayRows);
 
-    const thinkingBlock = page.locator(".thinking-block");
+    const thinkingBlock = page.locator(".thinking-block").first();
     await expect(thinkingBlock).toBeVisible();
 
     // Content should be hidden (collapsed by default)
-    const thinkingContent = page.locator(".thinking-content");
+    const thinkingContent = thinkingBlock.locator(".thinking-content");
     await expect(thinkingContent).not.toBeVisible();
 
     // Click to expand
-    const thinkingHeader = page.locator(".thinking-header");
+    const thinkingHeader = thinkingBlock.locator(".thinking-header");
     await thinkingHeader.click();
 
     // Content should now be visible

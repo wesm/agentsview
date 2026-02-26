@@ -70,12 +70,20 @@ func TestMustLoadConfig(t *testing.T) {
 }
 
 func TestSetupLogFile(t *testing.T) {
-	// Save and restore the global logger output.
 	origOutput := log.Writer()
-	t.Cleanup(func() { log.SetOutput(origOutput) })
 
 	dir := t.TempDir()
 	setupLogFile(dir)
+
+	// Close the log file before TempDir cleanup removes the
+	// directory. On Windows, open files can't be deleted.
+	// Registered after TempDir so LIFO ordering runs this first.
+	t.Cleanup(func() {
+		if c, ok := log.Writer().(io.Closer); ok {
+			c.Close()
+		}
+		log.SetOutput(origOutput)
+	})
 
 	// Log something and verify it reaches the file.
 	log.Print("test-log-message")
