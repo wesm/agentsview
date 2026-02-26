@@ -74,10 +74,7 @@ func TestContentTypeWrapper(t *testing.T) {
 			resp := w.Result()
 			defer resp.Body.Close()
 
-			gotCT := resp.Header.Get("Content-Type")
-			if tt.wantContentType == "" && gotCT == "application/json" {
-				t.Errorf("Content-Type = %q; wrapper should not force application/json on non-trigger status", gotCT)
-			} else if tt.wantContentType != "" && gotCT != tt.wantContentType {
+			if gotCT := resp.Header.Get("Content-Type"); gotCT != tt.wantContentType {
 				t.Errorf("Content-Type = %q, want %q", gotCT, tt.wantContentType)
 			}
 
@@ -89,40 +86,10 @@ func TestContentTypeWrapper(t *testing.T) {
 	}
 }
 
-// TestWithTimeoutTriggersOnSlowHandler verifies that withTimeout produces a
-// 503 JSON timeout response when the handler exceeds the configured duration.
-func TestWithTimeoutTriggersOnSlowHandler(t *testing.T) {
-	t.Parallel()
-
-	srv := testServer(t, 10*time.Millisecond)
-
-	// Handler that blocks well past the timeout.
-	slow := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-		case <-time.After(5 * time.Second):
-		}
-		// If we reach here after context cancel, TimeoutHandler
-		// already wrote the 503.
-	})
-
-	handler := srv.withTimeout(slow)
-	ts := httptest.NewServer(handler)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/test")
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	assertTimeoutResponse(t, resp)
-}
-
-// TestRoutesTimeoutWiring verifies that API routes are wrapped with timeout
-// middleware (positive assertion) and that export/SPA routes are NOT wrapped
-// (negative assertion).
-func TestRoutesTimeoutWiring(t *testing.T) {
+// TestMiddlewareTimeout verifies that API routes are wrapped with timeout
+// middleware (which produces a 503 JSON timeout response when the handler
+// exceeds the configured duration) and that export/SPA routes are NOT wrapped.
+func TestMiddlewareTimeout(t *testing.T) {
 	t.Parallel()
 
 	srv := testServer(
@@ -154,9 +121,7 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 			defer resp.Body.Close()
 
 			if tt.wantTimeout {
-				if !isTimeoutResponse(t, resp) {
-					t.Errorf("%s: expected timeout 503, got %d", tt.path, resp.StatusCode)
-				}
+				assertTimeoutResponse(t, resp)
 			} else {
 				if isTimeoutResponse(t, resp) {
 					t.Errorf("%s: unexpected timeout for unwrapped route", tt.path)
