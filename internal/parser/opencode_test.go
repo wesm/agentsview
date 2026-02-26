@@ -193,7 +193,6 @@ func TestParseOpenCodeDB_ToolParts(t *testing.T) {
 	ast := msgs[1]
 	assertEq(t, "HasThinking", ast.HasThinking, true)
 	assertEq(t, "HasToolUse", ast.HasToolUse, true)
-	assertEq(t, "ToolCalls len", len(ast.ToolCalls), 1)
 
 	assertToolCalls(t, ast.ToolCalls, []ParsedToolCall{{
 		ToolName:  "read",

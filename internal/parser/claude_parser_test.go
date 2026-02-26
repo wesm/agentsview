@@ -34,6 +34,7 @@ func TestParseClaudeSession_Basic(t *testing.T) {
 	assertMessage(t, msgs[0], RoleUser, "")
 	assertMessage(t, msgs[1], RoleAssistant, "")
 	assert.True(t, msgs[1].HasToolUse)
+	assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolUseID: "toolu_1", ToolName: "Read", Category: "Read", InputJSON: `{"file_path":"src/auth.ts"}`}})
 	assert.Equal(t, 0, msgs[0].Ordinal)
 	assert.Equal(t, 1, msgs[1].Ordinal)
 }

@@ -91,7 +91,7 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
 		want := "[Bash: stdin -> sess-42]\nyes\\n"
 		assert.Equal(t, want, msgs[1].Content)
-		assert.Equal(t, "Bash", msgs[1].ToolCalls[0].Category)
+		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolName: "write_stdin", Category: "Bash"}})
 	})
 
 	t.Run("function call no name skipped", func(t *testing.T) {
