@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -431,7 +432,11 @@ func (db *DB) reopenLocked() error {
 	// retired for at least one full Reopen cycle, so all
 	// in-flight queries on them have long since completed.
 	for _, p := range db.retired {
-		_ = p.Close()
+		if err := p.Close(); err != nil {
+			log.Printf(
+				"warning: closing retired db pool: %v", err,
+			)
+		}
 	}
 	db.retired = db.retired[:0]
 
