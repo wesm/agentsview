@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	gosync "sync"
@@ -199,7 +200,219 @@ func (s *Server) githubToken() string {
 
 // Handler returns the http.Handler with middleware applied.
 func (s *Server) Handler() http.Handler {
-	return corsMiddleware(logMiddleware(s.mux))
+	allowedOrigins := buildAllowedOrigins(s.cfg.Host, s.cfg.Port)
+	allowedHosts := buildAllowedHosts(s.cfg.Host, s.cfg.Port)
+	bindAll := isBindAll(s.cfg.Host)
+	bindAllIPs := map[string]bool(nil)
+	if bindAll {
+		bindAllIPs = localInterfaceIPs()
+	}
+	return hostCheckMiddleware(
+		allowedHosts, bindAll, s.cfg.Port, bindAllIPs,
+		corsMiddleware(
+			allowedOrigins, bindAll, s.cfg.Port, bindAllIPs, logMiddleware(s.mux),
+		),
+	)
+}
+
+// buildAllowedHosts returns the set of Host header values that
+// are legitimate for this server. This defends against DNS
+// rebinding attacks where an attacker's domain resolves to
+// 127.0.0.1 — the browser sends the attacker's domain as the
+// Host header, which we reject.
+func buildAllowedHosts(host string, port int) map[string]bool {
+	hosts := make(map[string]bool)
+	add := func(h string) {
+		hosts[net.JoinHostPort(h, strconv.Itoa(port))] = true
+		// Browsers may omit port 80 from the Host header.
+		// IPv6 literals need brackets (e.g., [::1]).
+		if port == 80 {
+			if strings.Contains(h, ":") {
+				hosts["["+h+"]"] = true
+			} else {
+				hosts[h] = true
+			}
+		}
+	}
+	add(host)
+	switch host {
+	case "127.0.0.1":
+		add("localhost")
+	case "localhost":
+		add("127.0.0.1")
+	case "0.0.0.0", "::":
+		add("127.0.0.1")
+		add("localhost")
+		add("::1")
+	case "::1":
+		add("127.0.0.1")
+		add("localhost")
+	}
+	return hosts
+}
+
+// hostCheckMiddleware validates the Host header against expected
+// values to prevent DNS rebinding attacks. Only applied to /api/
+// routes — the SPA fallback is left accessible for flexibility.
+func hostCheckMiddleware(
+	allowedHosts map[string]bool, bindAll bool, port int, allowedIPs map[string]bool, next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			hostAllowed := allowedHosts[r.Host]
+			// In bind-all mode, also allow local-interface IP-literal
+			// hosts on the configured port so LAN clients can reach the
+			// API while still rejecting rebinding via attacker-controlled
+			// domains.
+			if !hostAllowed && bindAll {
+				hostAllowed = isAllowedBindAllHost(r.Host, port, allowedIPs)
+			}
+			if !hostAllowed {
+				http.Error(
+					w, "Forbidden", http.StatusForbidden,
+				)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// httpOrigin formats an HTTP origin string. It uses
+// net.JoinHostPort to handle IPv6 bracket formatting correctly
+// (e.g., [::1]:8080). Browsers omit the port from the Origin
+// header for default ports (80 for HTTP), so for port 80 both
+// forms are returned.
+func httpOrigin(host string, port int) []string {
+	hp := net.JoinHostPort(host, strconv.Itoa(port))
+	origin := "http://" + hp
+	if port == 80 {
+		// net.JoinHostPort brackets IPv6, so use it for the
+		// portless form too: JoinHostPort("::1","") is not
+		// valid, so bracket manually when needed.
+		bare := host
+		if strings.Contains(host, ":") {
+			bare = "[" + host + "]"
+		}
+		return []string{origin, "http://" + bare}
+	}
+	return []string{origin}
+}
+
+// buildAllowedOrigins returns the set of origins that should be
+// permitted by CORS. For loopback addresses, both "127.0.0.1"
+// and "localhost" are allowed because browsers treat them as
+// distinct origins.
+func buildAllowedOrigins(host string, port int) map[string]bool {
+	origins := make(map[string]bool)
+	add := func(h string) {
+		for _, o := range httpOrigin(h, port) {
+			origins[o] = true
+		}
+	}
+	add(host)
+	// When binding to a loopback address, also allow the other
+	// loopback variants because browsers treat them as distinct
+	// origins. When binding to 0.0.0.0 or :: (all interfaces),
+	// allow all loopback origins since that's how browsers will
+	// access a bind-all server.
+	switch host {
+	case "127.0.0.1":
+		add("localhost")
+	case "localhost":
+		add("127.0.0.1")
+	case "0.0.0.0", "::":
+		add("127.0.0.1")
+		add("localhost")
+		add("::1")
+	case "::1":
+		add("127.0.0.1")
+		add("localhost")
+	}
+	return origins
+}
+
+// isBindAll returns true when the server is listening on all
+// interfaces (0.0.0.0 or ::), meaning LAN clients may connect
+// via the machine's real IP.
+func isBindAll(host string) bool {
+	return host == "0.0.0.0" || host == "::"
+}
+
+// isAllowedBindAllHost returns true for Host header values that are
+// local-interface IP literals on the server's configured port.
+func isAllowedBindAllHost(
+	hostHeader string, port int, allowedIPs map[string]bool,
+) bool {
+	host, ok := parseHostHeader(hostHeader, port)
+	if !ok {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return allowedIPs[ip.String()]
+}
+
+// parseHostHeader validates and normalizes an HTTP Host header for
+// the configured server port, returning the host portion.
+func parseHostHeader(hostHeader string, port int) (string, bool) {
+	if hostHeader == "" {
+		return "", false
+	}
+	host, gotPort, err := net.SplitHostPort(hostHeader)
+	if err == nil {
+		return host, gotPort == strconv.Itoa(port)
+	}
+	// Browsers may omit :80 from Host for default HTTP port.
+	if port != 80 {
+		return "", false
+	}
+	host = hostHeader
+	// Strip IPv6 brackets for ParseIP.
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	return host, true
+}
+
+// localInterfaceIPs returns canonical IP strings assigned to local
+// network interfaces (including loopback).
+func localInterfaceIPs() map[string]bool {
+	ips := map[string]bool{
+		"127.0.0.1": true,
+		"::1":       true,
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			default:
+				continue
+			}
+			if ip == nil {
+				continue
+			}
+			ips[ip.String()] = true
+		}
+	}
+	return ips
 }
 
 // ListenAndServe starts the HTTP server.
@@ -243,27 +456,134 @@ func FindAvailablePort(host string, start int) int {
 	return start
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+// isMutating returns true for HTTP methods that change state.
+func isMutating(method string) bool {
+	return method == http.MethodPost ||
+		method == http.MethodPut ||
+		method == http.MethodPatch ||
+		method == http.MethodDelete
+}
+
+func corsMiddleware(
+	allowedOrigins map[string]bool, bindAll bool, port int, allowedIPs map[string]bool, next http.Handler,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			w.Header().Set(
-				"Access-Control-Allow-Origin", "*",
-			)
+			origin := r.Header.Get("Origin")
+			// For reads (GET/HEAD), allow empty Origin (same-origin
+			// requests often omit it). For mutating methods and
+			// preflights, require Origin to be present and allowed.
+			originAllowed := allowedOrigins[origin]
+			// In bind-all mode, allow local-interface IP-literal
+			// origins on the configured port so LAN UI access works
+			// without opening wildcard cross-origin access.
+			if !originAllowed && bindAll {
+				originAllowed = isAllowedBindAllOrigin(origin, port, allowedIPs)
+			}
+			safeForReads := origin == "" || originAllowed
+
+			if originAllowed {
+				w.Header().Set(
+					"Access-Control-Allow-Origin", origin,
+				)
+			}
+			// Always set Vary so caches don't serve a
+			// response without CORS headers to a
+			// legitimate origin.
+			ensureVaryHeader(w.Header(), "Origin")
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
-				"GET, POST, DELETE, OPTIONS",
+				"GET, POST, PUT, PATCH, DELETE, OPTIONS",
 			)
 			w.Header().Set(
 				"Access-Control-Allow-Headers",
 				"Content-Type",
 			)
 			if r.Method == http.MethodOptions {
+				if !safeForReads {
+					http.Error(
+						w, "Forbidden", http.StatusForbidden,
+					)
+					return
+				}
 				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			// Block state-changing requests unless Origin
+			// is present and recognized. This prevents
+			// CSRF via simple requests (e.g., <form> POST)
+			// and DNS rebinding where Origin is absent.
+			if !originAllowed && isMutating(r.Method) {
+				http.Error(
+					w, "Forbidden", http.StatusForbidden,
+				)
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isAllowedBindAllOrigin returns true when Origin is an http://
+// local-interface IP-literal origin using the configured server port.
+func isAllowedBindAllOrigin(origin string, port int, allowedIPs map[string]bool) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u == nil {
+		return false
+	}
+	if u.Scheme != "http" || u.Host == "" {
+		return false
+	}
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		return false
+	}
+	gotPort := u.Port()
+	portOK := false
+	if port == 80 {
+		portOK = gotPort == "" || gotPort == "80"
+	} else {
+		portOK = gotPort == strconv.Itoa(port)
+	}
+	if !portOK {
+		return false
+	}
+	return allowedIPs[ip.String()]
+}
+
+// ensureVaryHeader appends token to Vary if not already present,
+// preserving any existing Vary values.
+func ensureVaryHeader(h http.Header, token string) {
+	if token == "" {
+		return
+	}
+	seen := make(map[string]bool)
+	values := make([]string, 0, 4)
+	for _, vary := range h.Values("Vary") {
+		for part := range strings.SplitSeq(vary, ",") {
+			p := strings.TrimSpace(part)
+			if p == "" {
+				continue
+			}
+			key := strings.ToLower(p)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			values = append(values, p)
+		}
+	}
+	tokenKey := strings.ToLower(token)
+	if !seen[tokenKey] {
+		values = append(values, token)
+	}
+	if len(values) == 0 {
+		return
+	}
+	h.Set("Vary", strings.Join(values, ", "))
 }
 
 func logMiddleware(next http.Handler) http.Handler {
