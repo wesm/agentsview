@@ -55,11 +55,18 @@ download() {
 
 get_latest_version() {
     local url="https://api.github.com/repos/${REPO}/releases/latest"
+    local json
     if command -v curl &>/dev/null; then
-        curl -fsSL "$url" | grep '"tag_name"' | head -1 | cut -d'"' -f4
+        json=$(curl -fsSL "$url")
     elif command -v wget &>/dev/null; then
-        wget -qO- "$url" | grep '"tag_name"' | head -1 | cut -d'"' -f4
+        json=$(wget -qO- "$url")
+    else
+        return 1
     fi
+    echo "$json" \
+        | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | head -1 \
+        | cut -d'"' -f4
 }
 
 verify_checksum() {
