@@ -473,6 +473,14 @@ func TestDecodeCursorProjectDir(t *testing.T) {
 			"C-Users-jane-dev-smith-projects-my-app",
 			"my_app",
 		},
+		// Ambiguous: "dev" could be a directory or part
+		// of the username. High-confidence "Documents"
+		// wins because marker-word usernames are rarer
+		// than real ~/Documents paths.
+		{
+			"Users-john-dev-my-Documents-app",
+			"app",
+		},
 		// No recognized root — fallback to last two
 		{
 			"opt-builds-my-project",
