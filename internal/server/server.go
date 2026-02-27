@@ -216,8 +216,13 @@ func buildAllowedHosts(host string, port int) map[string]bool {
 	add := func(h string) {
 		hosts[net.JoinHostPort(h, strconv.Itoa(port))] = true
 		// Browsers may omit port 80 from the Host header.
+		// IPv6 literals need brackets (e.g., [::1]).
 		if port == 80 {
-			hosts[h] = true
+			if strings.Contains(h, ":") {
+				hosts["["+h+"]"] = true
+			} else {
+				hosts[h] = true
+			}
 		}
 	}
 	add(host)
