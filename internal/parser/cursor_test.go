@@ -450,6 +450,19 @@ func TestDecodeCursorProjectDir(t *testing.T) {
 			"C-Users-user-dev-my-project",
 			"my_project",
 		},
+		// Multi-token usernames
+		{
+			"Users-john-doe-Documents-my-app",
+			"my_app",
+		},
+		{
+			"home-john-doe-projects-my-super-app",
+			"my_super_app",
+		},
+		{
+			"C-Users-jane-smith-dev-project",
+			"project",
+		},
 		// No recognized root — fallback to last two
 		{
 			"opt-builds-my-project",

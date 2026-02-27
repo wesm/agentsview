@@ -113,7 +113,9 @@ function scanInlineCodeSpans(
         break;
       }
     }
-    if (!found) break;
+    // If no closing run found, i is already past the
+    // unmatched opening run — continue scanning for
+    // other valid spans of different lengths.
   }
   return spans;
 }

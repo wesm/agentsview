@@ -307,6 +307,14 @@ describe("parseContent - inline code spans", () => {
     expect(types).toContain("code");
     expect(types).toContain("tool");
   });
+
+  it("continues scanning after unmatched backtick run", () => {
+    const text =
+      "Some `` unmatched double then `[Thinking]` single";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+    expect(segments[0]!.content).toContain("`[Thinking]`");
+  });
 });
 
 describe("isToolOnly", () => {

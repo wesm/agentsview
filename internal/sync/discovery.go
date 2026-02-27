@@ -554,7 +554,8 @@ func DiscoverCursorSessions(
 
 // FindCursorSourceFile finds a Cursor transcript file by
 // session UUID. Searches all project directories for a
-// matching agent-transcripts/<uuid>.txt file.
+// matching agent-transcripts/<uuid>.{jsonl,txt} file.
+// Prefers .jsonl over .txt (consistent with discovery).
 func FindCursorSourceFile(
 	projectsDir, sessionID string,
 ) string {
@@ -574,9 +575,6 @@ func FindCursorSourceFile(
 		return ""
 	}
 
-	var bestPath string
-	var bestMtime int64
-
 	for _, ext := range []string{".jsonl", ".txt"} {
 		target := sessionID + ext
 		for _, entry := range entries {
@@ -587,8 +585,7 @@ func FindCursorSourceFile(
 				projectsDir, entry.Name(),
 				"agent-transcripts", target,
 			)
-			info, err := os.Lstat(candidate)
-			if err != nil || !info.Mode().IsRegular() {
+			if !isRegularFile(candidate) {
 				continue
 			}
 			resolved, err := filepath.EvalSymlinks(
@@ -605,14 +602,10 @@ func FindCursorSourceFile(
 				strings.HasPrefix(rel, ".."+sep) {
 				continue
 			}
-			if mt := info.ModTime().UnixNano(); bestPath == "" ||
-				mt > bestMtime {
-				bestPath = candidate
-				bestMtime = mt
-			}
+			return candidate
 		}
 	}
-	return bestPath
+	return ""
 }
 
 // geminiProjectsFile holds the structure of

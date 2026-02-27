@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/wesm/agentsview/internal/parser"
 )
@@ -1166,37 +1165,21 @@ func TestFindCursorSourceFile(t *testing.T) {
 		}
 	})
 
-	t.Run("PrefersNewerWhenBothExist", func(t *testing.T) {
+	t.Run("PrefersJsonlWhenBothExist", func(t *testing.T) {
 		dir := t.TempDir()
 		setupFileSystem(t, dir, map[string]string{
 			filepath.Join(cursorTranscripts, "sess3.txt"):   "old",
 			filepath.Join(cursorTranscripts, "sess3.jsonl"): "new",
 		})
-		// Touch .jsonl to make it newer.
 		jsonlPath := filepath.Join(
 			dir, cursorTranscripts, "sess3.jsonl",
 		)
-		now := time.Now()
-		os.Chtimes(jsonlPath, now, now)
-		// Touch .txt to make it older.
-		txtPath := filepath.Join(
-			dir, cursorTranscripts, "sess3.txt",
-		)
-		past := now.Add(-time.Hour)
-		os.Chtimes(txtPath, past, past)
-
 		got := FindCursorSourceFile(dir, "sess3")
 		if got != jsonlPath {
-			t.Errorf("got %q, want %q (newer file)", got, jsonlPath)
-		}
-
-		// Reverse: make .txt newer.
-		os.Chtimes(txtPath, now, now)
-		os.Chtimes(jsonlPath, past, past)
-
-		got = FindCursorSourceFile(dir, "sess3")
-		if got != txtPath {
-			t.Errorf("got %q, want %q (newer file)", got, txtPath)
+			t.Errorf(
+				"got %q, want %q (.jsonl preferred)",
+				got, jsonlPath,
+			)
 		}
 	})
 

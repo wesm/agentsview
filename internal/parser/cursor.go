@@ -442,9 +442,9 @@ var cursorDirMarkers = map[string]bool{
 // absolute paths by replacing / and . with hyphens, e.g.
 // "Users-fiona-Documents-mcp-cursor-analytics".
 //
-// Only checks for markers at the expected home-directory
-// position to avoid false matches inside project names
-// (e.g. "my-dev-tool" should not be truncated to "tool").
+// Scans forward from the home-directory root to find the
+// first marker, handling multi-token usernames (e.g.
+// "Users-john-doe-Documents-project").
 func DecodeCursorProjectDir(dirName string) string {
 	if dirName == "" {
 		return ""
@@ -452,28 +452,34 @@ func DecodeCursorProjectDir(dirName string) string {
 
 	parts := strings.Split(dirName, "-")
 
-	// Determine the expected marker position from the
-	// platform root prefix:
-	//   macOS/Linux: Users-<name>-<marker> (idx 2)
-	//                home-<name>-<marker>  (idx 2)
-	//   Windows:     C-Users-<name>-<marker> (idx 3)
-	markerIdx := -1
+	// Determine the earliest position a marker could
+	// appear, based on the platform root prefix:
+	//   macOS/Linux: Users-<name>-<marker> (min idx 2)
+	//                home-<name>-<marker>  (min idx 2)
+	//   Windows:     C-Users-<name>-<marker> (min idx 3)
+	minIdx := -1
 	if len(parts) >= 3 &&
 		(parts[0] == "Users" || parts[0] == "home") {
-		markerIdx = 2
+		minIdx = 2
 	} else if len(parts) >= 4 &&
 		len(parts[0]) == 1 && parts[1] == "Users" {
-		markerIdx = 3
+		minIdx = 3
 	}
 
-	if markerIdx >= 0 && markerIdx < len(parts) &&
-		cursorDirMarkers[parts[markerIdx]] &&
-		markerIdx+1 < len(parts) {
-		result := strings.Join(
-			parts[markerIdx+1:], "-",
-		)
-		if result != "" {
-			return NormalizeName(result)
+	// Scan forward from minIdx to find the first marker.
+	// Stop before the last token so at least one token
+	// remains for the project name.
+	if minIdx >= 0 {
+		for i := minIdx; i < len(parts)-1; i++ {
+			if !cursorDirMarkers[parts[i]] {
+				continue
+			}
+			result := strings.Join(
+				parts[i+1:], "-",
+			)
+			if result != "" {
+				return NormalizeName(result)
+			}
 		}
 	}
 
