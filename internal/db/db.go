@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -49,10 +48,11 @@ END;
 // concurrent HTTP handler goroutines can safely read while
 // Reopen/CloseConnections swap the underlying *sql.DB.
 type DB struct {
-	path   string
-	writer atomic.Pointer[sql.DB]
-	reader atomic.Pointer[sql.DB]
-	mu     sync.Mutex // serializes writes
+	path    string
+	writer  atomic.Pointer[sql.DB]
+	reader  atomic.Pointer[sql.DB]
+	mu      sync.Mutex // serializes writes
+	retired []*sql.DB  // old pools kept open for in-flight reads
 
 	cursorMu     sync.RWMutex
 	cursorSecret []byte
@@ -360,12 +360,18 @@ func (db *DB) init() error {
 	return nil
 }
 
-// Close closes both writer and reader connections.
+// Close closes both writer and reader connections, plus any
+// retired pools left over from previous Reopen calls.
 func (db *DB) Close() error {
-	return errors.Join(
+	errs := []error{
 		db.getWriter().Close(),
 		db.getReader().Close(),
-	)
+	}
+	for _, p := range db.retired {
+		errs = append(errs, p.Close())
+	}
+	db.retired = nil
+	return errors.Join(errs...)
 }
 
 // CloseConnections closes both connections without reopening,
@@ -413,12 +419,11 @@ func (db *DB) reopenLocked() error {
 	oldWriter := db.writer.Swap(writer)
 	oldReader := db.reader.Swap(reader)
 
-	// Close old pools after a delay so in-flight queries
-	// that already loaded the pointer can finish.
-	time.AfterFunc(5*time.Second, func() {
-		_ = oldWriter.Close()
-		_ = oldReader.Close()
-	})
+	// Retire old pools instead of closing them immediately.
+	// Concurrent readers that loaded the old pointer before
+	// the swap may still have in-flight queries. The retired
+	// pools are closed when the DB itself is closed.
+	db.retired = append(db.retired, oldWriter, oldReader)
 	return nil
 }
 
