@@ -48,6 +48,24 @@ const TOOL_RE = new RegExp(
 
 const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
 
+/** Returns true if text[from..to) contains a backtick run of
+ *  exactly `len` characters. Used to detect a closing inline
+ *  code delimiter on the same line as the opener. */
+function hasRunBefore(
+  text: string,
+  from: number,
+  to: number,
+  len: number,
+): boolean {
+  for (let k = from; k < to; k++) {
+    if (text[k] !== "`") continue;
+    const s = k;
+    while (k < to && text[k] === "`") k++;
+    if (k - s === len) return true;
+  }
+  return false;
+}
+
 /**
  * Scan for inline code spans per CommonMark rules: an opening
  * backtick run of length N is closed by the next run of exactly
@@ -70,13 +88,16 @@ function scanInlineCodeSpans(
     while (i < text.length && text[i] === "`") i++;
     const runLen = i - openStart;
 
-    // Skip fenced code blocks (``` at line start + newline).
+    // Skip fenced code blocks: ≥3 backticks at line start
+    // with no closing run of the same length on that line.
     if (
       runLen >= 3 &&
       (openStart === 0 || text[openStart - 1] === "\n")
     ) {
       const nl = text.indexOf("\n", i);
-      if (nl >= 0) continue;
+      if (nl >= 0 && !hasRunBefore(text, i, nl, runLen)) {
+        continue;
+      }
     }
 
     // Scan for a closing run of exactly the same length.

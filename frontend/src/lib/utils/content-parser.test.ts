@@ -293,6 +293,12 @@ describe("parseContent - inline code spans", () => {
     expect(segments.every((s) => s.type === "text")).toBe(true);
   });
 
+  it("handles triple-backtick inline span at line start", () => {
+    const text = "``` [Bash] ```\nnext line";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+  });
+
   it("does not confuse fenced code blocks with inline spans", () => {
     const text =
       "```sh\necho [Bash]\n```\n\n[Bash]\n$ echo real";

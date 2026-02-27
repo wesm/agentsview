@@ -307,31 +307,36 @@ func CursorSessionID(path string) string {
 
 // isCursorJSONL returns true if the data looks like JSONL
 // (Anthropic API message format) rather than plain text.
-// Scans up to 4 KB for the first non-empty line and checks
-// whether it is valid JSON.
+// Scans up to 4 KB to locate the first non-empty line, then
+// validates the full line from the original data.
 func isCursorJSONL(data string) bool {
 	const maxScan = 4096
-	scan := data
-	if len(scan) > maxScan {
-		scan = scan[:maxScan]
-	}
-	for scan != "" {
-		nl := strings.IndexByte(scan, '\n')
-		var line string
-		if nl < 0 {
-			line = scan
-			scan = ""
-		} else {
-			line = scan[:nl]
-			scan = scan[nl+1:]
+
+	// Find the byte offset of the first non-whitespace
+	// character within the scan window.
+	limit := min(len(data), maxScan)
+	lineStart := -1
+	for i := range limit {
+		if data[i] != '\n' && data[i] != '\r' &&
+			data[i] != ' ' && data[i] != '\t' {
+			lineStart = i
+			break
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		return gjson.Valid(line)
 	}
-	return false
+	if lineStart < 0 {
+		return false
+	}
+
+	// Extract the full first line from the original data
+	// (not the truncated scan window).
+	lineEnd := strings.IndexByte(data[lineStart:], '\n')
+	var line string
+	if lineEnd < 0 {
+		line = data[lineStart:]
+	} else {
+		line = data[lineStart : lineStart+lineEnd]
+	}
+	return gjson.Valid(strings.TrimSpace(line))
 }
 
 // parseCursorJSONL parses a Cursor JSONL transcript where

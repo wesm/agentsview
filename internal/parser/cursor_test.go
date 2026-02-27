@@ -209,6 +209,18 @@ func TestIsCursorJSONL(t *testing.T) {
 			strings.Repeat("\n", 100),
 			false,
 		},
+		{
+			"first line exceeds 4KB",
+			`{"role":"user","message":{"content":"` +
+				strings.Repeat("x", 5000) + `"}}`,
+			true,
+		},
+		{
+			"first non-empty line beyond 4KB of blanks",
+			strings.Repeat("\n", 5000) +
+				`{"role":"user","message":{"content":"hi"}}`,
+			false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
