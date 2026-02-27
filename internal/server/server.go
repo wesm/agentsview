@@ -203,9 +203,14 @@ func (s *Server) Handler() http.Handler {
 	allowedOrigins := buildAllowedOrigins(s.cfg.Host, s.cfg.Port)
 	allowedHosts := buildAllowedHosts(s.cfg.Host, s.cfg.Port)
 	bindAll := isBindAll(s.cfg.Host)
-	return hostCheckMiddleware(allowedHosts, bindAll, s.cfg.Port,
+	bindAllIPs := map[string]bool(nil)
+	if bindAll {
+		bindAllIPs = localInterfaceIPs()
+	}
+	return hostCheckMiddleware(
+		allowedHosts, bindAll, s.cfg.Port, bindAllIPs,
 		corsMiddleware(
-			allowedOrigins, bindAll, s.cfg.Port, logMiddleware(s.mux),
+			allowedOrigins, bindAll, s.cfg.Port, bindAllIPs, logMiddleware(s.mux),
 		),
 	)
 }
@@ -250,16 +255,17 @@ func buildAllowedHosts(host string, port int) map[string]bool {
 // values to prevent DNS rebinding attacks. Only applied to /api/
 // routes — the SPA fallback is left accessible for flexibility.
 func hostCheckMiddleware(
-	allowedHosts map[string]bool, bindAll bool, port int, next http.Handler,
+	allowedHosts map[string]bool, bindAll bool, port int, allowedIPs map[string]bool, next http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			hostAllowed := allowedHosts[r.Host]
-			// In bind-all mode, also allow IP-literal hosts on the
-			// configured port so LAN clients can reach the API while
-			// still rejecting rebinding via attacker-controlled domains.
+			// In bind-all mode, also allow local-interface IP-literal
+			// hosts on the configured port so LAN clients can reach the
+			// API while still rejecting rebinding via attacker-controlled
+			// domains.
 			if !hostAllowed && bindAll {
-				hostAllowed = isAllowedBindAllHost(r.Host, port)
+				hostAllowed = isAllowedBindAllHost(r.Host, port, allowedIPs)
 			}
 			if !hostAllowed {
 				http.Error(
@@ -334,13 +340,19 @@ func isBindAll(host string) bool {
 }
 
 // isAllowedBindAllHost returns true for Host header values that are
-// IP literals on the server's configured port.
-func isAllowedBindAllHost(hostHeader string, port int) bool {
+// local-interface IP literals on the server's configured port.
+func isAllowedBindAllHost(
+	hostHeader string, port int, allowedIPs map[string]bool,
+) bool {
 	host, ok := parseHostHeader(hostHeader, port)
 	if !ok {
 		return false
 	}
-	return net.ParseIP(host) != nil
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return allowedIPs[ip.String()]
 }
 
 // parseHostHeader validates and normalizes an HTTP Host header for
@@ -363,6 +375,44 @@ func parseHostHeader(hostHeader string, port int) (string, bool) {
 		host = host[1 : len(host)-1]
 	}
 	return host, true
+}
+
+// localInterfaceIPs returns canonical IP strings assigned to local
+// network interfaces (including loopback).
+func localInterfaceIPs() map[string]bool {
+	ips := map[string]bool{
+		"127.0.0.1": true,
+		"::1":       true,
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			default:
+				continue
+			}
+			if ip == nil {
+				continue
+			}
+			ips[ip.String()] = true
+		}
+	}
+	return ips
 }
 
 // ListenAndServe starts the HTTP server.
@@ -415,7 +465,7 @@ func isMutating(method string) bool {
 }
 
 func corsMiddleware(
-	allowedOrigins map[string]bool, bindAll bool, port int, next http.Handler,
+	allowedOrigins map[string]bool, bindAll bool, port int, allowedIPs map[string]bool, next http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -424,11 +474,11 @@ func corsMiddleware(
 			// requests often omit it). For mutating methods and
 			// preflights, require Origin to be present and allowed.
 			originAllowed := allowedOrigins[origin]
-			// In bind-all mode, allow IP-literal origins on the
-			// configured port so LAN UI access works without opening
-			// wildcard cross-origin access.
+			// In bind-all mode, allow local-interface IP-literal
+			// origins on the configured port so LAN UI access works
+			// without opening wildcard cross-origin access.
 			if !originAllowed && bindAll {
-				originAllowed = isAllowedBindAllOrigin(origin, port)
+				originAllowed = isAllowedBindAllOrigin(origin, port, allowedIPs)
 			}
 			safeForReads := origin == "" || originAllowed
 
@@ -475,8 +525,8 @@ func corsMiddleware(
 }
 
 // isAllowedBindAllOrigin returns true when Origin is an http://
-// IP-literal origin using the configured server port.
-func isAllowedBindAllOrigin(origin string, port int) bool {
+// local-interface IP-literal origin using the configured server port.
+func isAllowedBindAllOrigin(origin string, port int, allowedIPs map[string]bool) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u == nil {
 		return false
@@ -487,14 +537,21 @@ func isAllowedBindAllOrigin(origin string, port int) bool {
 	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return false
 	}
-	if net.ParseIP(u.Hostname()) == nil {
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
 		return false
 	}
 	gotPort := u.Port()
+	portOK := false
 	if port == 80 {
-		return gotPort == "" || gotPort == "80"
+		portOK = gotPort == "" || gotPort == "80"
+	} else {
+		portOK = gotPort == strconv.Itoa(port)
 	}
-	return gotPort == strconv.Itoa(port)
+	if !portOK {
+		return false
+	}
+	return allowedIPs[ip.String()]
 }
 
 func logMiddleware(next http.Handler) http.Handler {

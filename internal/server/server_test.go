@@ -173,6 +173,52 @@ func waitForPort(port int, timeout time.Duration) error {
 	return fmt.Errorf("server not ready: last dial error: %v", lastDialErr)
 }
 
+// firstNonLoopbackIP returns a host IP assigned to a non-loopback
+// interface. The test is skipped when none is available.
+func firstNonLoopbackIP(t *testing.T) string {
+	t.Helper()
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		t.Skipf("listing interfaces: %v", err)
+	}
+	var firstV6 string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 ||
+			iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			default:
+				continue
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				return ip4.String()
+			}
+			if firstV6 == "" {
+				firstV6 = ip.String()
+			}
+		}
+	}
+	if firstV6 != "" {
+		return firstV6
+	}
+	t.Skip("no non-loopback interface IP available")
+	return ""
+}
+
 // listenAndServe starts the server on a real port and returns the
 // base URL. The server is shut down when the test finishes.
 func (te *testEnv) listenAndServe(t *testing.T) string {
@@ -1288,6 +1334,9 @@ func TestCORSBindAllInterfaces(t *testing.T) {
 }
 
 func TestCORSBindAllAllowsLANIPOrigin(t *testing.T) {
+	lanIP := firstNonLoopbackIP(t)
+	origin := "http://" + net.JoinHostPort(lanIP, "0")
+
 	for _, bindHost := range []string{"0.0.0.0", "::"} {
 		t.Run(bindHost, func(t *testing.T) {
 			te := setup(t, func(c *config.Config) {
@@ -1295,20 +1344,23 @@ func TestCORSBindAllAllowsLANIPOrigin(t *testing.T) {
 			})
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
-			req.Header.Set("Origin", "http://192.168.1.50:0")
+			req.Header.Set("Origin", origin)
 			w := httptest.NewRecorder()
 			te.handler.ServeHTTP(w, req)
 			assertStatus(t, w, http.StatusOK)
 
 			cors := w.Header().Get("Access-Control-Allow-Origin")
-			if cors != "http://192.168.1.50:0" {
-				t.Fatalf("expected CORS origin http://192.168.1.50:0, got %q", cors)
+			if cors != origin {
+				t.Fatalf("expected CORS origin %s, got %q", origin, cors)
 			}
 		})
 	}
 }
 
 func TestHostHeaderBindAllAllowsLANIP(t *testing.T) {
+	lanIP := firstNonLoopbackIP(t)
+	host := net.JoinHostPort(lanIP, "0")
+
 	for _, bindHost := range []string{"0.0.0.0", "::"} {
 		t.Run(bindHost, func(t *testing.T) {
 			te := setup(t, func(c *config.Config) {
@@ -1316,10 +1368,48 @@ func TestHostHeaderBindAllAllowsLANIP(t *testing.T) {
 			})
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
-			req.Host = "192.168.1.50:0"
+			req.Host = host
 			w := httptest.NewRecorder()
 			te.srv.Handler().ServeHTTP(w, req)
 			assertStatus(t, w, http.StatusOK)
+		})
+	}
+}
+
+func TestCORSBindAllRejectsNonLocalIPOrigin(t *testing.T) {
+	const origin = "http://198.51.100.10:0"
+
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
+
+			req := httptest.NewRequest(
+				http.MethodPost, "/api/v1/sync", nil,
+			)
+			req.Header.Set("Origin", origin)
+			w := httptest.NewRecorder()
+			te.handler.ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusForbidden)
+		})
+	}
+}
+
+func TestHostHeaderBindAllRejectsNonLocalIP(t *testing.T) {
+	const host = "198.51.100.10:0"
+
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Host = host
+			w := httptest.NewRecorder()
+			te.srv.Handler().ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusForbidden)
 		})
 	}
 }
