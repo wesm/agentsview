@@ -96,7 +96,7 @@ func setupWithServerOpts(
 		opt(&cfg)
 	}
 	engine := sync.NewEngine(
-		database, []string{claudeDir}, []string{codexDir}, nil, nil, nil, "test",
+		database, []string{claudeDir}, []string{codexDir}, nil, nil, nil, "", "test",
 	)
 	srv := server.New(cfg, database, engine, srvOpts...)
 
@@ -1440,7 +1440,7 @@ func TestWatchSession_Events(t *testing.T) {
 
 	engine := sync.NewEngine(
 		te.db, []string{te.claudeDir},
-		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "test",
+		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "", "test",
 	)
 	engine.SyncAll(nil)
 
@@ -1486,7 +1486,7 @@ func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 
 	engine := sync.NewEngine(
 		te.db, []string{te.claudeDir},
-		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "test",
+		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "", "test",
 	)
 	engine.SyncAll(nil)
 

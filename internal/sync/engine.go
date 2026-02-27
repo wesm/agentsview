@@ -30,6 +30,7 @@ type Engine struct {
 	copilotDirs   []string
 	geminiDirs    []string
 	opencodeDirs  []string
+	cursorDir     string
 	machine       string
 	syncMu        gosync.Mutex // serializes all sync operations
 	mu            gosync.RWMutex
@@ -50,7 +51,8 @@ type Engine struct {
 func NewEngine(
 	database *db.DB,
 	claudeDirs, codexDirs, copilotDirs,
-	geminiDirs, opencodeDirs []string, machine string,
+	geminiDirs, opencodeDirs []string,
+	cursorDir, machine string,
 ) *Engine {
 	skipCache := make(map[string]int64)
 	if loaded, err := database.LoadSkippedFiles(); err == nil {
@@ -66,6 +68,7 @@ func NewEngine(
 		copilotDirs:  copilotDirs,
 		geminiDirs:   geminiDirs,
 		opencodeDirs: opencodeDirs,
+		cursorDir:    cursorDir,
 		machine:      machine,
 		skipCache:    skipCache,
 	}
@@ -308,6 +311,31 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// Cursor: <cursorDir>/<project>/agent-transcripts/<uuid>.txt
+	if e.cursorDir != "" {
+		if rel, ok := isUnder(e.cursorDir, path); ok {
+			parts := strings.Split(rel, sep)
+			if len(parts) != 3 {
+				return DiscoveredFile{}, false
+			}
+			if parts[1] != "agent-transcripts" {
+				return DiscoveredFile{}, false
+			}
+			if !strings.HasSuffix(parts[2], ".txt") {
+				return DiscoveredFile{}, false
+			}
+			project := parser.DecodeCursorProjectDir(parts[0])
+			if project == "" {
+				project = "unknown"
+			}
+			return DiscoveredFile{
+				Path:    path,
+				Project: project,
+				Agent:   parser.AgentCursor,
+			}, true
+		}
+	}
+
 	return DiscoveredFile{}, false
 }
 
@@ -525,22 +553,24 @@ func (e *Engine) syncAllLocked(
 	for _, d := range e.geminiDirs {
 		gemini = append(gemini, DiscoverGeminiSessions(d)...)
 	}
+	cursor := DiscoverCursorSessions(e.cursorDir)
 
 	all := make(
 		[]DiscoveredFile, 0,
-		len(claude)+len(codex)+len(copilot)+len(gemini),
+		len(claude)+len(codex)+len(copilot)+len(gemini)+len(cursor),
 	)
 	all = append(all, claude...)
 	all = append(all, codex...)
 	all = append(all, copilot...)
 	all = append(all, gemini...)
+	all = append(all, cursor...)
 
 	verbose := onProgress == nil
 
 	if verbose {
 		log.Printf(
-			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini) in %s",
-			len(all), len(claude), len(codex), len(copilot), len(gemini),
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor) in %s",
+			len(all), len(claude), len(codex), len(copilot), len(gemini), len(cursor),
 			time.Since(t0).Round(time.Millisecond),
 		)
 	}
@@ -821,6 +851,8 @@ func (e *Engine) processFile(
 		res = e.processCopilot(file, info)
 	case parser.AgentGemini:
 		res = e.processGemini(file, info)
+	case parser.AgentCursor:
+		res = e.processCursor(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -1038,6 +1070,76 @@ func (e *Engine) processGemini(
 	}
 }
 
+func (e *Engine) processCursor(
+	file DiscoveredFile, info os.FileInfo,
+) processResult {
+	sessionID := "cursor:" + strings.TrimSuffix(
+		info.Name(), ".txt",
+	)
+
+	if e.shouldSkipFile(sessionID, info) {
+		return processResult{skip: true}
+	}
+
+	// Re-validate containment immediately before parsing to
+	// close the TOCTOU window between discovery and read.
+	// The parser opens with O_NOFOLLOW (rejecting symlinked
+	// final components), and this check catches parent
+	// directory swaps.
+	if e.cursorDir != "" {
+		if err := validateCursorContainment(
+			e.cursorDir, file.Path,
+		); err != nil {
+			return processResult{
+				err: fmt.Errorf(
+					"containment check: %w", err,
+				),
+			}
+		}
+	}
+
+	sess, msgs, err := parser.ParseCursorSession(
+		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	// Hash is computed inside ParseCursorSession from the
+	// already-read data to avoid re-opening the file by path.
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
+}
+
+// validateCursorContainment re-resolves both root and path
+// to verify the file still resides within the cursor projects
+// directory. Returns an error if containment fails.
+func validateCursorContainment(
+	cursorDir, path string,
+) error {
+	resolvedRoot, err := filepath.EvalSymlinks(cursorDir)
+	if err != nil {
+		return fmt.Errorf("resolve root: %w", err)
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf(
+			"%s escapes %s", path, cursorDir,
+		)
+	}
+	return nil
+}
+
 type pendingWrite struct {
 	sess parser.ParsedSession
 	msgs []parser.ParsedMessage
@@ -1220,6 +1322,10 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 			}
 		}
 		return ""
+	case strings.HasPrefix(sessionID, "cursor:"):
+		return FindCursorSourceFile(
+			e.cursorDir, sessionID[7:],
+		)
 	default:
 		for _, d := range e.claudeDirs {
 			if f := FindClaudeSourceFile(d, sessionID); f != "" {
@@ -1256,6 +1362,8 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		agent = parser.AgentCopilot
 	case strings.HasPrefix(sessionID, "gemini:"):
 		agent = parser.AgentGemini
+	case strings.HasPrefix(sessionID, "cursor:"):
+		agent = parser.AgentCursor
 	default:
 		agent = parser.AgentClaude
 	}
@@ -1272,7 +1380,8 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		Path:  path,
 		Agent: agent,
 	}
-	if agent == parser.AgentClaude {
+	switch agent {
+	case parser.AgentClaude:
 		// Try to preserve existing project from DB first
 		if sess, _ := e.db.GetSession(context.Background(), sessionID); sess != nil &&
 			sess.Project != "" &&
@@ -1281,6 +1390,13 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		} else {
 			file.Project = filepath.Base(filepath.Dir(path))
 		}
+	case parser.AgentCursor:
+		// path is <cursorDir>/<project>/agent-transcripts/<uuid>.txt
+		// Extract project dir name from two levels up
+		projDir := filepath.Base(
+			filepath.Dir(filepath.Dir(path)),
+		)
+		file.Project = parser.DecodeCursorProjectDir(projDir)
 	}
 
 	res := e.processFile(file)

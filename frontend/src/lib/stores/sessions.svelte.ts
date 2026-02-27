@@ -1,5 +1,5 @@
 import * as api from "../api/client.js";
-import type { Session, ProjectInfo } from "../api/types.js";
+import type { Session, ProjectInfo, AgentInfo } from "../api/types.js";
 
 const SESSION_PAGE_SIZE = 500;
 
@@ -45,6 +45,7 @@ function defaultFilters(): Filters {
 class SessionsStore {
   sessions: Session[] = $state([]);
   projects: ProjectInfo[] = $state([]);
+  agents: AgentInfo[] = $state([]);
   activeSessionId: string | null = $state(null);
   nextCursor: string | null = $state(null);
   total: number = $state(0);
@@ -54,11 +55,11 @@ class SessionsStore {
   private loadVersion: number = 0;
   private projectsLoaded: boolean = false;
   private projectsPromise: Promise<void> | null = null;
+  private agentsLoaded: boolean = false;
+  private agentsPromise: Promise<void> | null = null;
 
   get activeSession(): Session | undefined {
-    return this.sessions.find(
-      (s) => s.id === this.activeSessionId,
-    );
+    return this.sessions.find((s) => s.id === this.activeSessionId);
   }
 
   get groupedSessions(): SessionGroup[] {
@@ -208,10 +209,7 @@ class SessionsStore {
    * loaded sessions, or until we hit maxPages / end-of-list.
    * Keeps scrollbar jumps from showing placeholders for too long.
    */
-  async loadMoreUntil(
-    targetIndex: number,
-    maxPages: number = 5,
-  ) {
+  async loadMoreUntil(targetIndex: number, maxPages: number = 5) {
     if (targetIndex < 0) return;
     let pages = 0;
     while (
@@ -245,6 +243,21 @@ class SessionsStore {
     return this.projectsPromise;
   }
 
+  async loadAgents() {
+    if (this.agentsLoaded) return;
+    if (this.agentsPromise) return this.agentsPromise;
+    this.agentsPromise = (async () => {
+      try {
+        const res = await api.getAgents();
+        this.agents = res.agents;
+        this.agentsLoaded = true;
+      } finally {
+        this.agentsPromise = null;
+      }
+    })();
+    return this.agentsPromise;
+  }
+
   selectSession(id: string) {
     this.activeSessionId = id;
   }
@@ -254,9 +267,7 @@ class SessionsStore {
   }
 
   navigateSession(delta: number) {
-    const idx = this.sessions.findIndex(
-      (s) => s.id === this.activeSessionId,
-    );
+    const idx = this.sessions.findIndex((s) => s.id === this.activeSessionId);
     const next = idx + delta;
     if (next >= 0 && next < this.sessions.length) {
       this.activeSessionId = this.sessions[next]!.id;
@@ -264,7 +275,7 @@ class SessionsStore {
   }
 
   setProjectFilter(project: string) {
-    this.filters = { ...defaultFilters(), project };
+    this.filters = { ...defaultFilters(), project, agent: this.filters.agent };
     this.activeSessionId = null;
     this.resetPagination();
     this.load();
@@ -331,19 +342,13 @@ export function createSessionsStore(): SessionsStore {
   return new SessionsStore();
 }
 
-function maxString(
-  a: string | null,
-  b: string | null,
-): string | null {
+function maxString(a: string | null, b: string | null): string | null {
   if (a == null) return b;
   if (b == null) return a;
   return a > b ? a : b;
 }
 
-function minString(
-  a: string | null,
-  b: string | null,
-): string | null {
+function minString(a: string | null, b: string | null): string | null {
   if (a == null) return b;
   if (b == null) return a;
   return a < b ? a : b;
@@ -403,9 +408,7 @@ function findRoot(
   return cur;
 }
 
-export function buildSessionGroups(
-  sessions: Session[],
-): SessionGroup[] {
+export function buildSessionGroups(sessions: Session[]): SessionGroup[] {
   const byId = new Map<string, Session>();
   for (const s of sessions) {
     byId.set(s.id, s);
@@ -443,10 +446,7 @@ export function buildSessionGroups(
 
     group.sessions.push(s);
     group.totalMessages += s.message_count;
-    group.startedAt = minString(
-      group.startedAt,
-      s.started_at,
-    );
+    group.startedAt = minString(group.startedAt, s.started_at);
     group.endedAt = maxString(group.endedAt, s.ended_at);
   }
 
@@ -458,8 +458,7 @@ export function buildSessionGroups(
         return ta < tb ? -1 : ta > tb ? 1 : 0;
       });
     }
-    group.firstMessage =
-      group.sessions[0]?.first_message ?? null;
+    group.firstMessage = group.sessions[0]?.first_message ?? null;
 
     let bestIdx = 0;
     let bestKey = recencyKey(group.sessions[0]!);
@@ -470,8 +469,7 @@ export function buildSessionGroups(
         bestIdx = i;
       }
     }
-    group.primarySessionId =
-      group.sessions[bestIdx]!.id;
+    group.primarySessionId = group.sessions[bestIdx]!.id;
   }
 
   return insertionOrder.map((k) => groupMap.get(k)!);
