@@ -541,7 +541,7 @@ func (db *DB) GetAgents(
 	}
 	defer rows.Close()
 
-	var agents []AgentInfo
+	agents := []AgentInfo{}
 	for rows.Next() {
 		var a AgentInfo
 		if err := rows.Scan(&a.Name, &a.SessionCount); err != nil {

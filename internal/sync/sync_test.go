@@ -1026,6 +1026,12 @@ func TestIsContainedIn(t *testing.T) {
 			root:  "/a/b",
 			want:  false,
 		},
+		{
+			name:  "dotdot-prefixed name",
+			child: "/a/b/..hidden",
+			root:  "/a/b",
+			want:  true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
