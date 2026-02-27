@@ -490,7 +490,7 @@ func corsMiddleware(
 			// Always set Vary so caches don't serve a
 			// response without CORS headers to a
 			// legitimate origin.
-			w.Header().Set("Vary", "Origin")
+			ensureVaryHeader(w.Header(), "Origin")
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
 				"GET, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -552,6 +552,38 @@ func isAllowedBindAllOrigin(origin string, port int, allowedIPs map[string]bool)
 		return false
 	}
 	return allowedIPs[ip.String()]
+}
+
+// ensureVaryHeader appends token to Vary if not already present,
+// preserving any existing Vary values.
+func ensureVaryHeader(h http.Header, token string) {
+	if token == "" {
+		return
+	}
+	seen := make(map[string]bool)
+	values := make([]string, 0, 4)
+	for _, vary := range h.Values("Vary") {
+		for part := range strings.SplitSeq(vary, ",") {
+			p := strings.TrimSpace(part)
+			if p == "" {
+				continue
+			}
+			key := strings.ToLower(p)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			values = append(values, p)
+		}
+	}
+	tokenKey := strings.ToLower(token)
+	if !seen[tokenKey] {
+		values = append(values, token)
+	}
+	if len(values) == 0 {
+		return
+	}
+	h.Set("Vary", strings.Join(values, ", "))
 }
 
 func logMiddleware(next http.Handler) http.Handler {

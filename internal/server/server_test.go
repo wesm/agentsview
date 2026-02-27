@@ -219,6 +219,13 @@ func firstNonLoopbackIP(t *testing.T) string {
 	return ""
 }
 
+func hostLiteral(host string) string {
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
+}
+
 // listenAndServe starts the server on a real port and returns the
 // base URL. The server is shut down when the test finishes.
 func (te *testEnv) listenAndServe(t *testing.T) string {
@@ -1301,6 +1308,155 @@ func TestCORSAllowsLocalhost(t *testing.T) {
 	cors := w.Header().Get("Access-Control-Allow-Origin")
 	if cors != "http://localhost:0" {
 		t.Fatalf("expected CORS origin http://localhost:0, got %q", cors)
+	}
+}
+
+func TestHostHeaderBindAllPort80AllowsPortlessLoopback(t *testing.T) {
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+				c.Port = 80
+			})
+
+			for _, host := range []string{
+				"127.0.0.1:80",
+				"127.0.0.1",
+				"localhost:80",
+				"localhost",
+				"[::1]:80",
+				"[::1]",
+			} {
+				req := httptest.NewRequest(
+					http.MethodGet, "/api/v1/stats", nil,
+				)
+				req.Host = host
+				w := httptest.NewRecorder()
+				te.srv.Handler().ServeHTTP(w, req)
+				assertStatus(t, w, http.StatusOK)
+			}
+		})
+	}
+}
+
+func TestCORSBindAllPort80AllowsPortlessLoopbackOrigins(t *testing.T) {
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+				c.Port = 80
+			})
+
+			for _, origin := range []string{
+				"http://127.0.0.1:80",
+				"http://127.0.0.1",
+				"http://localhost:80",
+				"http://localhost",
+				"http://[::1]:80",
+				"http://[::1]",
+			} {
+				req := httptest.NewRequest(
+					http.MethodGet, "/api/v1/stats", nil,
+				)
+				req.Header.Set("Origin", origin)
+				w := httptest.NewRecorder()
+				te.handler.ServeHTTP(w, req)
+				assertStatus(t, w, http.StatusOK)
+
+				cors := w.Header().Get("Access-Control-Allow-Origin")
+				if cors != origin {
+					t.Fatalf(
+						"origin %s: expected CORS %s, got %q",
+						origin, origin, cors,
+					)
+				}
+			}
+		})
+	}
+}
+
+func TestCORSBindAllPort80AllowsPortlessLANOrigin(t *testing.T) {
+	lanIP := firstNonLoopbackIP(t)
+	origin := "http://" + hostLiteral(lanIP)
+
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+				c.Port = 80
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Header.Set("Origin", origin)
+			w := httptest.NewRecorder()
+			te.handler.ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusOK)
+
+			cors := w.Header().Get("Access-Control-Allow-Origin")
+			if cors != origin {
+				t.Fatalf("expected CORS origin %s, got %q", origin, cors)
+			}
+		})
+	}
+}
+
+func TestHostHeaderBindAllPort80AllowsPortlessLANIP(t *testing.T) {
+	lanIP := firstNonLoopbackIP(t)
+	host := hostLiteral(lanIP)
+
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+				c.Port = 80
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Host = host
+			w := httptest.NewRecorder()
+			te.srv.Handler().ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusOK)
+		})
+	}
+}
+
+func TestCORSBindAllPort80RejectsNonLocalIPOrigin(t *testing.T) {
+	const origin = "http://198.51.100.10"
+
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+				c.Port = 80
+			})
+
+			req := httptest.NewRequest(
+				http.MethodPost, "/api/v1/sync", nil,
+			)
+			req.Header.Set("Origin", origin)
+			w := httptest.NewRecorder()
+			te.handler.ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusForbidden)
+		})
+	}
+}
+
+func TestHostHeaderBindAllPort80RejectsNonLocalIP(t *testing.T) {
+	const host = "198.51.100.10"
+
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+				c.Port = 80
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Host = host
+			w := httptest.NewRecorder()
+			te.srv.Handler().ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusForbidden)
+		})
 	}
 }
 

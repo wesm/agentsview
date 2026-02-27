@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -152,5 +153,37 @@ func TestMiddlewareTimeout(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCORSMiddlewareMergesVaryHeader(t *testing.T) {
+	t.Parallel()
+
+	allowedOrigins := map[string]bool{
+		"http://127.0.0.1:8080": true,
+	}
+	cors := corsMiddleware(
+		allowedOrigins, false, 8080, nil,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Vary", "Accept-Encoding")
+		cors.ServeHTTP(w, r)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:8080")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assertRecorderStatus(t, w, http.StatusOK)
+	vary := w.Header().Get("Vary")
+	if !strings.Contains(vary, "Accept-Encoding") {
+		t.Fatalf("expected Vary to include Accept-Encoding, got %q", vary)
+	}
+	if !strings.Contains(vary, "Origin") {
+		t.Fatalf("expected Vary to include Origin, got %q", vary)
 	}
 }
