@@ -365,14 +365,13 @@ func (db *DB) init() error {
 // retired pools left over from previous Reopen calls.
 func (db *DB) Close() error {
 	db.mu.Lock()
+	w := db.getWriter()
+	r := db.getReader()
 	retired := db.retired
 	db.retired = nil
 	db.mu.Unlock()
 
-	errs := []error{
-		db.getWriter().Close(),
-		db.getReader().Close(),
-	}
+	errs := []error{w.Close(), r.Close()}
 	for _, p := range retired {
 		errs = append(errs, p.Close())
 	}
