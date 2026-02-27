@@ -48,6 +48,9 @@ const TOOL_RE = new RegExp(
 
 const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
 
+/** Inline code spans — single or double backtick delimiters. */
+const INLINE_CODE_RE = /``[^`]+``|`[^`\n]+`/g;
+
 interface Match {
   start: number;
   end: number;
@@ -79,11 +82,28 @@ export function isToolOnly(msg: Message): boolean {
   return result;
 }
 
+/** Returns true if pos falls inside any inline code span. */
+function insideInlineCode(
+  pos: number,
+  spans: Array<[number, number]>,
+): boolean {
+  return spans.some(([s, e]) => pos > s && pos < e);
+}
+
 function extractMatches(text: string, parseTools = true): Match[] {
   const matches: Match[] = [];
 
+  // Pre-compute inline code spans so we can skip
+  // false-positive marker matches inside backtick-quoted
+  // text (e.g. `` `[Thinking]` `` in prose).
+  const codeSpans: Array<[number, number]> = [];
+  for (const m of text.matchAll(INLINE_CODE_RE)) {
+    codeSpans.push([m.index!, m.index! + m[0].length]);
+  }
+
   // Marked blocks first (explicit [/Thinking] delimiters)
   for (const m of text.matchAll(THINKING_MARKED_RE)) {
+    if (insideInlineCode(m.index!, codeSpans)) continue;
     matches.push({
       start: m.index!,
       end: m.index! + m[0].length,
@@ -98,6 +118,7 @@ function extractMatches(text: string, parseTools = true): Match[] {
   for (const m of text.matchAll(THINKING_LEGACY_RE)) {
     const start = m.index!;
     const end = start + m[0].length;
+    if (insideInlineCode(start, codeSpans)) continue;
     const overlaps = matches.some(
       (o) => start >= o.start && start < o.end,
     );
@@ -114,6 +135,7 @@ function extractMatches(text: string, parseTools = true): Match[] {
 
   if (parseTools) {
     for (const m of text.matchAll(TOOL_RE)) {
+      if (insideInlineCode(m.index!, codeSpans)) continue;
       const toolName = m[1] ?? "";
       const toolArgs = (m[2] ?? "").trim();
       const displayName = TOOL_ALIASES[toolName] ?? toolName;

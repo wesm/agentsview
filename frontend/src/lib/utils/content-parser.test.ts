@@ -249,6 +249,39 @@ describe("parseContent - thinking blocks", () => {
   });
 });
 
+describe("parseContent - inline code spans", () => {
+  it("does not match [Thinking] inside backtick code span", () => {
+    const text =
+      "handling of `[Thinking]`, `[Tool call]`, `[Tool result]`.";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+    expect(segments[0]!.content).toContain("`[Thinking]`");
+  });
+
+  it("does not match [Bash] inside backtick code span", () => {
+    const text = "Run `[Bash]` to execute commands.";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+    expect(segments[0]!.content).toContain("`[Bash]`");
+  });
+
+  it("still matches real markers outside code spans", () => {
+    const text =
+      "Mentioned `[Thinking]` in docs.\n[Bash]\n$ echo hi";
+    const segments = parseContent(text, true);
+    const types = segments.map((s) => s.type);
+    expect(types).toContain("text");
+    expect(types).toContain("tool");
+    expect(types).not.toContain("thinking");
+  });
+
+  it("handles double-backtick code spans", () => {
+    const text = "Use ``[Thinking]`` as a marker.";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+  });
+});
+
 describe("isToolOnly", () => {
   it("returns false for user messages", () => {
     const msg = makeMsg({ role: "user", content: "[Bash]\nhi" });
