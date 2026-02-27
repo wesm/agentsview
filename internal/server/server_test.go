@@ -104,7 +104,9 @@ func setupWithServerOpts(
 	// requests, matching the test config (127.0.0.1:0).
 	// Individual tests can override by setting req.Host
 	// before calling ServeHTTP directly.
-	defaultHost := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	defaultHost := net.JoinHostPort(
+		cfg.Host, fmt.Sprintf("%d", cfg.Port),
+	)
 	defaultOrigin := fmt.Sprintf("http://%s", defaultHost)
 	baseHandler := srv.Handler()
 	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1257,54 +1259,103 @@ func TestCORSAllowsLocalhost(t *testing.T) {
 }
 
 func TestCORSBindAllInterfaces(t *testing.T) {
-	te := setup(t, func(c *config.Config) {
-		c.Host = "0.0.0.0"
-	})
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
 
-	// When bound to 0.0.0.0, all loopback origins must be allowed
-	// (including IPv6 [::1]).
-	for _, origin := range []string{
-		"http://127.0.0.1:0",
-		"http://localhost:0",
-		"http://[::1]:0",
-	} {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
-		req.Header.Set("Origin", origin)
-		w := httptest.NewRecorder()
-		te.handler.ServeHTTP(w, req)
-		assertStatus(t, w, http.StatusOK)
+			// In bind-all mode, all loopback origins must be allowed
+			// (including IPv6 [::1]).
+			for _, origin := range []string{
+				"http://127.0.0.1:0",
+				"http://localhost:0",
+				"http://[::1]:0",
+			} {
+				req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+				req.Header.Set("Origin", origin)
+				w := httptest.NewRecorder()
+				te.handler.ServeHTTP(w, req)
+				assertStatus(t, w, http.StatusOK)
 
-		cors := w.Header().Get("Access-Control-Allow-Origin")
-		if cors != origin {
-			t.Errorf("origin %s: expected CORS %s, got %q", origin, origin, cors)
-		}
+				cors := w.Header().Get("Access-Control-Allow-Origin")
+				if cors != origin {
+					t.Errorf("origin %s: expected CORS %s, got %q", origin, origin, cors)
+				}
+			}
+		})
+	}
+}
+
+func TestCORSBindAllAllowsLANIPOrigin(t *testing.T) {
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Header.Set("Origin", "http://192.168.1.50:0")
+			w := httptest.NewRecorder()
+			te.handler.ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusOK)
+
+			cors := w.Header().Get("Access-Control-Allow-Origin")
+			if cors != "http://192.168.1.50:0" {
+				t.Fatalf("expected CORS origin http://192.168.1.50:0, got %q", cors)
+			}
+		})
+	}
+}
+
+func TestHostHeaderBindAllAllowsLANIP(t *testing.T) {
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Host = "192.168.1.50:0"
+			w := httptest.NewRecorder()
+			te.srv.Handler().ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusOK)
+		})
 	}
 }
 
 func TestCORSBindAllRejectsForeignOrigin(t *testing.T) {
-	te := setup(t, func(c *config.Config) {
-		c.Host = "0.0.0.0"
-	})
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
 
-	req := httptest.NewRequest(
-		http.MethodPost, "/api/v1/sync", nil,
-	)
-	req.Header.Set("Origin", "http://evil-site.com")
-	w := httptest.NewRecorder()
-	te.handler.ServeHTTP(w, req)
-	assertStatus(t, w, http.StatusForbidden)
+			req := httptest.NewRequest(
+				http.MethodPost, "/api/v1/sync", nil,
+			)
+			req.Header.Set("Origin", "http://evil-site.com")
+			w := httptest.NewRecorder()
+			te.handler.ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusForbidden)
+		})
+	}
 }
 
 func TestHostHeaderBindAllRejectsDNSRebinding(t *testing.T) {
-	te := setup(t, func(c *config.Config) {
-		c.Host = "0.0.0.0"
-	})
+	for _, bindHost := range []string{"0.0.0.0", "::"} {
+		t.Run(bindHost, func(t *testing.T) {
+			te := setup(t, func(c *config.Config) {
+				c.Host = bindHost
+			})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
-	req.Host = "evil.attacker.com:8080"
-	w := httptest.NewRecorder()
-	te.srv.Handler().ServeHTTP(w, req)
-	assertStatus(t, w, http.StatusForbidden)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+			req.Host = "evil.attacker.com:8080"
+			w := httptest.NewRecorder()
+			te.srv.Handler().ServeHTTP(w, req)
+			assertStatus(t, w, http.StatusForbidden)
+		})
+	}
 }
 
 func TestCORSVaryAlwaysSet(t *testing.T) {
