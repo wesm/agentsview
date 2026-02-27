@@ -62,9 +62,9 @@ func main() {
 func printUsage() {
 	fmt.Printf(`agentsview %s - local web viewer for AI agent sessions
 
-Syncs Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode session
-data into SQLite, serves an analytics dashboard and session browser via
-a local web UI.
+Syncs Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, and Cursor
+session data into SQLite, serves an analytics dashboard and session
+browser via a local web UI.
 
 Usage:
   agentsview [flags]          Start the server (default command)
@@ -98,6 +98,7 @@ Environment variables:
   COPILOT_DIR             Copilot CLI directory
   GEMINI_DIR              Gemini CLI directory
   OPENCODE_DIR            OpenCode data directory
+  CURSOR_PROJECTS_DIR     Cursor projects directory
   AGENT_VIEWER_DATA_DIR   Data directory (database, config)
 
 Multiple directories:
@@ -159,6 +160,7 @@ func runServe(args []string) {
 		cfg.ResolveCopilotDirs(),
 		cfg.ResolveGeminiDirs(),
 		cfg.ResolveOpenCodeDirs(),
+		cfg.CursorProjectsDir,
 		"local",
 	)
 
@@ -362,6 +364,14 @@ func startFileWatcher(
 		geminiTmp := filepath.Join(d, "tmp")
 		if _, err := os.Stat(geminiTmp); err == nil {
 			roots = append(roots, watchRoot{d, geminiTmp})
+		}
+	}
+	if cfg.CursorProjectsDir != "" {
+		if _, err := os.Stat(cfg.CursorProjectsDir); err == nil {
+			roots = append(roots, watchRoot{
+				cfg.CursorProjectsDir,
+				cfg.CursorProjectsDir,
+			})
 		}
 	}
 

@@ -81,7 +81,7 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 
 	env.engine = sync.NewEngine(
 		env.db, claudeDirs, codexDirs, nil,
-		[]string{env.geminiDir}, []string{env.opencodeDir}, "local",
+		[]string{env.geminiDir}, []string{env.opencodeDir}, "", "local",
 	)
 	return env
 }

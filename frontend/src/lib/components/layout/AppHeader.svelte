@@ -9,6 +9,12 @@
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const modKey = isMac ? "Cmd" : "Ctrl";
 
+  function handleAgentChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    sessions.setAgentFilter(select.value);
+  }
+
+
   function handleExport() {
     if (sessions.activeSessionId) {
       window.open(
@@ -48,6 +54,19 @@
       value={sessions.filters.project}
       onselect={(v) => sessions.setProjectFilter(v)}
     />
+
+    <select
+      class="project-select"
+      value={sessions.filters.agent}
+      onchange={handleAgentChange}
+    >
+      <option value="">All Agents</option>
+      {#each sessions.agents as agent}
+        <option value={agent.name}>
+          {agent.name} ({agent.session_count})
+        </option>
+      {/each}
+    </select>
 
     <button
       class="nav-btn"

@@ -48,6 +48,78 @@ const TOOL_RE = new RegExp(
 
 const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
 
+/** Returns true if text[from..to) contains a backtick run of
+ *  exactly `len` characters. Used to detect a closing inline
+ *  code delimiter on the same line as the opener. */
+function hasRunBefore(
+  text: string,
+  from: number,
+  to: number,
+  len: number,
+): boolean {
+  for (let k = from; k < to; k++) {
+    if (text[k] !== "`") continue;
+    const s = k;
+    while (k < to && text[k] === "`") k++;
+    if (k - s === len) return true;
+  }
+  return false;
+}
+
+/**
+ * Scan for inline code spans per CommonMark rules: an opening
+ * backtick run of length N is closed by the next run of exactly
+ * N backticks. Fenced code blocks (triple-backtick at line
+ * start followed by a newline) are excluded — those are handled
+ * separately by CODE_BLOCK_RE.
+ */
+function scanInlineCodeSpans(
+  text: string,
+): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "`") {
+      i++;
+      continue;
+    }
+    // Measure opening backtick run length.
+    const openStart = i;
+    while (i < text.length && text[i] === "`") i++;
+    const runLen = i - openStart;
+
+    // Skip fenced code blocks: ≥3 backticks at line start
+    // with no closing run of the same length on that line.
+    if (
+      runLen >= 3 &&
+      (openStart === 0 || text[openStart - 1] === "\n")
+    ) {
+      const nl = text.indexOf("\n", i);
+      if (nl >= 0 && !hasRunBefore(text, i, nl, runLen)) {
+        continue;
+      }
+    }
+
+    // Scan for a closing run of exactly the same length.
+    let found = false;
+    for (let j = i; j < text.length; j++) {
+      if (text[j] !== "`") continue;
+      const closeStart = j;
+      while (j < text.length && text[j] === "`") j++;
+      if (j - closeStart === runLen) {
+        spans.push([openStart, j]);
+        i = j;
+        found = true;
+        break;
+      }
+    }
+    // If no closing run found, i is already past the
+    // unmatched opening run — continue scanning for
+    // other valid spans of different lengths.
+  }
+  return spans;
+}
+
 interface Match {
   start: number;
   end: number;
@@ -79,11 +151,25 @@ export function isToolOnly(msg: Message): boolean {
   return result;
 }
 
+/** Returns true if pos falls inside any inline code span. */
+function insideInlineCode(
+  pos: number,
+  spans: Array<[number, number]>,
+): boolean {
+  return spans.some(([s, e]) => pos > s && pos < e);
+}
+
 function extractMatches(text: string, parseTools = true): Match[] {
   const matches: Match[] = [];
 
+  // Pre-compute inline code spans so we can skip
+  // false-positive marker matches inside backtick-quoted
+  // text (e.g. `` `[Thinking]` `` in prose).
+  const codeSpans = scanInlineCodeSpans(text);
+
   // Marked blocks first (explicit [/Thinking] delimiters)
   for (const m of text.matchAll(THINKING_MARKED_RE)) {
+    if (insideInlineCode(m.index!, codeSpans)) continue;
     matches.push({
       start: m.index!,
       end: m.index! + m[0].length,
@@ -98,6 +184,7 @@ function extractMatches(text: string, parseTools = true): Match[] {
   for (const m of text.matchAll(THINKING_LEGACY_RE)) {
     const start = m.index!;
     const end = start + m[0].length;
+    if (insideInlineCode(start, codeSpans)) continue;
     const overlaps = matches.some(
       (o) => start >= o.start && start < o.end,
     );
@@ -114,6 +201,7 @@ function extractMatches(text: string, parseTools = true): Match[] {
 
   if (parseTools) {
     for (const m of text.matchAll(TOOL_RE)) {
+      if (insideInlineCode(m.index!, codeSpans)) continue;
       const toolName = m[1] ?? "";
       const toolArgs = (m[2] ?? "").trim();
       const displayName = TOOL_ALIASES[toolName] ?? toolName;

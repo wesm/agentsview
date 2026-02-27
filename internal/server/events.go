@@ -253,3 +253,19 @@ func (s *Server) handleListMachines(
 		"machines": machines,
 	})
 }
+
+func (s *Server) handleListAgents(
+	w http.ResponseWriter, r *http.Request,
+) {
+	agents, err := s.db.GetAgents(r.Context())
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"agents": agents,
+	})
+}

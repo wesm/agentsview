@@ -3,6 +3,7 @@ package sync
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wesm/agentsview/internal/parser"
@@ -994,4 +995,199 @@ func TestFindClaudeSourceFile_Symlink(t *testing.T) {
 	if filepath.Dir(got) != linkDir {
 		t.Errorf("expected path through symlink, got %q", got)
 	}
+}
+
+func TestIsContainedIn(t *testing.T) {
+	tests := []struct {
+		name        string
+		child, root string
+		want        bool
+	}{
+		{
+			name:  "child under root",
+			child: "/a/b/c",
+			root:  "/a/b",
+			want:  true,
+		},
+		{
+			name:  "same path",
+			child: "/a/b",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
+			name:  "child outside root",
+			child: "/a/x",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
+			name:  "traversal",
+			child: "/a/b/../x",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
+			name:  "parent of root",
+			child: "/a",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
+			name:  "dotdot-prefixed name",
+			child: "/a/b/..hidden",
+			root:  "/a/b",
+			want:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isContainedIn(tt.child, tt.root)
+			if got != tt.want {
+				t.Errorf(
+					"isContainedIn(%q, %q) = %v, want %v",
+					tt.child, tt.root, got, tt.want,
+				)
+			}
+		})
+	}
+}
+
+func TestDiscoverCursorSessions(t *testing.T) {
+	cursorTranscripts := filepath.Join(
+		"proj-dir", "agent-transcripts",
+	)
+
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantCount int
+	}{
+		{
+			name: "TxtOnly",
+			files: map[string]string{
+				filepath.Join(cursorTranscripts, "aaa.txt"): "user:\nhi",
+			},
+			wantCount: 1,
+		},
+		{
+			name: "JsonlOnly",
+			files: map[string]string{
+				filepath.Join(cursorTranscripts, "bbb.jsonl"): `{"role":"user"}`,
+			},
+			wantCount: 1,
+		},
+		{
+			name: "BothExtensionsDedupToJsonl",
+			files: map[string]string{
+				filepath.Join(cursorTranscripts, "ccc.txt"):   "user:\nhi",
+				filepath.Join(cursorTranscripts, "ccc.jsonl"): `{"role":"user"}`,
+			},
+			wantCount: 1,
+		},
+		{
+			name: "IgnoresOtherExtensions",
+			files: map[string]string{
+				filepath.Join(cursorTranscripts, "ddd.json"): "{}",
+				filepath.Join(cursorTranscripts, "eee.log"):  "log",
+			},
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+			files := DiscoverCursorSessions(dir)
+			if len(files) != tt.wantCount {
+				t.Fatalf(
+					"got %d files, want %d",
+					len(files), tt.wantCount,
+				)
+			}
+			for _, f := range files {
+				if f.Agent != parser.AgentCursor {
+					t.Errorf(
+						"agent = %q, want %q",
+						f.Agent, parser.AgentCursor,
+					)
+				}
+			}
+		})
+	}
+}
+
+func TestDiscoverCursorSessions_DedupPrefersJsonl(t *testing.T) {
+	dir := t.TempDir()
+	transcripts := filepath.Join(
+		"proj-dir", "agent-transcripts",
+	)
+	setupFileSystem(t, dir, map[string]string{
+		filepath.Join(transcripts, "sess.txt"):   "user:\nhi",
+		filepath.Join(transcripts, "sess.jsonl"): `{"role":"user"}`,
+	})
+	files := DiscoverCursorSessions(dir)
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	if !strings.HasSuffix(files[0].Path, ".jsonl") {
+		t.Errorf(
+			"expected .jsonl path, got %q", files[0].Path,
+		)
+	}
+}
+
+func TestFindCursorSourceFile(t *testing.T) {
+	cursorTranscripts := filepath.Join(
+		"proj-dir", "agent-transcripts",
+	)
+
+	t.Run("FindsTxt", func(t *testing.T) {
+		dir := t.TempDir()
+		setupFileSystem(t, dir, map[string]string{
+			filepath.Join(cursorTranscripts, "sess1.txt"): "data",
+		})
+		got := FindCursorSourceFile(dir, "sess1")
+		if got == "" {
+			t.Fatal("expected to find .txt file")
+		}
+	})
+
+	t.Run("FindsJsonl", func(t *testing.T) {
+		dir := t.TempDir()
+		setupFileSystem(t, dir, map[string]string{
+			filepath.Join(cursorTranscripts, "sess2.jsonl"): "{}",
+		})
+		got := FindCursorSourceFile(dir, "sess2")
+		if got == "" {
+			t.Fatal("expected to find .jsonl file")
+		}
+	})
+
+	t.Run("PrefersJsonlWhenBothExist", func(t *testing.T) {
+		dir := t.TempDir()
+		setupFileSystem(t, dir, map[string]string{
+			filepath.Join(cursorTranscripts, "sess3.txt"):   "old",
+			filepath.Join(cursorTranscripts, "sess3.jsonl"): "new",
+		})
+		jsonlPath := filepath.Join(
+			dir, cursorTranscripts, "sess3.jsonl",
+		)
+		got := FindCursorSourceFile(dir, "sess3")
+		if got != jsonlPath {
+			t.Errorf(
+				"got %q, want %q (.jsonl preferred)",
+				got, jsonlPath,
+			)
+		}
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		dir := t.TempDir()
+		got := FindCursorSourceFile(dir, "nonexistent")
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
 }

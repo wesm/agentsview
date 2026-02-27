@@ -23,6 +23,7 @@
   --accent-purple: #7c3aed;
   --accent-amber: #d97706;
   --accent-green: #059669;
+  --accent-black: #2d2d2d;
   --accent-red: #dc2626;
   --user-bg: #eef2ff;
   --assistant-bg: #faf9ff;
@@ -61,6 +62,7 @@
   --accent-purple: #a78bfa;
   --accent-amber: #fbbf24;
   --accent-green: #34d399;
+  --accent-black: #b0b0b0;
   --accent-red: #f87171;
   --user-bg: #111827;
   --assistant-bg: #141220;

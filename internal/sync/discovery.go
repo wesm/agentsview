@@ -447,6 +447,167 @@ func confirmGeminiSessionID(
 	return parser.GeminiSessionID(data) == sessionID
 }
 
+// DiscoverCursorSessions finds all agent transcript files under
+// the Cursor projects dir (<projectsDir>/<project>/agent-transcripts/<uuid>.txt).
+// All discovered paths are validated to resolve within the
+// canonical projectsDir, preventing symlink escapes.
+func DiscoverCursorSessions(
+	projectsDir string,
+) []DiscoveredFile {
+	if projectsDir == "" {
+		return nil
+	}
+
+	// Canonicalize root once for containment checks.
+	resolvedRoot, err := filepath.EvalSymlinks(projectsDir)
+	if err != nil {
+		return nil
+	}
+
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// Reject symlinked project directory entries.
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		transcriptsDir := filepath.Join(
+			projectsDir, entry.Name(), "agent-transcripts",
+		)
+
+		// Verify the transcripts directory resolves within
+		// the canonical root. This catches symlinked
+		// agent-transcripts directories pointing outside.
+		resolvedDir, err := filepath.EvalSymlinks(
+			transcriptsDir,
+		)
+		if err != nil {
+			continue
+		}
+		if !isContainedIn(resolvedDir, resolvedRoot) {
+			continue
+		}
+
+		transcripts, err := os.ReadDir(transcriptsDir)
+		if err != nil {
+			continue
+		}
+
+		project := parser.DecodeCursorProjectDir(entry.Name())
+		if project == "" {
+			project = "unknown"
+		}
+
+		// Collect valid transcripts, deduping by basename
+		// stem. When both .jsonl and .txt exist for the
+		// same session, prefer .jsonl.
+		seen := make(map[string]string) // stem → path
+		for _, sf := range transcripts {
+			if sf.IsDir() {
+				continue
+			}
+			name := sf.Name()
+			if !isCursorTranscriptExt(name) {
+				continue
+			}
+			fullPath := filepath.Join(
+				transcriptsDir, name,
+			)
+			if !isRegularFile(fullPath) {
+				continue
+			}
+			stem := strings.TrimSuffix(
+				name, filepath.Ext(name),
+			)
+			if prev, ok := seen[stem]; ok {
+				// .jsonl wins over .txt
+				if strings.HasSuffix(prev, ".txt") &&
+					strings.HasSuffix(name, ".jsonl") {
+					seen[stem] = fullPath
+				}
+				continue
+			}
+			seen[stem] = fullPath
+		}
+		for _, path := range seen {
+			files = append(files, DiscoveredFile{
+				Path:    path,
+				Project: project,
+				Agent:   parser.AgentCursor,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindCursorSourceFile finds a Cursor transcript file by
+// session UUID. Searches all project directories for a
+// matching agent-transcripts/<uuid>.{jsonl,txt} file.
+// Prefers .jsonl over .txt (consistent with discovery).
+func FindCursorSourceFile(
+	projectsDir, sessionID string,
+) string {
+	if projectsDir == "" || !isValidSessionID(sessionID) {
+		return ""
+	}
+
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	// Canonicalize the root so the containment check works
+	// even when CURSOR_PROJECTS_DIR is itself a symlink.
+	resolvedRoot, err := filepath.EvalSymlinks(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	for _, ext := range []string{".jsonl", ".txt"} {
+		target := sessionID + ext
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			candidate := filepath.Join(
+				projectsDir, entry.Name(),
+				"agent-transcripts", target,
+			)
+			if !isRegularFile(candidate) {
+				continue
+			}
+			resolved, err := filepath.EvalSymlinks(
+				candidate,
+			)
+			if err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(
+				resolvedRoot, resolved,
+			)
+			sep := string(filepath.Separator)
+			if err != nil || rel == ".." ||
+				strings.HasPrefix(rel, ".."+sep) {
+				continue
+			}
+			return candidate
+		}
+	}
+	return ""
+}
+
 // geminiProjectsFile holds the structure of
 // ~/.gemini/projects.json.
 type geminiProjectsFile struct {
@@ -675,4 +836,34 @@ func FindCopilotSourceFile(
 	}
 
 	return ""
+}
+
+// isRegularFile returns true if path exists and is a regular
+// file (not a symlink, directory, or other special file).
+// Uses os.Lstat to avoid following symlinks.
+func isRegularFile(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
+}
+
+// isCursorTranscriptExt returns true if the filename has a
+// recognized Cursor transcript extension (.txt or .jsonl).
+func isCursorTranscriptExt(name string) bool {
+	return strings.HasSuffix(name, ".txt") ||
+		strings.HasSuffix(name, ".jsonl")
+}
+
+// isContainedIn returns true if child is a path strictly
+// under root. Both paths must be absolute / canonical (no
+// symlinks) for this to be reliable.
+func isContainedIn(child, root string) bool {
+	rel, err := filepath.Rel(root, child)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
