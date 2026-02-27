@@ -200,6 +200,8 @@ main() {
 }
 
 # Guard: only run main when executed directly, not when sourced.
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# ${BASH_SOURCE[0]-} defaults to empty when piped via stdin
+# (curl ... | bash), which we treat as direct execution.
+if [[ "${BASH_SOURCE[0]-}" == "${0}" || -z "${BASH_SOURCE[0]-}" ]]; then
     main "$@"
 fi
