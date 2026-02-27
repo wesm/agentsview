@@ -2596,3 +2596,26 @@ func TestGetAgentsExcludesEmptyAgent(t *testing.T) {
 		t.Errorf("got %d agents, want 2", len(agents))
 	}
 }
+
+func TestGetAgentsEmptyResultSerializesAsArray(t *testing.T) {
+	d := testDB(t)
+
+	agents, err := d.GetAgents(context.Background())
+	if err != nil {
+		t.Fatalf("GetAgents: %v", err)
+	}
+	if agents == nil {
+		t.Fatal("GetAgents returned nil, want empty slice")
+	}
+	if len(agents) != 0 {
+		t.Errorf("got %d agents, want 0", len(agents))
+	}
+
+	b, err := json.Marshal(agents)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if string(b) != "[]" {
+		t.Errorf("JSON = %s, want []", b)
+	}
+}

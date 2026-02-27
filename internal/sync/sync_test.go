@@ -1027,6 +1027,12 @@ func TestIsContainedIn(t *testing.T) {
 			want:  false,
 		},
 		{
+			name:  "parent of root",
+			child: "/a",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
 			name:  "dotdot-prefixed name",
 			child: "/a/b/..hidden",
 			root:  "/a/b",
