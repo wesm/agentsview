@@ -201,9 +201,8 @@ func (s *Server) githubToken() string {
 func (s *Server) Handler() http.Handler {
 	allowedOrigins := buildAllowedOrigins(s.cfg.Host, s.cfg.Port)
 	allowedHosts := buildAllowedHosts(s.cfg.Host, s.cfg.Port)
-	bindAll := isBindAll(s.cfg.Host)
-	return hostCheckMiddleware(allowedHosts, bindAll,
-		corsMiddleware(allowedOrigins, bindAll, logMiddleware(s.mux)),
+	return hostCheckMiddleware(allowedHosts,
+		corsMiddleware(allowedOrigins, logMiddleware(s.mux)),
 	)
 }
 
@@ -246,13 +245,11 @@ func buildAllowedHosts(host string, port int) map[string]bool {
 // hostCheckMiddleware validates the Host header against expected
 // values to prevent DNS rebinding attacks. Only applied to /api/
 // routes — the SPA fallback is left accessible for flexibility.
-// When bindAll is true (0.0.0.0/::), Host validation is skipped
-// because LAN clients connect via the machine's real IP.
 func hostCheckMiddleware(
-	allowedHosts map[string]bool, bindAll bool, next http.Handler,
+	allowedHosts map[string]bool, next http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") && !bindAll {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
 			if !allowedHosts[r.Host] {
 				http.Error(
 					w, "Forbidden", http.StatusForbidden,
@@ -318,13 +315,6 @@ func buildAllowedOrigins(host string, port int) map[string]bool {
 	return origins
 }
 
-// isBindAll returns true when the server is listening on all
-// interfaces (0.0.0.0 or ::), meaning LAN clients may connect
-// via the machine's real IP or hostname.
-func isBindAll(host string) bool {
-	return host == "0.0.0.0" || host == "::"
-}
-
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe() error {
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
@@ -375,7 +365,7 @@ func isMutating(method string) bool {
 }
 
 func corsMiddleware(
-	allowedOrigins map[string]bool, bindAll bool, next http.Handler,
+	allowedOrigins map[string]bool, next http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -383,11 +373,7 @@ func corsMiddleware(
 			// For reads (GET/HEAD), allow empty Origin (same-origin
 			// requests often omit it). For mutating methods and
 			// preflights, require Origin to be present and allowed.
-			// When bindAll is true, any non-empty origin is
-			// accepted because the user explicitly chose to expose
-			// the server on the network.
-			originAllowed := allowedOrigins[origin] ||
-				(bindAll && origin != "")
+			originAllowed := allowedOrigins[origin]
 			safeForReads := origin == "" || originAllowed
 
 			if originAllowed {

@@ -1281,6 +1281,32 @@ func TestCORSBindAllInterfaces(t *testing.T) {
 	}
 }
 
+func TestCORSBindAllRejectsForeignOrigin(t *testing.T) {
+	te := setup(t, func(c *config.Config) {
+		c.Host = "0.0.0.0"
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/sync", nil,
+	)
+	req.Header.Set("Origin", "http://evil-site.com")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestHostHeaderBindAllRejectsDNSRebinding(t *testing.T) {
+	te := setup(t, func(c *config.Config) {
+		c.Host = "0.0.0.0"
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Host = "evil.attacker.com:8080"
+	w := httptest.NewRecorder()
+	te.srv.Handler().ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusForbidden)
+}
+
 func TestCORSVaryAlwaysSet(t *testing.T) {
 	te := setup(t)
 
