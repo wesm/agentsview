@@ -995,3 +995,47 @@ func TestFindClaudeSourceFile_Symlink(t *testing.T) {
 		t.Errorf("expected path through symlink, got %q", got)
 	}
 }
+
+func TestIsContainedIn(t *testing.T) {
+	tests := []struct {
+		name        string
+		child, root string
+		want        bool
+	}{
+		{
+			name:  "child under root",
+			child: "/a/b/c",
+			root:  "/a/b",
+			want:  true,
+		},
+		{
+			name:  "same path",
+			child: "/a/b",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
+			name:  "child outside root",
+			child: "/a/x",
+			root:  "/a/b",
+			want:  false,
+		},
+		{
+			name:  "traversal",
+			child: "/a/b/../x",
+			root:  "/a/b",
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isContainedIn(tt.child, tt.root)
+			if got != tt.want {
+				t.Errorf(
+					"isContainedIn(%q, %q) = %v, want %v",
+					tt.child, tt.root, got, tt.want,
+				)
+			}
+		})
+	}
+}

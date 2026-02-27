@@ -219,10 +219,8 @@ func extractAssistantContent(
 		if strings.HasPrefix(trimmed, "[Thinking]") {
 			hasThinking = true
 			i++
-			// Skip thinking content until next marker
 			for i < len(lines) {
-				t := strings.TrimSpace(lines[i])
-				if isAssistantMarker(t) {
+				if isBlockBodyEnd(lines[i]) {
 					break
 				}
 				i++
@@ -239,10 +237,8 @@ func extractAssistantContent(
 				Category: NormalizeToolCategory(toolName),
 			})
 			i++
-			// Skip tool call parameters until next marker
 			for i < len(lines) {
-				t := strings.TrimSpace(lines[i])
-				if isAssistantMarker(t) {
+				if isBlockBodyEnd(lines[i]) {
 					break
 				}
 				i++
@@ -254,8 +250,7 @@ func extractAssistantContent(
 		if strings.HasPrefix(trimmed, "[Tool result]") {
 			i++
 			for i < len(lines) {
-				t := strings.TrimSpace(lines[i])
-				if isAssistantMarker(t) {
+				if isBlockBodyEnd(lines[i]) {
 					break
 				}
 				i++
@@ -279,6 +274,21 @@ func isAssistantMarker(trimmed string) bool {
 	return strings.HasPrefix(trimmed, "[Thinking]") ||
 		strings.HasPrefix(trimmed, "[Tool call] ") ||
 		strings.HasPrefix(trimmed, "[Tool result]")
+}
+
+// isBlockBodyEnd returns true if line signals the end of a
+// structured block body (thinking, tool call, or tool result).
+// Block bodies consist of indented or empty lines; a non-empty
+// line at the left margin is either a new marker or regular
+// assistant prose that should not be consumed.
+func isBlockBodyEnd(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if isAssistantMarker(trimmed) {
+		return true
+	}
+	// Non-empty line at left margin ends the block.
+	return trimmed != "" && len(line) > 0 && line[0] != ' ' &&
+		line[0] != '\t'
 }
 
 // DecodeCursorProjectDir extracts a clean project name from

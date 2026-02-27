@@ -533,7 +533,7 @@ func (db *DB) GetAgents(
 	rows, err := db.getReader().QueryContext(ctx, `
 		SELECT agent, COUNT(*) as session_count
 		FROM sessions
-		WHERE message_count > 0
+		WHERE message_count > 0 AND agent <> ''
 		GROUP BY agent
 		ORDER BY agent`)
 	if err != nil {
