@@ -363,6 +363,29 @@ func (db *DB) init() error {
 // Close closes both writer and reader connections, plus any
 // retired pools left over from previous Reopen calls.
 func (db *DB) Close() error {
+	db.mu.Lock()
+	retired := db.retired
+	db.retired = nil
+	db.mu.Unlock()
+
+	errs := []error{
+		db.getWriter().Close(),
+		db.getReader().Close(),
+	}
+	for _, p := range retired {
+		errs = append(errs, p.Close())
+	}
+	return errors.Join(errs...)
+}
+
+// CloseConnections closes both connections without reopening,
+// releasing file locks so the database file can be renamed.
+// Also drains any retired pools from previous Reopen calls.
+// Callers must call Reopen afterwards to restore service.
+func (db *DB) CloseConnections() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
 	errs := []error{
 		db.getWriter().Close(),
 		db.getReader().Close(),
@@ -372,18 +395,6 @@ func (db *DB) Close() error {
 	}
 	db.retired = nil
 	return errors.Join(errs...)
-}
-
-// CloseConnections closes both connections without reopening,
-// releasing file locks so the database file can be renamed.
-// Callers must call Reopen afterwards to restore service.
-func (db *DB) CloseConnections() error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	return errors.Join(
-		db.getWriter().Close(),
-		db.getReader().Close(),
-	)
 }
 
 // Reopen closes and reopens both connections to the same
@@ -416,13 +427,21 @@ func (db *DB) reopenLocked() error {
 	}
 	reader.SetMaxOpenConns(4)
 
+	// Close pools from any previous reopen. They have been
+	// retired for at least one full Reopen cycle, so all
+	// in-flight queries on them have long since completed.
+	for _, p := range db.retired {
+		_ = p.Close()
+	}
+	db.retired = db.retired[:0]
+
 	oldWriter := db.writer.Swap(writer)
 	oldReader := db.reader.Swap(reader)
 
-	// Retire old pools instead of closing them immediately.
-	// Concurrent readers that loaded the old pointer before
-	// the swap may still have in-flight queries. The retired
-	// pools are closed when the DB itself is closed.
+	// Retire the just-swapped pools. Concurrent readers that
+	// loaded the old pointer before the swap may still have
+	// in-flight queries; these pools will be closed on the
+	// next Reopen, CloseConnections, or Close call.
 	db.retired = append(db.retired, oldWriter, oldReader)
 	return nil
 }

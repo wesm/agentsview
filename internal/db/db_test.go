@@ -2475,6 +2475,58 @@ func TestConcurrentReadsWhileReopen(t *testing.T) {
 	}
 }
 
+func TestRepeatedReopenBoundsRetiredPools(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	// Reopen many times; retired pools from earlier rounds
+	// should be closed by subsequent reopens, keeping only
+	// the most recent pair alive.
+	for range 20 {
+		if err := d.Reopen(); err != nil {
+			t.Fatalf("Reopen: %v", err)
+		}
+	}
+
+	// After 20 reopens the retired slice should hold at most
+	// the last pair (2 entries), not 40.
+	d.mu.Lock()
+	n := len(d.retired)
+	d.mu.Unlock()
+	if n > 2 {
+		t.Errorf("retired pool count = %d, want <= 2", n)
+	}
+
+	// Data should still be readable.
+	s, err := d.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if s == nil {
+		t.Error("session s1 missing after repeated Reopen")
+	}
+}
+
+func TestCloseAfterCloseConnectionsReopen(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	// CloseConnections + Reopen is the normal resync lifecycle.
+	if err := d.CloseConnections(); err != nil {
+		t.Fatalf("CloseConnections: %v", err)
+	}
+	if err := d.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+
+	// Close should succeed without "database is closed" errors
+	// from double-closing the pools that CloseConnections
+	// already closed.
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func TestCopyInsightsFrom(t *testing.T) {
 	dir := t.TempDir()
 
