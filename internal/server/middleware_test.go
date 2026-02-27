@@ -2,6 +2,7 @@ package server
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -105,7 +106,18 @@ func TestMiddlewareTimeout(t *testing.T) {
 		t, 10*time.Millisecond,
 		withHandlerDelay(100*time.Millisecond),
 	)
-	ts := httptest.NewServer(srv.Handler())
+	// Use a real listener to discover the bound port, then
+	// rebuild Handler() with the correct port in the Host
+	// allowlist.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	srv.SetPort(port)
+	ts := httptest.NewUnstartedServer(srv.Handler())
+	ts.Listener = ln
+	ts.Start()
 	t.Cleanup(ts.Close)
 
 	tests := []struct {

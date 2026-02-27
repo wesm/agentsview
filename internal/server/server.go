@@ -200,7 +200,60 @@ func (s *Server) githubToken() string {
 // Handler returns the http.Handler with middleware applied.
 func (s *Server) Handler() http.Handler {
 	allowedOrigins := buildAllowedOrigins(s.cfg.Host, s.cfg.Port)
-	return corsMiddleware(allowedOrigins, logMiddleware(s.mux))
+	allowedHosts := buildAllowedHosts(s.cfg.Host, s.cfg.Port)
+	return hostCheckMiddleware(allowedHosts,
+		corsMiddleware(allowedOrigins, logMiddleware(s.mux)),
+	)
+}
+
+// buildAllowedHosts returns the set of Host header values that
+// are legitimate for this server. This defends against DNS
+// rebinding attacks where an attacker's domain resolves to
+// 127.0.0.1 — the browser sends the attacker's domain as the
+// Host header, which we reject.
+func buildAllowedHosts(host string, port int) map[string]bool {
+	hosts := make(map[string]bool)
+	add := func(h string) {
+		hosts[net.JoinHostPort(h, strconv.Itoa(port))] = true
+		// Browsers may omit port 80 from the Host header.
+		if port == 80 {
+			hosts[h] = true
+		}
+	}
+	add(host)
+	switch host {
+	case "127.0.0.1":
+		add("localhost")
+	case "localhost":
+		add("127.0.0.1")
+	case "0.0.0.0", "::":
+		add("127.0.0.1")
+		add("localhost")
+		add("::1")
+	case "::1":
+		add("127.0.0.1")
+		add("localhost")
+	}
+	return hosts
+}
+
+// hostCheckMiddleware validates the Host header against expected
+// values to prevent DNS rebinding attacks. Only applied to /api/
+// routes — the SPA fallback is left accessible for flexibility.
+func hostCheckMiddleware(
+	allowedHosts map[string]bool, next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if !allowedHosts[r.Host] {
+				http.Error(
+					w, "Forbidden", http.StatusForbidden,
+				)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // httpOrigin formats an HTTP origin string. It uses
@@ -212,7 +265,14 @@ func httpOrigin(host string, port int) []string {
 	hp := net.JoinHostPort(host, strconv.Itoa(port))
 	origin := "http://" + hp
 	if port == 80 {
-		return []string{origin, "http://" + host}
+		// net.JoinHostPort brackets IPv6, so use it for the
+		// portless form too: JoinHostPort("::1","") is not
+		// valid, so bracket manually when needed.
+		bare := host
+		if strings.Contains(host, ":") {
+			bare = "[" + host + "]"
+		}
+		return []string{origin, "http://" + bare}
 	}
 	return []string{origin}
 }
@@ -305,9 +365,13 @@ func corsMiddleware(
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			origin := r.Header.Get("Origin")
-			originAllowed := origin == "" || allowedOrigins[origin]
+			// For reads (GET/HEAD), allow empty Origin (same-origin
+			// requests often omit it). For mutating methods and
+			// preflights, require Origin to be present and allowed.
+			originAllowed := allowedOrigins[origin]
+			safeForReads := origin == "" || originAllowed
 
-			if origin != "" && allowedOrigins[origin] {
+			if originAllowed {
 				w.Header().Set(
 					"Access-Control-Allow-Origin", origin,
 				)
@@ -325,7 +389,7 @@ func corsMiddleware(
 				"Content-Type",
 			)
 			if r.Method == http.MethodOptions {
-				if !originAllowed {
+				if !safeForReads {
 					http.Error(
 						w, "Forbidden", http.StatusForbidden,
 					)
@@ -334,10 +398,10 @@ func corsMiddleware(
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
-			// Block state-changing requests from
-			// unrecognized origins to prevent CSRF via
-			// simple requests (e.g., <form> POST) that
-			// bypass CORS preflight.
+			// Block state-changing requests unless Origin
+			// is present and recognized. This prevents
+			// CSRF via simple requests (e.g., <form> POST)
+			// and DNS rebinding where Origin is absent.
 			if !originAllowed && isMutating(r.Method) {
 				http.Error(
 					w, "Forbidden", http.StatusForbidden,

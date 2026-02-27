@@ -100,9 +100,33 @@ func setupWithServerOpts(
 	)
 	srv := server.New(cfg, database, engine, srvOpts...)
 
+	// Wrap handler to set default Host header for all test
+	// requests, matching the test config (127.0.0.1:0).
+	// Individual tests can override by setting req.Host
+	// before calling ServeHTTP directly.
+	defaultHost := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	defaultOrigin := fmt.Sprintf("http://%s", defaultHost)
+	baseHandler := srv.Handler()
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "example.com" || r.Host == "" {
+			r.Host = defaultHost
+		}
+		// Auto-set Origin for mutating requests so tests
+		// don't need to set it manually on every inline
+		// httptest.NewRequest.
+		if r.Header.Get("Origin") == "" {
+			switch r.Method {
+			case http.MethodPost, http.MethodPut,
+				http.MethodPatch, http.MethodDelete:
+				r.Header.Set("Origin", defaultOrigin)
+			}
+		}
+		baseHandler.ServeHTTP(w, r)
+	})
+
 	return &testEnv{
 		srv:       srv,
-		handler:   srv.Handler(),
+		handler:   wrappedHandler,
 		db:        database,
 		claudeDir: claudeDir,
 		dataDir:   dir,
@@ -267,6 +291,7 @@ func (te *testEnv) post(
 	req := httptest.NewRequest(http.MethodPost, path,
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://127.0.0.1:0")
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	return w
@@ -277,6 +302,7 @@ func (te *testEnv) del(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodDelete, path, nil)
+	req.Header.Set("Origin", "http://127.0.0.1:0")
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	return w
@@ -303,6 +329,7 @@ func (te *testEnv) upload(
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/sessions/upload?"+query, &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Origin", "http://127.0.0.1:0")
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	return w
@@ -1164,6 +1191,53 @@ func TestCORSPreflightRejectsBadOrigin(t *testing.T) {
 	w := httptest.NewRecorder()
 	te.handler.ServeHTTP(w, req)
 	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestCORSBlocksMutatingWithNoOrigin(t *testing.T) {
+	te := setup(t)
+
+	// POST with no Origin header should be blocked (prevents
+	// CSRF where browser omits Origin). Use srv.Handler()
+	// directly to bypass the test wrapper that auto-sets Origin.
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/sync", nil,
+	)
+	req.Host = "127.0.0.1:0"
+	w := httptest.NewRecorder()
+	te.srv.Handler().ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestHostHeaderRejectsDNSRebinding(t *testing.T) {
+	te := setup(t)
+
+	// A DNS rebinding attack uses a custom domain that resolves
+	// to 127.0.0.1. The Host header carries the attacker's domain.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Host = "evil.attacker.com:8080"
+	w := httptest.NewRecorder()
+	te.srv.Handler().ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestHostHeaderAllowsLegitimate(t *testing.T) {
+	te := setup(t)
+
+	// Requests with legitimate Host should pass.
+	for _, host := range []string{
+		"127.0.0.1:0",
+		"localhost:0",
+	} {
+		req := httptest.NewRequest(
+			http.MethodGet, "/api/v1/stats", nil,
+		)
+		req.Host = host
+		w := httptest.NewRecorder()
+		te.srv.Handler().ServeHTTP(w, req)
+		if w.Code == http.StatusForbidden {
+			t.Errorf("host %s should be allowed, got 403", host)
+		}
+	}
 }
 
 func TestCORSAllowsLocalhost(t *testing.T) {
