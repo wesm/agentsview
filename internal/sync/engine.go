@@ -311,7 +311,7 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
-	// Cursor: <cursorDir>/<project>/agent-transcripts/<uuid>.txt
+	// Cursor: <cursorDir>/<project>/agent-transcripts/<uuid>.{txt,jsonl}
 	if e.cursorDir != "" {
 		if rel, ok := isUnder(e.cursorDir, path); ok {
 			parts := strings.Split(rel, sep)
@@ -321,7 +321,7 @@ func (e *Engine) classifyOnePath(
 			if parts[1] != "agent-transcripts" {
 				return DiscoveredFile{}, false
 			}
-			if !strings.HasSuffix(parts[2], ".txt") {
+			if !isCursorTranscriptExt(parts[2]) {
 				return DiscoveredFile{}, false
 			}
 			project := parser.DecodeCursorProjectDir(parts[0])
@@ -1073,9 +1073,7 @@ func (e *Engine) processGemini(
 func (e *Engine) processCursor(
 	file DiscoveredFile, info os.FileInfo,
 ) processResult {
-	sessionID := "cursor:" + strings.TrimSuffix(
-		info.Name(), ".txt",
-	)
+	sessionID := parser.CursorSessionID(file.Path)
 
 	if e.shouldSkipFile(sessionID, info) {
 		return processResult{skip: true}

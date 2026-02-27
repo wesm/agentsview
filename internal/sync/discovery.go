@@ -510,7 +510,7 @@ func DiscoverCursorSessions(
 			if sf.IsDir() {
 				continue
 			}
-			if !strings.HasSuffix(sf.Name(), ".txt") {
+			if !isCursorTranscriptExt(sf.Name()) {
 				continue
 			}
 			fullPath := filepath.Join(transcriptsDir, sf.Name())
@@ -553,29 +553,35 @@ func FindCursorSourceFile(
 		return ""
 	}
 
-	target := sessionID + ".txt"
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	for _, ext := range []string{".jsonl", ".txt"} {
+		target := sessionID + ext
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			candidate := filepath.Join(
+				projectsDir, entry.Name(),
+				"agent-transcripts", target,
+			)
+			if !isRegularFile(candidate) {
+				continue
+			}
+			resolved, err := filepath.EvalSymlinks(
+				candidate,
+			)
+			if err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(
+				resolvedRoot, resolved,
+			)
+			sep := string(filepath.Separator)
+			if err != nil || rel == ".." ||
+				strings.HasPrefix(rel, ".."+sep) {
+				continue
+			}
+			return candidate
 		}
-		candidate := filepath.Join(
-			projectsDir, entry.Name(),
-			"agent-transcripts", target,
-		)
-		if !isRegularFile(candidate) {
-			continue
-		}
-		resolved, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			continue
-		}
-		rel, err := filepath.Rel(resolvedRoot, resolved)
-		sep := string(filepath.Separator)
-		if err != nil || rel == ".." ||
-			strings.HasPrefix(rel, ".."+sep) {
-			continue
-		}
-		return candidate
 	}
 	return ""
 }
@@ -819,6 +825,13 @@ func isRegularFile(path string) bool {
 		return false
 	}
 	return info.Mode().IsRegular()
+}
+
+// isCursorTranscriptExt returns true if the filename has a
+// recognized Cursor transcript extension (.txt or .jsonl).
+func isCursorTranscriptExt(name string) bool {
+	return strings.HasSuffix(name, ".txt") ||
+		strings.HasSuffix(name, ".jsonl")
 }
 
 // isContainedIn returns true if child is a path strictly

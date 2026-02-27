@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // maxCursorTranscriptSize is the maximum transcript file size
@@ -57,15 +59,19 @@ func ParseCursorSession(
 		)
 	}
 
-	lines := strings.Split(string(data), "\n")
-	messages := parseCursorMessages(lines)
+	text := string(data)
+	var messages []ParsedMessage
+	if isCursorJSONL(text) {
+		messages = parseCursorJSONL(text)
+	} else {
+		lines := strings.Split(text, "\n")
+		messages = parseCursorMessages(lines)
+	}
 	if len(messages) == 0 {
 		return nil, nil, nil
 	}
 
-	sessionID := "cursor:" + strings.TrimSuffix(
-		filepath.Base(path), ".txt",
-	)
+	sessionID := CursorSessionID(path)
 
 	var firstMessage string
 	for _, m := range messages {
@@ -289,6 +295,117 @@ func isBlockBodyEnd(line string) bool {
 	// Non-empty line at left margin ends the block.
 	return trimmed != "" && len(line) > 0 && line[0] != ' ' &&
 		line[0] != '\t'
+}
+
+// CursorSessionID derives a session ID from a transcript file
+// path by stripping whatever extension is present.
+func CursorSessionID(path string) string {
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	return "cursor:" + base
+}
+
+// isCursorJSONL returns true if the data looks like JSONL
+// (Anthropic API message format) rather than plain text.
+// Checks whether the first non-empty line is valid JSON.
+func isCursorJSONL(data string) bool {
+	for _, line := range strings.SplitN(data, "\n", 20) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		return gjson.Valid(line)
+	}
+	return false
+}
+
+// parseCursorJSONL parses a Cursor JSONL transcript where
+// each line is an Anthropic API message object with "role"
+// and "message.content" fields.
+func parseCursorJSONL(data string) []ParsedMessage {
+	lines := strings.Split(data, "\n")
+	var messages []ParsedMessage
+	ordinal := 0
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !gjson.Valid(line) {
+			continue
+		}
+
+		role := gjson.Get(line, "role").Str
+		if role != "user" && role != "assistant" {
+			continue
+		}
+
+		content := gjson.Get(line, "message.content")
+		if !content.Exists() {
+			continue
+		}
+
+		var msg ParsedMessage
+		msg.Ordinal = ordinal
+
+		if role == "user" {
+			msg.Role = RoleUser
+			msg.Content = extractJSONLUserContent(content)
+		} else {
+			msg.Role = RoleAssistant
+			text, hasThinking, hasToolUse,
+				toolCalls, toolResults :=
+				ExtractTextContent(content)
+			msg.Content = text
+			msg.HasThinking = hasThinking
+			msg.HasToolUse = hasToolUse
+			msg.ToolCalls = toolCalls
+			msg.ToolResults = toolResults
+		}
+
+		msg.Content = strings.TrimSpace(msg.Content)
+		msg.ContentLength = len(msg.Content)
+		if msg.Content == "" &&
+			len(msg.ToolCalls) == 0 &&
+			len(msg.ToolResults) == 0 {
+			continue
+		}
+
+		messages = append(messages, msg)
+		ordinal++
+	}
+	return messages
+}
+
+// extractJSONLUserContent extracts text from a user message's
+// content field. If the content is a string, strips
+// <user_query> tags. If it's an array of blocks, collects
+// text blocks and strips tags from the combined result.
+func extractJSONLUserContent(content gjson.Result) string {
+	if content.Type == gjson.String {
+		return extractUserQuery(
+			strings.Split(content.Str, "\n"),
+		)
+	}
+
+	if !content.IsArray() {
+		return ""
+	}
+
+	var parts []string
+	content.ForEach(func(_, block gjson.Result) bool {
+		if block.Get("type").Str == "text" {
+			text := block.Get("text").Str
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return true
+	})
+
+	if len(parts) == 0 {
+		return ""
+	}
+	combined := strings.Join(parts, "\n")
+	return extractUserQuery(strings.Split(combined, "\n"))
 }
 
 // DecodeCursorProjectDir extracts a clean project name from

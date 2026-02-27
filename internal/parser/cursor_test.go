@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -147,6 +148,242 @@ func TestIsContainedIn_EdgeCases(t *testing.T) {
 					"isBlockBodyEnd(%q) = %v, want %v",
 					tt.line, got, tt.want,
 				)
+			}
+		})
+	}
+}
+
+func TestCursorSessionID(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/a/b/abc123.txt", "cursor:abc123"},
+		{"/a/b/abc123.jsonl", "cursor:abc123"},
+		{"/a/b/no-ext", "cursor:no-ext"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := CursorSessionID(tt.path)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsCursorJSONL(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{
+			"valid jsonl",
+			`{"role":"user","message":{"content":"hi"}}`,
+			true,
+		},
+		{
+			"leading empty lines",
+			"\n\n" + `{"role":"user","message":{"content":"hi"}}`,
+			true,
+		},
+		{
+			"plain text",
+			"user:\nhello\nassistant:\nworld",
+			false,
+		},
+		{
+			"empty",
+			"",
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isCursorJSONL(tt.data)
+			if got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCursorJSONL(t *testing.T) {
+	tests := []struct {
+		name             string
+		lines            []string
+		wantCount        int
+		wantFirstRole    RoleType
+		wantFirstContent string
+		wantThinking     bool
+		wantToolUse      bool
+		wantToolCount    int
+	}{
+		{
+			name: "simple exchange",
+			lines: []string{
+				`{"role":"user","message":{"content":"Hello"}}`,
+				`{"role":"assistant","message":{"content":"Hi there"}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Hello",
+		},
+		{
+			name: "user with user_query tags",
+			lines: []string{
+				`{"role":"user","message":{"content":"<user_query>What is Go?</user_query>"}}`,
+				`{"role":"assistant","message":{"content":"A programming language."}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "What is Go?",
+		},
+		{
+			name: "content array with text blocks",
+			lines: []string{
+				`{"role":"user","message":{"content":[{"type":"text","text":"Hello"}]}}`,
+				`{"role":"assistant","message":{"content":[{"type":"text","text":"World"}]}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Hello",
+		},
+		{
+			name: "assistant with tool_use",
+			lines: []string{
+				`{"role":"user","message":{"content":"Fix it"}}`,
+				`{"role":"assistant","message":{"content":[{"type":"text","text":"Let me fix that."},{"type":"tool_use","id":"tu_1","name":"Edit","input":{"file_path":"main.go"}}]}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Fix it",
+			wantToolUse:      true,
+			wantToolCount:    1,
+		},
+		{
+			name: "assistant with thinking",
+			lines: []string{
+				`{"role":"user","message":{"content":"Explain"}}`,
+				`{"role":"assistant","message":{"content":[{"type":"thinking","thinking":"Let me reason..."},{"type":"text","text":"Here is my answer."}]}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Explain",
+			wantThinking:     true,
+		},
+		{
+			name: "mixed thinking, tool_use, text",
+			lines: []string{
+				`{"role":"user","message":{"content":"Do something"}}`,
+				`{"role":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"},{"type":"tool_use","id":"tu_2","name":"Bash","input":{"command":"ls"}},{"type":"text","text":"Done."}]}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Do something",
+			wantThinking:     true,
+			wantToolUse:      true,
+			wantToolCount:    1,
+		},
+		{
+			name: "skip empty and invalid lines",
+			lines: []string{
+				"",
+				"not json",
+				`{"role":"user","message":{"content":"Valid"}}`,
+				"",
+				`{"role":"assistant","message":{"content":"Also valid"}}`,
+			},
+			wantCount:        2,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Valid",
+		},
+		{
+			name: "skip unknown role",
+			lines: []string{
+				`{"role":"system","message":{"content":"System prompt"}}`,
+				`{"role":"user","message":{"content":"Question"}}`,
+			},
+			wantCount:        1,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Question",
+		},
+		{
+			name: "skip message with no content",
+			lines: []string{
+				`{"role":"user","message":{}}`,
+				`{"role":"user","message":{"content":"Real"}}`,
+			},
+			wantCount:        1,
+			wantFirstRole:    RoleUser,
+			wantFirstContent: "Real",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := strings.Join(tt.lines, "\n")
+			msgs := parseCursorJSONL(data)
+
+			if len(msgs) != tt.wantCount {
+				t.Fatalf(
+					"message count = %d, want %d",
+					len(msgs), tt.wantCount,
+				)
+			}
+			if tt.wantCount == 0 {
+				return
+			}
+
+			first := msgs[0]
+			if first.Role != tt.wantFirstRole {
+				t.Errorf(
+					"first role = %q, want %q",
+					first.Role, tt.wantFirstRole,
+				)
+			}
+			if tt.wantFirstContent != "" &&
+				first.Content != tt.wantFirstContent {
+				t.Errorf(
+					"first content = %q, want %q",
+					first.Content, tt.wantFirstContent,
+				)
+			}
+
+			// Check assistant properties on last message
+			if tt.wantThinking || tt.wantToolUse ||
+				tt.wantToolCount > 0 {
+				last := msgs[len(msgs)-1]
+				if last.HasThinking != tt.wantThinking {
+					t.Errorf(
+						"hasThinking = %v, want %v",
+						last.HasThinking, tt.wantThinking,
+					)
+				}
+				if last.HasToolUse != tt.wantToolUse {
+					t.Errorf(
+						"hasToolUse = %v, want %v",
+						last.HasToolUse, tt.wantToolUse,
+					)
+				}
+				if len(last.ToolCalls) != tt.wantToolCount {
+					t.Errorf(
+						"tool count = %d, want %d",
+						len(last.ToolCalls),
+						tt.wantToolCount,
+					)
+				}
+			}
+
+			// Verify ordinals are contiguous
+			for i, m := range msgs {
+				if m.Ordinal != i {
+					t.Errorf(
+						"ordinal[%d] = %d, want %d",
+						i, m.Ordinal, i,
+					)
+				}
 			}
 		})
 	}
