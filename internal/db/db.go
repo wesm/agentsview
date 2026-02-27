@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -411,8 +412,13 @@ func (db *DB) reopenLocked() error {
 
 	oldWriter := db.writer.Swap(writer)
 	oldReader := db.reader.Swap(reader)
-	_ = oldWriter.Close()
-	_ = oldReader.Close()
+
+	// Close old pools after a delay so in-flight queries
+	// that already loaded the pointer can finish.
+	time.AfterFunc(5*time.Second, func() {
+		_ = oldWriter.Close()
+		_ = oldReader.Close()
+	})
 	return nil
 }
 
