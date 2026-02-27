@@ -1132,7 +1132,9 @@ func validateCursorContainment(
 		return fmt.Errorf("resolve path: %w", err)
 	}
 	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	sep := string(filepath.Separator)
+	if err != nil || rel == ".." ||
+		strings.HasPrefix(rel, ".."+sep) {
 		return fmt.Errorf(
 			"%s escapes %s", path, cursorDir,
 		)

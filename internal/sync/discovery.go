@@ -570,7 +570,9 @@ func FindCursorSourceFile(
 			continue
 		}
 		rel, err := filepath.Rel(resolvedRoot, resolved)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		sep := string(filepath.Separator)
+		if err != nil || rel == ".." ||
+			strings.HasPrefix(rel, ".."+sep) {
 			continue
 		}
 		return candidate
