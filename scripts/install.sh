@@ -199,4 +199,7 @@ main() {
     echo "  agentsview update   # Check for and install updates"
 }
 
-main "$@"
+# Guard: only run main when executed directly, not when sourced.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

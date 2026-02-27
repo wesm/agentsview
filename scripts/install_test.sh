@@ -1,6 +1,15 @@
 #!/bin/bash
-# Tests for install.sh version parsing logic
+# Tests for install.sh version parsing logic.
+# Sources install.sh directly so the test exercises the real
+# get_latest_version function (with curl mocked out).
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source install.sh to get access to get_latest_version.
+# The main() call is guarded so nothing runs on source.
+# shellcheck source=install.sh
+source "$SCRIPT_DIR/install.sh"
 
 PASS=0
 FAIL=0
@@ -18,42 +27,42 @@ assert_eq() {
     fi
 }
 
-parse_tag_name() {
-    echo "$1" \
-        | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
-        | head -1 \
-        | cut -d'"' -f4
-}
+# Mock curl to return a fixture instead of hitting the network.
+# get_latest_version uses `curl -fsSL "$url"` so we intercept
+# that and emit $MOCK_JSON.
+MOCK_JSON=""
+curl() { printf '%s\n' "$MOCK_JSON"; }
+export -f curl
 
 echo "=== get_latest_version parsing ==="
 
 # Pretty-printed JSON (typical curl response)
-PRETTY='{
+MOCK_JSON='{
   "url": "https://api.github.com/repos/wesm/agentsview/releases/291105519",
   "tag_name": "v0.8.0",
   "name": "v0.8.0"
 }'
-assert_eq "pretty-printed JSON" "v0.8.0" "$(parse_tag_name "$PRETTY")"
+assert_eq "pretty-printed JSON" "v0.8.0" "$(get_latest_version)"
 
 # Minified JSON (the case that caused #61)
-MINIFIED='{"url":"https://api.github.com/repos/wesm/agentsview/releases/291105519","assets_url":"https://api.github.com/repos/wesm/agentsview/releases/291105519/assets","tag_name":"v0.8.0","name":"v0.8.0"}'
-assert_eq "minified JSON" "v0.8.0" "$(parse_tag_name "$MINIFIED")"
+MOCK_JSON='{"url":"https://api.github.com/repos/wesm/agentsview/releases/291105519","assets_url":"https://api.github.com/repos/wesm/agentsview/releases/291105519/assets","tag_name":"v0.8.0","name":"v0.8.0"}'
+assert_eq "minified JSON" "v0.8.0" "$(get_latest_version)"
 
 # tag_name before url field
-REORDERED='{"tag_name":"v1.2.3","url":"https://api.github.com/repos/wesm/agentsview/releases/1"}'
-assert_eq "tag_name before url" "v1.2.3" "$(parse_tag_name "$REORDERED")"
+MOCK_JSON='{"tag_name":"v1.2.3","url":"https://api.github.com/repos/wesm/agentsview/releases/1"}'
+assert_eq "tag_name before url" "v1.2.3" "$(get_latest_version)"
 
 # Extra whitespace around colon
-SPACED='{  "tag_name" :  "v2.0.0"  }'
-assert_eq "extra whitespace" "v2.0.0" "$(parse_tag_name "$SPACED")"
+MOCK_JSON='{  "tag_name" :  "v2.0.0"  }'
+assert_eq "extra whitespace" "v2.0.0" "$(get_latest_version)"
 
 # Pre-release version
-PRERELEASE='{"tag_name":"v0.9.0-rc1","name":"v0.9.0-rc1"}'
-assert_eq "pre-release version" "v0.9.0-rc1" "$(parse_tag_name "$PRERELEASE")"
+MOCK_JSON='{"tag_name":"v0.9.0-rc1","name":"v0.9.0-rc1"}'
+assert_eq "pre-release version" "v0.9.0-rc1" "$(get_latest_version)"
 
 # No tag_name field (API error / rate limit)
-NO_TAG='{"message":"API rate limit exceeded"}'
-assert_eq "missing tag_name returns empty" "" "$(parse_tag_name "$NO_TAG")"
+MOCK_JSON='{"message":"API rate limit exceeded"}'
+assert_eq "missing tag_name returns empty" "" "$(get_latest_version)"
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
