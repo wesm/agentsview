@@ -1140,6 +1140,45 @@ func TestCORSAllowsLocalhost(t *testing.T) {
 	}
 }
 
+func TestCORSBindAllInterfaces(t *testing.T) {
+	te := setup(t, func(c *config.Config) {
+		c.Host = "0.0.0.0"
+	})
+
+	// When bound to 0.0.0.0, loopback origins must be allowed.
+	for _, origin := range []string{
+		"http://127.0.0.1:0",
+		"http://localhost:0",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+		req.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		te.handler.ServeHTTP(w, req)
+		assertStatus(t, w, http.StatusOK)
+
+		cors := w.Header().Get("Access-Control-Allow-Origin")
+		if cors != origin {
+			t.Errorf("origin %s: expected CORS %s, got %q", origin, origin, cors)
+		}
+	}
+}
+
+func TestCORSVaryAlwaysSet(t *testing.T) {
+	te := setup(t)
+
+	// Vary: Origin should be set even for disallowed origins.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://evil-site.com")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusOK)
+
+	vary := w.Header().Get("Vary")
+	if vary != "Origin" {
+		t.Fatalf("expected Vary: Origin, got %q", vary)
+	}
+}
+
 func TestCORSPreflight(t *testing.T) {
 	te := setup(t)
 

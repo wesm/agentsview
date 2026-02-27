@@ -210,12 +210,19 @@ func (s *Server) Handler() http.Handler {
 func buildAllowedOrigins(host string, port int) map[string]bool {
 	origins := make(map[string]bool)
 	origins[fmt.Sprintf("http://%s:%d", host, port)] = true
-	// When binding to 127.0.0.1, also allow localhost (and vice
-	// versa) because browsers may use either.
-	if host == "127.0.0.1" {
+	// When binding to a loopback address, also allow the other
+	// loopback variant because browsers treat them as distinct
+	// origins. When binding to 0.0.0.0 (all interfaces), allow
+	// both loopback origins since that's how browsers will
+	// access a bind-all server.
+	switch host {
+	case "127.0.0.1":
 		origins[fmt.Sprintf("http://localhost:%d", port)] = true
-	} else if host == "localhost" {
+	case "localhost":
 		origins[fmt.Sprintf("http://127.0.0.1:%d", port)] = true
+	case "0.0.0.0", "::":
+		origins[fmt.Sprintf("http://127.0.0.1:%d", port)] = true
+		origins[fmt.Sprintf("http://localhost:%d", port)] = true
 	}
 	return origins
 }
@@ -271,8 +278,11 @@ func corsMiddleware(
 				w.Header().Set(
 					"Access-Control-Allow-Origin", origin,
 				)
-				w.Header().Set("Vary", "Origin")
 			}
+			// Always set Vary so caches don't serve a
+			// response without CORS headers to a
+			// legitimate origin.
+			w.Header().Set("Vary", "Origin")
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
 				"GET, POST, DELETE, OPTIONS",
