@@ -189,6 +189,12 @@ func TestIsCursorJSONL(t *testing.T) {
 			true,
 		},
 		{
+			"many leading blank lines",
+			strings.Repeat("\n", 50) +
+				`{"role":"user","message":{"content":"hi"}}`,
+			true,
+		},
+		{
 			"plain text",
 			"user:\nhello\nassistant:\nworld",
 			false,
@@ -196,6 +202,11 @@ func TestIsCursorJSONL(t *testing.T) {
 		{
 			"empty",
 			"",
+			false,
+		},
+		{
+			"only blank lines within scan limit",
+			strings.Repeat("\n", 100),
 			false,
 		},
 	}

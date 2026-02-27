@@ -48,8 +48,54 @@ const TOOL_RE = new RegExp(
 
 const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
 
-/** Inline code spans — single or double backtick delimiters. */
-const INLINE_CODE_RE = /``[^`]+``|`[^`\n]+`/g;
+/**
+ * Scan for inline code spans per CommonMark rules: an opening
+ * backtick run of length N is closed by the next run of exactly
+ * N backticks. Fenced code blocks (triple-backtick at line
+ * start followed by a newline) are excluded — those are handled
+ * separately by CODE_BLOCK_RE.
+ */
+function scanInlineCodeSpans(
+  text: string,
+): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "`") {
+      i++;
+      continue;
+    }
+    // Measure opening backtick run length.
+    const openStart = i;
+    while (i < text.length && text[i] === "`") i++;
+    const runLen = i - openStart;
+
+    // Skip fenced code blocks (``` at line start + newline).
+    if (
+      runLen >= 3 &&
+      (openStart === 0 || text[openStart - 1] === "\n")
+    ) {
+      const nl = text.indexOf("\n", i);
+      if (nl >= 0) continue;
+    }
+
+    // Scan for a closing run of exactly the same length.
+    let found = false;
+    for (let j = i; j < text.length; j++) {
+      if (text[j] !== "`") continue;
+      const closeStart = j;
+      while (j < text.length && text[j] === "`") j++;
+      if (j - closeStart === runLen) {
+        spans.push([openStart, j]);
+        i = j;
+        found = true;
+        break;
+      }
+    }
+    if (!found) break;
+  }
+  return spans;
+}
 
 interface Match {
   start: number;
@@ -96,10 +142,7 @@ function extractMatches(text: string, parseTools = true): Match[] {
   // Pre-compute inline code spans so we can skip
   // false-positive marker matches inside backtick-quoted
   // text (e.g. `` `[Thinking]` `` in prose).
-  const codeSpans: Array<[number, number]> = [];
-  for (const m of text.matchAll(INLINE_CODE_RE)) {
-    codeSpans.push([m.index!, m.index! + m[0].length]);
-  }
+  const codeSpans = scanInlineCodeSpans(text);
 
   // Marked blocks first (explicit [/Thinking] delimiters)
   for (const m of text.matchAll(THINKING_MARKED_RE)) {

@@ -307,9 +307,24 @@ func CursorSessionID(path string) string {
 
 // isCursorJSONL returns true if the data looks like JSONL
 // (Anthropic API message format) rather than plain text.
-// Checks whether the first non-empty line is valid JSON.
+// Scans up to 4 KB for the first non-empty line and checks
+// whether it is valid JSON.
 func isCursorJSONL(data string) bool {
-	for _, line := range strings.SplitN(data, "\n", 20) {
+	const maxScan = 4096
+	scan := data
+	if len(scan) > maxScan {
+		scan = scan[:maxScan]
+	}
+	for scan != "" {
+		nl := strings.IndexByte(scan, '\n')
+		var line string
+		if nl < 0 {
+			line = scan
+			scan = ""
+		} else {
+			line = scan[:nl]
+			scan = scan[nl+1:]
+		}
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

@@ -553,6 +553,9 @@ func FindCursorSourceFile(
 		return ""
 	}
 
+	var bestPath string
+	var bestMtime int64
+
 	for _, ext := range []string{".jsonl", ".txt"} {
 		target := sessionID + ext
 		for _, entry := range entries {
@@ -563,7 +566,8 @@ func FindCursorSourceFile(
 				projectsDir, entry.Name(),
 				"agent-transcripts", target,
 			)
-			if !isRegularFile(candidate) {
+			info, err := os.Lstat(candidate)
+			if err != nil || !info.Mode().IsRegular() {
 				continue
 			}
 			resolved, err := filepath.EvalSymlinks(
@@ -580,10 +584,14 @@ func FindCursorSourceFile(
 				strings.HasPrefix(rel, ".."+sep) {
 				continue
 			}
-			return candidate
+			if mt := info.ModTime().UnixNano(); bestPath == "" ||
+				mt > bestMtime {
+				bestPath = candidate
+				bestMtime = mt
+			}
 		}
 	}
-	return ""
+	return bestPath
 }
 
 // geminiProjectsFile holds the structure of

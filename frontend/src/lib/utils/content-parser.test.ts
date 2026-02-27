@@ -280,6 +280,27 @@ describe("parseContent - inline code spans", () => {
     const segments = parseContent(text, true);
     expect(segments.every((s) => s.type === "text")).toBe(true);
   });
+
+  it("handles double-backtick span containing single backtick", () => {
+    const text = "Example: `` `[Thinking]` `` in docs.";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+  });
+
+  it("handles triple-backtick inline span", () => {
+    const text = "Use ``` [Bash] ``` as inline code.";
+    const segments = parseContent(text, true);
+    expect(segments.every((s) => s.type === "text")).toBe(true);
+  });
+
+  it("does not confuse fenced code blocks with inline spans", () => {
+    const text =
+      "```sh\necho [Bash]\n```\n\n[Bash]\n$ echo real";
+    const segments = parseContent(text, true);
+    const types = segments.map((s) => s.type);
+    expect(types).toContain("code");
+    expect(types).toContain("tool");
+  });
 });
 
 describe("isToolOnly", () => {
