@@ -463,6 +463,16 @@ func TestDecodeCursorProjectDir(t *testing.T) {
 			"C-Users-jane-smith-dev-project",
 			"project",
 		},
+		// Username contains a low-confidence marker word;
+		// high-confidence marker later takes precedence.
+		{
+			"Users-john-code-doe-Documents-my-app",
+			"my_app",
+		},
+		{
+			"C-Users-jane-dev-smith-projects-my-app",
+			"my_app",
+		},
 		// No recognized root — fallback to last two
 		{
 			"opt-builds-my-project",

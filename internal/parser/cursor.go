@@ -428,12 +428,19 @@ func extractJSONLUserContent(content gjson.Result) string {
 	return extractUserQuery(strings.Split(combined, "\n"))
 }
 
-// cursorDirMarkers are directory names that commonly sit
-// between a user's home directory and their project.
-var cursorDirMarkers = map[string]bool{
+// cursorHighMarkers are directory names that are very
+// unlikely to appear inside usernames (capitalized or
+// plural forms). Checked first during path decoding.
+var cursorHighMarkers = map[string]bool{
 	"Documents": true, "Code": true,
-	"code": true, "projects": true,
-	"repos": true, "src": true,
+	"projects": true, "repos": true,
+}
+
+// cursorLowMarkers are directory names that could
+// plausibly appear in usernames (short, lowercase).
+// Only checked as a fallback after high markers.
+var cursorLowMarkers = map[string]bool{
+	"code": true, "src": true,
 	"work": true, "dev": true,
 }
 
@@ -466,19 +473,24 @@ func DecodeCursorProjectDir(dirName string) string {
 		minIdx = 3
 	}
 
-	// Scan forward from minIdx to find the first marker.
-	// Stop before the last token so at least one token
-	// remains for the project name.
+	// Two-pass scan: high-confidence markers first (unlikely
+	// in usernames), then low-confidence as fallback. This
+	// handles "Users-john-code-doe-Documents-app" correctly
+	// (finds Documents, not code).
 	if minIdx >= 0 {
-		for i := minIdx; i < len(parts)-1; i++ {
-			if !cursorDirMarkers[parts[i]] {
-				continue
-			}
-			result := strings.Join(
-				parts[i+1:], "-",
-			)
-			if result != "" {
-				return NormalizeName(result)
+		for _, tier := range []map[string]bool{
+			cursorHighMarkers, cursorLowMarkers,
+		} {
+			for i := minIdx; i < len(parts)-1; i++ {
+				if !tier[parts[i]] {
+					continue
+				}
+				result := strings.Join(
+					parts[i+1:], "-",
+				)
+				if result != "" {
+					return NormalizeName(result)
+				}
 			}
 		}
 	}
