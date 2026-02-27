@@ -203,26 +203,49 @@ func (s *Server) Handler() http.Handler {
 	return corsMiddleware(allowedOrigins, logMiddleware(s.mux))
 }
 
+// httpOrigin formats an HTTP origin string. It uses
+// net.JoinHostPort to handle IPv6 bracket formatting correctly
+// (e.g., [::1]:8080). Browsers omit the port from the Origin
+// header for default ports (80 for HTTP), so for port 80 both
+// forms are returned.
+func httpOrigin(host string, port int) []string {
+	hp := net.JoinHostPort(host, strconv.Itoa(port))
+	origin := "http://" + hp
+	if port == 80 {
+		return []string{origin, "http://" + host}
+	}
+	return []string{origin}
+}
+
 // buildAllowedOrigins returns the set of origins that should be
-// permitted by CORS. For loopback addresses, both "127.0.0.1" and
-// "localhost" are allowed because browsers treat them as distinct
-// origins.
+// permitted by CORS. For loopback addresses, both "127.0.0.1"
+// and "localhost" are allowed because browsers treat them as
+// distinct origins.
 func buildAllowedOrigins(host string, port int) map[string]bool {
 	origins := make(map[string]bool)
-	origins[fmt.Sprintf("http://%s:%d", host, port)] = true
+	add := func(h string) {
+		for _, o := range httpOrigin(h, port) {
+			origins[o] = true
+		}
+	}
+	add(host)
 	// When binding to a loopback address, also allow the other
-	// loopback variant because browsers treat them as distinct
-	// origins. When binding to 0.0.0.0 (all interfaces), allow
-	// both loopback origins since that's how browsers will
+	// loopback variants because browsers treat them as distinct
+	// origins. When binding to 0.0.0.0 or :: (all interfaces),
+	// allow all loopback origins since that's how browsers will
 	// access a bind-all server.
 	switch host {
 	case "127.0.0.1":
-		origins[fmt.Sprintf("http://localhost:%d", port)] = true
+		add("localhost")
 	case "localhost":
-		origins[fmt.Sprintf("http://127.0.0.1:%d", port)] = true
+		add("127.0.0.1")
 	case "0.0.0.0", "::":
-		origins[fmt.Sprintf("http://127.0.0.1:%d", port)] = true
-		origins[fmt.Sprintf("http://localhost:%d", port)] = true
+		add("127.0.0.1")
+		add("localhost")
+		add("::1")
+	case "::1":
+		add("127.0.0.1")
+		add("localhost")
 	}
 	return origins
 }
@@ -268,12 +291,22 @@ func FindAvailablePort(host string, start int) int {
 	return start
 }
 
+// isMutating returns true for HTTP methods that change state.
+func isMutating(method string) bool {
+	return method == http.MethodPost ||
+		method == http.MethodPut ||
+		method == http.MethodPatch ||
+		method == http.MethodDelete
+}
+
 func corsMiddleware(
 	allowedOrigins map[string]bool, next http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			origin := r.Header.Get("Origin")
+			originAllowed := origin == "" || allowedOrigins[origin]
+
 			if origin != "" && allowedOrigins[origin] {
 				w.Header().Set(
 					"Access-Control-Allow-Origin", origin,
@@ -292,7 +325,23 @@ func corsMiddleware(
 				"Content-Type",
 			)
 			if r.Method == http.MethodOptions {
+				if !originAllowed {
+					http.Error(
+						w, "Forbidden", http.StatusForbidden,
+					)
+					return
+				}
 				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			// Block state-changing requests from
+			// unrecognized origins to prevent CSRF via
+			// simple requests (e.g., <form> POST) that
+			// bypass CORS preflight.
+			if !originAllowed && isMutating(r.Method) {
+				http.Error(
+					w, "Forbidden", http.StatusForbidden,
+				)
 				return
 			}
 		}

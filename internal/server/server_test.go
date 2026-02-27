@@ -1111,7 +1111,7 @@ func TestCORSHeaders(t *testing.T) {
 func TestCORSRejectsUnknownOrigin(t *testing.T) {
 	te := setup(t)
 
-	// Request from a foreign origin should NOT get CORS header.
+	// GET from a foreign origin: allowed (read-only) but no CORS header.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	req.Header.Set("Origin", "http://evil-site.com")
 	w := httptest.NewRecorder()
@@ -1122,6 +1122,48 @@ func TestCORSRejectsUnknownOrigin(t *testing.T) {
 	if cors != "" {
 		t.Fatalf("expected no CORS header for foreign origin, got %q", cors)
 	}
+}
+
+func TestCORSBlocksMutatingFromUnknownOrigin(t *testing.T) {
+	te := setup(t)
+
+	// POST from a foreign origin should be blocked (CSRF protection).
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/sync", nil,
+	)
+	req.Header.Set("Origin", "http://evil-site.com")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestCORSAllowsMutatingFromKnownOrigin(t *testing.T) {
+	te := setup(t)
+
+	// POST from the legitimate origin should succeed.
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/sync", nil,
+	)
+	req.Header.Set("Origin", "http://127.0.0.1:0")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	// Sync returns 200 or 202, not 403.
+	if w.Code == http.StatusForbidden {
+		t.Fatal("legitimate origin should not be blocked")
+	}
+}
+
+func TestCORSPreflightRejectsBadOrigin(t *testing.T) {
+	te := setup(t)
+
+	// OPTIONS preflight from foreign origin should return 403.
+	req := httptest.NewRequest(
+		http.MethodOptions, "/api/v1/sessions", nil,
+	)
+	req.Header.Set("Origin", "http://evil-site.com")
+	w := httptest.NewRecorder()
+	te.handler.ServeHTTP(w, req)
+	assertStatus(t, w, http.StatusForbidden)
 }
 
 func TestCORSAllowsLocalhost(t *testing.T) {
@@ -1145,10 +1187,12 @@ func TestCORSBindAllInterfaces(t *testing.T) {
 		c.Host = "0.0.0.0"
 	})
 
-	// When bound to 0.0.0.0, loopback origins must be allowed.
+	// When bound to 0.0.0.0, all loopback origins must be allowed
+	// (including IPv6 [::1]).
 	for _, origin := range []string{
 		"http://127.0.0.1:0",
 		"http://localhost:0",
+		"http://[::1]:0",
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 		req.Header.Set("Origin", origin)
