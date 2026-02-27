@@ -3,6 +3,7 @@ package sync
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1078,12 +1079,12 @@ func TestDiscoverCursorSessions(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name: "BothExtensions",
+			name: "BothExtensionsDedupToJsonl",
 			files: map[string]string{
 				filepath.Join(cursorTranscripts, "ccc.txt"):   "user:\nhi",
 				filepath.Join(cursorTranscripts, "ccc.jsonl"): `{"role":"user"}`,
 			},
-			wantCount: 2,
+			wantCount: 1,
 		},
 		{
 			name: "IgnoresOtherExtensions",
@@ -1115,6 +1116,26 @@ func TestDiscoverCursorSessions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDiscoverCursorSessions_DedupPrefersJsonl(t *testing.T) {
+	dir := t.TempDir()
+	transcripts := filepath.Join(
+		"proj-dir", "agent-transcripts",
+	)
+	setupFileSystem(t, dir, map[string]string{
+		filepath.Join(transcripts, "sess.txt"):   "user:\nhi",
+		filepath.Join(transcripts, "sess.jsonl"): `{"role":"user"}`,
+	})
+	files := DiscoverCursorSessions(dir)
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	if !strings.HasSuffix(files[0].Path, ".jsonl") {
+		t.Errorf(
+			"expected .jsonl path, got %q", files[0].Path,
+		)
 	}
 }
 

@@ -423,10 +423,23 @@ func extractJSONLUserContent(content gjson.Result) string {
 	return extractUserQuery(strings.Split(combined, "\n"))
 }
 
+// cursorDirMarkers are directory names that commonly sit
+// between a user's home directory and their project.
+var cursorDirMarkers = map[string]bool{
+	"Documents": true, "Code": true,
+	"code": true, "projects": true,
+	"repos": true, "src": true,
+	"work": true, "dev": true,
+}
+
 // DecodeCursorProjectDir extracts a clean project name from
 // a Cursor-style hyphenated directory name. Cursor encodes
 // absolute paths by replacing / and . with hyphens, e.g.
-// "Users-fiona-fan-Documents-mcp-cursor-analytics".
+// "Users-fiona-Documents-mcp-cursor-analytics".
+//
+// Only checks for markers at the expected home-directory
+// position to avoid false matches inside project names
+// (e.g. "my-dev-tool" should not be truncated to "tool").
 func DecodeCursorProjectDir(dirName string) string {
 	if dirName == "" {
 		return ""
@@ -434,25 +447,25 @@ func DecodeCursorProjectDir(dirName string) string {
 
 	parts := strings.Split(dirName, "-")
 
-	// Find the last known parent directory marker.
-	// Everything after it is the project path.
-	markers := map[string]bool{
-		"Documents": true, "Code": true,
-		"code": true, "projects": true,
-		"repos": true, "src": true,
-		"work": true, "dev": true,
+	// Determine the expected marker position from the
+	// platform root prefix:
+	//   macOS/Linux: Users-<name>-<marker> (idx 2)
+	//                home-<name>-<marker>  (idx 2)
+	//   Windows:     C-Users-<name>-<marker> (idx 3)
+	markerIdx := -1
+	if len(parts) >= 3 &&
+		(parts[0] == "Users" || parts[0] == "home") {
+		markerIdx = 2
+	} else if len(parts) >= 4 &&
+		len(parts[0]) == 1 && parts[1] == "Users" {
+		markerIdx = 3
 	}
 
-	lastMarkerIdx := -1
-	for i, part := range parts {
-		if markers[part] {
-			lastMarkerIdx = i
-		}
-	}
-
-	if lastMarkerIdx >= 0 && lastMarkerIdx+1 < len(parts) {
+	if markerIdx >= 0 && markerIdx < len(parts) &&
+		cursorDirMarkers[parts[markerIdx]] &&
+		markerIdx+1 < len(parts) {
 		result := strings.Join(
-			parts[lastMarkerIdx+1:], "-",
+			parts[markerIdx+1:], "-",
 		)
 		if result != "" {
 			return NormalizeName(result)

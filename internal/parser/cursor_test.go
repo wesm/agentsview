@@ -414,6 +414,35 @@ func TestDecodeCursorProjectDir(t *testing.T) {
 			"Users-fiona-Documents-my-app",
 			"my_app",
 		},
+		// Marker words inside project names must not
+		// cause truncation.
+		{
+			"Users-wesm-code-my-dev-tool",
+			"my_dev_tool",
+		},
+		{
+			"Users-wesm-code-work-bench",
+			"work_bench",
+		},
+		{
+			"Users-wesm-code-code-gen",
+			"code_gen",
+		},
+		// Linux home prefix
+		{
+			"home-user-projects-my-app",
+			"my_app",
+		},
+		// Windows prefix (drive letter)
+		{
+			"C-Users-user-dev-my-project",
+			"my_project",
+		},
+		// No recognized root — fallback to last two
+		{
+			"opt-builds-my-project",
+			"my_project",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

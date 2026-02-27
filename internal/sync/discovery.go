@@ -506,19 +506,40 @@ func DiscoverCursorSessions(
 			project = "unknown"
 		}
 
+		// Collect valid transcripts, deduping by basename
+		// stem. When both .jsonl and .txt exist for the
+		// same session, prefer .jsonl.
+		seen := make(map[string]string) // stem → path
 		for _, sf := range transcripts {
 			if sf.IsDir() {
 				continue
 			}
-			if !isCursorTranscriptExt(sf.Name()) {
+			name := sf.Name()
+			if !isCursorTranscriptExt(name) {
 				continue
 			}
-			fullPath := filepath.Join(transcriptsDir, sf.Name())
+			fullPath := filepath.Join(
+				transcriptsDir, name,
+			)
 			if !isRegularFile(fullPath) {
 				continue
 			}
+			stem := strings.TrimSuffix(
+				name, filepath.Ext(name),
+			)
+			if prev, ok := seen[stem]; ok {
+				// .jsonl wins over .txt
+				if strings.HasSuffix(prev, ".txt") &&
+					strings.HasSuffix(name, ".jsonl") {
+					seen[stem] = fullPath
+				}
+				continue
+			}
+			seen[stem] = fullPath
+		}
+		for _, path := range seen {
 			files = append(files, DiscoveredFile{
-				Path:    fullPath,
+				Path:    path,
 				Project: project,
 				Agent:   parser.AgentCursor,
 			})
