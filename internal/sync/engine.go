@@ -1073,6 +1073,14 @@ func (e *Engine) processGemini(
 func (e *Engine) processCursor(
 	file DiscoveredFile, info os.FileInfo,
 ) processResult {
+	// Skip .txt if a sibling .jsonl exists — .jsonl is the
+	// richer format and takes precedence.
+	if stem, ok := strings.CutSuffix(file.Path, ".txt"); ok {
+		if isRegularFile(stem + ".jsonl") {
+			return processResult{skip: true}
+		}
+	}
+
 	sessionID := parser.CursorSessionID(file.Path)
 
 	if e.shouldSkipFile(sessionID, info) {
