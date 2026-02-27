@@ -3,6 +3,10 @@
 <script lang="ts">
   import type { ToolCall } from "../../api/types.js";
   import SubagentInline from "./SubagentInline.svelte";
+  import {
+    extractToolParamMeta,
+    generateFallbackContent,
+  } from "../../utils/tool-params.js";
 
   interface Props {
     content: string;
@@ -78,10 +82,29 @@
     return meta.length ? meta : null;
   });
 
+  /** Extract metadata tags for common tool types */
+  let toolParamMeta = $derived.by(() => {
+    if (!inputParams || !toolCall) return null;
+    return extractToolParamMeta(toolCall.tool_name, inputParams);
+  });
+
   /** Combined metadata for any tool type */
   let metaTags = $derived(
-    taskMeta ?? taskCreateMeta ?? taskUpdateMeta ?? null,
+    taskMeta ??
+      taskCreateMeta ??
+      taskUpdateMeta ??
+      toolParamMeta ??
+      null,
   );
+
+  /** Generate content from input_json when regex content is empty */
+  let fallbackContent = $derived.by(() => {
+    if (content || !inputParams || !toolCall) return null;
+    return generateFallbackContent(
+      toolCall.tool_name,
+      inputParams,
+    );
+  });
 
   let taskPrompt = $derived(
     toolCall?.tool_name === "Task"
@@ -130,6 +153,8 @@
       <pre class="tool-content">{taskPrompt}</pre>
     {:else if content}
       <pre class="tool-content">{content}</pre>
+    {:else if fallbackContent}
+      <pre class="tool-content">{fallbackContent}</pre>
     {/if}
   {/if}
   {#if subagentSessionId}
