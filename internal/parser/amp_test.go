@@ -340,6 +340,25 @@ func TestParseAmpSession_MismatchedID(t *testing.T) {
 		assert.Equal(t, "amp:T-fallback-uuid", sess.ID)
 	})
 
+	t.Run("valid JSON id with invalid filename", func(t *testing.T) {
+		// Filename doesn't match T-<id>.json, so the parser
+		// falls back to the JSON id.
+		content := `{
+			"v": 1,
+			"id": "T-from-json",
+			"created": 1704067200000,
+			"messages": [
+				{"role": "user", "content": [{"type": "text", "text": "hello"}]}
+			]
+		}`
+
+		path := createTestFile(t, "bad-name.json", content)
+		sess, _, err := ParseAmpSession(path, "local")
+		require.NoError(t, err)
+		require.NotNil(t, sess)
+		assert.Equal(t, "amp:T-from-json", sess.ID)
+	})
+
 	t.Run("valid JSON id differs from filename", func(t *testing.T) {
 		// Both the JSON id and filename are valid T-<id>
 		// patterns, but they disagree. Filename must win so
