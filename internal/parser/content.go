@@ -139,7 +139,7 @@ func formatToolUse(block gjson.Result) string {
 		return formatBash(input)
 	// Amp tools
 	case "edit_file":
-		return fmt.Sprintf("[Edit: %s]", input.Get("path").Str)
+		return fmt.Sprintf("[Write: %s]", input.Get("path").Str)
 	case "create_file":
 		return fmt.Sprintf("[Write: %s]", input.Get("path").Str)
 	case "shell_command":

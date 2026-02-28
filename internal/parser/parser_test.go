@@ -453,7 +453,7 @@ func TestFormatToolUseVariants(t *testing.T) {
 		{
 			"edit_file",
 			`{"type":"tool_use","name":"edit_file","input":{"path":"main.go"}}`,
-			"[Edit: main.go]",
+			"[Write: main.go]",
 		},
 		{
 			"create_file",
