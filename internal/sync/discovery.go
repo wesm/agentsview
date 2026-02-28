@@ -867,3 +867,76 @@ func isContainedIn(child, root string) bool {
 	return rel != "." && rel != ".." &&
 		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
+
+// DiscoverIflowProjects finds all project directories under the
+// iFlow projects dir and returns their JSONL session files.
+// iFlow stores sessions in .iflow/projects/<project>/session-<uuid>.jsonl
+func DiscoverIflowProjects(projectsDir string) []DiscoveredFile {
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		if !isDirOrSymlink(entry, projectsDir) {
+			continue
+		}
+
+		projDir := filepath.Join(projectsDir, entry.Name())
+		sessionFiles, err := os.ReadDir(projDir)
+		if err != nil {
+			continue
+		}
+
+		for _, sf := range sessionFiles {
+			if sf.IsDir() {
+				continue
+			}
+			name := sf.Name()
+			if !strings.HasPrefix(name, "session-") || !strings.HasSuffix(name, ".jsonl") {
+				continue
+			}
+			files = append(files, DiscoveredFile{
+				Path:    filepath.Join(projDir, name),
+				Project: entry.Name(),
+				Agent:   parser.AgentIflow,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindIflowSourceFile finds the original JSONL file for an iFlow
+// session ID by searching all project directories.
+func FindIflowSourceFile(
+	projectsDir, sessionID string,
+) string {
+	if !isValidSessionID(sessionID) {
+		return ""
+	}
+
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	target := "session-" + sessionID + ".jsonl"
+	for _, entry := range entries {
+		if !isDirOrSymlink(entry, projectsDir) {
+			continue
+		}
+		candidate := filepath.Join(
+			projectsDir, entry.Name(), target,
+		)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return ""
+}

@@ -23,6 +23,7 @@ type Config struct {
 	GeminiDir         string        `json:"gemini_dir"`
 	OpenCodeDir       string        `json:"opencode_dir"`
 	CursorProjectsDir string        `json:"cursor_projects_dir"`
+	IflowDir          string        `json:"iflow_dir"`
 	DataDir           string        `json:"data_dir"`
 	DBPath            string        `json:"-"`
 	CursorSecret      string        `json:"cursor_secret"`
@@ -38,6 +39,7 @@ type Config struct {
 	CopilotDirs       []string `json:"copilot_dirs,omitempty"`
 	GeminiDirs        []string `json:"gemini_dirs,omitempty"`
 	OpenCodeDirs      []string `json:"opencode_dirs,omitempty"`
+	IflowDirs         []string `json:"iflow_dirs,omitempty"`
 }
 
 // Default returns a Config with default values.
@@ -58,6 +60,7 @@ func Default() (Config, error) {
 		GeminiDir:         filepath.Join(home, ".gemini"),
 		OpenCodeDir:       filepath.Join(home, ".local", "share", "opencode"),
 		CursorProjectsDir: filepath.Join(home, ".cursor", "projects"),
+		IflowDir:          filepath.Join(home, ".iflow", "projects"),
 		DataDir:           dataDir,
 		DBPath:            filepath.Join(dataDir, "sessions.db"),
 		WriteTimeout:      30 * time.Second,
@@ -117,6 +120,7 @@ func (c *Config) loadFile() error {
 		CopilotDirs       []string `json:"copilot_dirs"`
 		GeminiDirs        []string `json:"gemini_dirs"`
 		OpenCodeDirs      []string `json:"opencode_dirs"`
+		IflowDirs         []string `json:"iflow_dirs"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parsing config: %w", err)
@@ -144,6 +148,9 @@ func (c *Config) loadFile() error {
 	}
 	if len(file.OpenCodeDirs) > 0 && c.OpenCodeDirs == nil {
 		c.OpenCodeDirs = file.OpenCodeDirs
+	}
+	if len(file.IflowDirs) > 0 && c.IflowDirs == nil {
+		c.IflowDirs = file.IflowDirs
 	}
 	return nil
 }
@@ -211,6 +218,10 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("CURSOR_PROJECTS_DIR"); v != "" {
 		c.CursorProjectsDir = v
 	}
+	if v := os.Getenv("IFLOW_DIR"); v != "" {
+		c.IflowDir = v
+		c.IflowDirs = []string{v}
+	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v
 	}
@@ -237,6 +248,10 @@ func (c *Config) ResolveGeminiDirs() []string {
 
 func (c *Config) ResolveOpenCodeDirs() []string {
 	return c.resolveDirs(c.OpenCodeDirs, c.OpenCodeDir)
+}
+
+func (c *Config) ResolveIflowDirs() []string {
+	return c.resolveDirs(c.IflowDirs, c.IflowDir)
 }
 
 func (c *Config) resolveDirs(multi []string, single string) []string {

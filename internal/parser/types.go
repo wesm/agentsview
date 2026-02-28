@@ -15,6 +15,7 @@ const (
 	AgentGemini   AgentType = "gemini"
 	AgentOpenCode AgentType = "opencode"
 	AgentCursor   AgentType = "cursor"
+	AgentIflow    AgentType = "iflow"
 )
 
 // RelationshipType describes how a session relates to its parent.
