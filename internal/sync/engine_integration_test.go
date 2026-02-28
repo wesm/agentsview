@@ -2588,3 +2588,54 @@ func TestNewEngineDefensiveCopy(t *testing.T) {
 	}
 	assertSessionMessageCount(t, db2, "slice-test", 1)
 }
+
+// TestSyncPathsClassifyFallsThrough verifies that a file
+// under a Cursor root that doesn't match the Cursor transcript
+// structure is still checked against later agents (e.g. Amp).
+// Before the fix, the Cursor block returned false immediately,
+// preventing any subsequent agent from matching.
+func TestSyncPathsClassifyFallsThrough(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Use a shared parent dir so both agent roots overlap:
+	// cursorDir = parent/cursor
+	// ampDir    = parent/cursor/nested-amp
+	// A valid Amp file under ampDir also lives under
+	// cursorDir but doesn't match the Cursor structure.
+	parent := t.TempDir()
+	cursorDir := filepath.Join(parent, "cursor")
+	ampDir := filepath.Join(cursorDir, "nested-amp")
+
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentCursor: {cursorDir},
+			parser.AgentAmp:    {ampDir},
+		},
+		Machine: "local",
+	})
+
+	content := `{"id":"T-019ca26f-ffff-aaaa-bbbb-cccccccccccc","created":1704103200000,"title":"Overlap test","env":{"initial":{"trees":[{"displayName":"proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`
+
+	ampPath := filepath.Join(
+		ampDir,
+		"T-019ca26f-ffff-aaaa-bbbb-cccccccccccc.json",
+	)
+	dbtest.WriteTestFile(t, ampPath, []byte(content))
+
+	engine.SyncPaths([]string{ampPath})
+
+	assertSessionState(
+		t, database,
+		"amp:T-019ca26f-ffff-aaaa-bbbb-cccccccccccc",
+		func(sess *db.Session) {
+			if sess.Agent != "amp" {
+				t.Errorf(
+					"agent = %q, want amp", sess.Agent,
+				)
+			}
+		},
+	)
+}

@@ -211,7 +211,7 @@ func (e *Engine) classifyOnePath(
 					parts[3], ".jsonl",
 				)
 				if !strings.HasPrefix(stem, "agent-") {
-					return parser.DiscoveredFile{}, false
+					continue
 				}
 				return parser.DiscoveredFile{
 					Path:    path,
@@ -332,13 +332,13 @@ func (e *Engine) classifyOnePath(
 		if rel, ok := isUnder(cursorDir, path); ok {
 			parts := strings.Split(rel, sep)
 			if len(parts) != 3 {
-				return parser.DiscoveredFile{}, false
+				continue
 			}
 			if parts[1] != "agent-transcripts" {
-				return parser.DiscoveredFile{}, false
+				continue
 			}
 			if !parser.IsCursorTranscriptExt(parts[2]) {
-				return parser.DiscoveredFile{}, false
+				continue
 			}
 			project := parser.DecodeCursorProjectDir(parts[0])
 			if project == "" {
