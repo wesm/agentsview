@@ -301,11 +301,44 @@ func TestParseAmpSession_Errors(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("missing id", func(t *testing.T) {
-		content := `{"v":1,"created":1704067200000,"messages":[]}`
-		_, _, err := runAmpParserTest(t, content)
-		assert.Error(t, err)
+	t.Run("missing id falls back to filename", func(t *testing.T) {
+		content := `{"v":1,"created":1704067200000,"messages":[` +
+			`{"role":"user","content":[{"type":"text","text":"hello"}]}]}`
+		sess, _, err := runAmpParserTest(t, content)
+		require.NoError(t, err)
+		require.NotNil(t, sess)
+		// Falls back to filename-derived ID (T-test from T-test.json).
+		assert.Equal(t, "amp:T-test", sess.ID)
 	})
+
+	t.Run("missing id and invalid filename", func(t *testing.T) {
+		content := `{"v":1,"created":1704067200000,"messages":[]}`
+		path := createTestFile(t, "bad-name.json", content)
+		_, _, err := ParseAmpSession(path, "local")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "missing or invalid id")
+	})
+}
+
+func TestParseAmpSession_MismatchedID(t *testing.T) {
+	// JSON id doesn't match the T-<valid> pattern required by
+	// FindAmpSourceFile. Parser should fall back to filename.
+	content := `{
+		"v": 1,
+		"id": "bogus-not-a-thread-id",
+		"created": 1704067200000,
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "hello"}]}
+		]
+	}`
+
+	path := createTestFile(t, "T-fallback-uuid.json", content)
+	sess, _, err := ParseAmpSession(path, "local")
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+
+	// Should use the filename-derived ID, not the bogus JSON id.
+	assert.Equal(t, "amp:T-fallback-uuid", sess.ID)
 }
 
 func TestAmpThreadID(t *testing.T) {

@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,8 +32,16 @@ func ParseAmpSession(
 	root := gjson.ParseBytes(data)
 
 	threadID := root.Get("id").Str
+	if threadID == "" || !isValidAmpThreadID(threadID) {
+		// Fall back to filename-derived ID when the JSON id
+		// is missing or doesn't match the T-<id> pattern
+		// required by FindAmpSourceFile/SyncSingleSession.
+		threadID = ampThreadIDFromPath(path)
+	}
 	if threadID == "" {
-		return nil, nil, fmt.Errorf("missing id in %s", path)
+		return nil, nil, fmt.Errorf(
+			"missing or invalid id in %s", path,
+		)
 	}
 
 	// Start time from created (epoch ms) when valid and positive.
@@ -151,4 +160,19 @@ func ParseAmpSession(
 // data without fully parsing.
 func AmpThreadID(data []byte) string {
 	return gjson.GetBytes(data, "id").Str
+}
+
+// ampThreadIDFromPath derives a thread ID from the filename
+// (e.g. "T-abc123.json" → "T-abc123"). Returns "" if the
+// filename doesn't match the expected pattern.
+func ampThreadIDFromPath(path string) string {
+	name := filepath.Base(path)
+	stem := strings.TrimSuffix(name, ".json")
+	if stem == name {
+		return ""
+	}
+	if !isValidAmpThreadID(stem) {
+		return ""
+	}
+	return stem
 }
