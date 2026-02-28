@@ -223,6 +223,48 @@ func TestExtractTextContent(t *testing.T) {
 	}
 }
 
+func TestExtractTextContent_AmpSkillNameExtraction(t *testing.T) {
+	result := gjson.Parse(
+		`[{"type":"tool_use","id":"toolu_amp_skill","name":"skill","input":{"name":"walkthrough"}}]`,
+	)
+
+	text, hasThinking, hasToolUse, toolCalls, toolResults :=
+		ExtractTextContent(result)
+
+	if text != "[Skill: walkthrough]" {
+		t.Fatalf("text = %q, want %q", text, "[Skill: walkthrough]")
+	}
+	if hasThinking {
+		t.Fatalf("hasThinking = %v, want false", hasThinking)
+	}
+	if !hasToolUse {
+		t.Fatalf("hasToolUse = %v, want true", hasToolUse)
+	}
+	if len(toolResults) != 0 {
+		t.Fatalf("len(toolResults) = %d, want 0", len(toolResults))
+	}
+	if len(toolCalls) != 1 {
+		t.Fatalf("len(toolCalls) = %d, want 1", len(toolCalls))
+	}
+
+	got := toolCalls[0]
+	if got.ToolUseID != "toolu_amp_skill" {
+		t.Fatalf("ToolUseID = %q, want %q", got.ToolUseID, "toolu_amp_skill")
+	}
+	if got.ToolName != "skill" {
+		t.Fatalf("ToolName = %q, want %q", got.ToolName, "skill")
+	}
+	if got.Category != "Tool" {
+		t.Fatalf("Category = %q, want %q", got.Category, "Tool")
+	}
+	if got.SkillName != "walkthrough" {
+		t.Fatalf("SkillName = %q, want %q", got.SkillName, "walkthrough")
+	}
+	if got.InputJSON != `{"name":"walkthrough"}` {
+		t.Fatalf("InputJSON = %q, want %q", got.InputJSON, `{"name":"walkthrough"}`)
+	}
+}
+
 func TestExtractToolResults(t *testing.T) {
 	tests := []struct {
 		name        string
