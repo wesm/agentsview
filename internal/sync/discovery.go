@@ -867,3 +867,106 @@ func isContainedIn(child, root string) bool {
 	return rel != "." && rel != ".." &&
 		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
+
+// DiscoverIflowProjects finds all project directories under the
+// iFlow projects dir and returns their JSONL session files.
+// iFlow stores sessions in .iflow/projects/<project>/session-<uuid>.jsonl
+func DiscoverIflowProjects(projectsDir string) []DiscoveredFile {
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		if !isDirOrSymlink(entry, projectsDir) {
+			continue
+		}
+
+		projDir := filepath.Join(projectsDir, entry.Name())
+		sessionFiles, err := os.ReadDir(projDir)
+		if err != nil {
+			continue
+		}
+
+		for _, sf := range sessionFiles {
+			if sf.IsDir() {
+				continue
+			}
+			name := sf.Name()
+			if !strings.HasPrefix(name, "session-") || !strings.HasSuffix(name, ".jsonl") {
+				continue
+			}
+			files = append(files, DiscoveredFile{
+				Path:    filepath.Join(projDir, name),
+				Project: entry.Name(),
+				Agent:   parser.AgentIflow,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// extractIflowBaseSessionID extracts the base session ID from an iFlow
+// session ID. Fork IDs are formatted as <baseUUID>-<childUUID>, so we
+// remove the child UUID suffix to get the base session ID for file lookup.
+// Both base and child UUIDs are full UUIDs with hyphens, so we count
+// hyphens to determine where the base UUID ends (after 4 hyphens).
+func extractIflowBaseSessionID(sessionID string) string {
+	// iFlow fork IDs have the format: baseUUID-childUUID
+	// where both are full UUIDs with hyphens.
+	// A standard UUID has format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (4 hyphens)
+	// So the base UUID ends after the 4th hyphen, and the child UUID starts after that.
+
+	hyphenCount := 0
+	for i, r := range sessionID {
+		if r == '-' {
+			hyphenCount++
+			// The 5th hyphen marks the boundary between base and child UUIDs
+			if hyphenCount == 5 {
+				// Return everything before this hyphen (the base UUID)
+				return sessionID[:i]
+			}
+		}
+	}
+
+	// If we didn't find 5 hyphens, this is not a fork ID
+	return sessionID
+}
+
+// FindIflowSourceFile finds the original JSONL file for an iFlow
+// session ID by searching all project directories.
+func FindIflowSourceFile(
+	projectsDir, sessionID string,
+) string {
+	if !isValidSessionID(sessionID) {
+		return ""
+	}
+
+	// For fork IDs, extract the base session ID to find the source file
+	baseID := extractIflowBaseSessionID(sessionID)
+
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	target := "session-" + baseID + ".jsonl"
+	for _, entry := range entries {
+		if !isDirOrSymlink(entry, projectsDir) {
+			continue
+		}
+		candidate := filepath.Join(
+			projectsDir, entry.Name(), target,
+		)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return ""
+}
