@@ -198,8 +198,8 @@ func TestParseAmpSession_LastTraceWithoutEndTime(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sess)
 
-	// Only the last trace's endTime is used.
-	assertZeroTimestamp(t, sess.EndedAt, "EndedAt")
+	// Earlier trace endTime is used when the last trace has none.
+	assert.Equal(t, "2024-01-01T00:00:02Z", sess.EndedAt.UTC().Format(time.RFC3339))
 }
 
 func TestParseAmpSession_EmptyThread(t *testing.T) {

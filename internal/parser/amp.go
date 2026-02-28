@@ -43,15 +43,17 @@ func ParseAmpSession(
 		}
 	}
 
-	// End time from meta.traces[last].endTime.
+	// End time from the most recent trace with a non-empty endTime.
 	var endTime time.Time
 	traces := root.Get("meta.traces")
 	if traces.IsArray() {
 		traceList := traces.Array()
-		if len(traceList) > 0 {
-			endTime = parseTimestamp(
-				traceList[len(traceList)-1].Get("endTime").Str,
-			)
+		for i := len(traceList) - 1; i >= 0; i-- {
+			t := parseTimestamp(traceList[i].Get("endTime").Str)
+			if !t.IsZero() {
+				endTime = t
+				break
+			}
 		}
 	}
 
