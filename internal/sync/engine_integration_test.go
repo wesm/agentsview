@@ -936,6 +936,16 @@ func TestSyncPathsAmp(t *testing.T) {
 		t, env.db,
 		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd", 2,
 	)
+
+	updated := `{"id":"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd","created":1704103200000,"title":"Amp session","env":{"initial":{"trees":[{"displayName":"amp_proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello from amp"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]},{"role":"assistant","content":[{"type":"text","text":"incremental update"}]}]}`
+	os.WriteFile(path, []byte(updated), 0o644)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionMessageCount(
+		t, env.db,
+		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd", 3,
+	)
 }
 
 func TestSyncPathsStatsUpdated(t *testing.T) {

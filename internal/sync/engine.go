@@ -161,6 +161,11 @@ func isUnder(dir, path string) (string, bool) {
 	return rel, true
 }
 
+func isAmpThreadFileName(name string) bool {
+	return strings.HasPrefix(name, "T-") &&
+		strings.HasSuffix(name, ".json")
+}
+
 func (e *Engine) classifyOnePath(
 	path string,
 	geminiProjectsByDir map[string]map[string]string,
@@ -341,10 +346,8 @@ func (e *Engine) classifyOnePath(
 	// Amp: <ampDir>/T-*.json
 	if e.ampDir != "" {
 		if rel, ok := isUnder(e.ampDir, path); ok {
-			parts := strings.Split(rel, sep)
-			if len(parts) == 1 &&
-				strings.HasPrefix(parts[0], "T-") &&
-				strings.HasSuffix(parts[0], ".json") {
+			if strings.Count(rel, sep) == 0 &&
+				isAmpThreadFileName(filepath.Base(rel)) {
 				return DiscoveredFile{
 					Path:  path,
 					Agent: parser.AgentAmp,
