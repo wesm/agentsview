@@ -2,6 +2,143 @@ package parser
 
 import "testing"
 
+func TestAgentByType(t *testing.T) {
+	tests := []struct {
+		input AgentType
+		want  bool
+	}{
+		{AgentClaude, true},
+		{AgentCodex, true},
+		{AgentCopilot, true},
+		{AgentGemini, true},
+		{AgentOpenCode, true},
+		{AgentCursor, true},
+		{AgentAmp, true},
+		{"unknown", false},
+	}
+	for _, tt := range tests {
+		def, ok := AgentByType(tt.input)
+		if ok != tt.want {
+			t.Errorf(
+				"AgentByType(%q) ok = %v, want %v",
+				tt.input, ok, tt.want,
+			)
+		}
+		if ok && def.Type != tt.input {
+			t.Errorf(
+				"AgentByType(%q).Type = %q",
+				tt.input, def.Type,
+			)
+		}
+	}
+}
+
+func TestAgentByPrefix(t *testing.T) {
+	tests := []struct {
+		name      string
+		sessionID string
+		wantType  AgentType
+		wantOK    bool
+	}{
+		{
+			"claude no prefix",
+			"abc-123",
+			AgentClaude,
+			true,
+		},
+		{
+			"codex prefix",
+			"codex:some-uuid",
+			AgentCodex,
+			true,
+		},
+		{
+			"copilot prefix",
+			"copilot:sess-id",
+			AgentCopilot,
+			true,
+		},
+		{
+			"gemini prefix",
+			"gemini:sess-id",
+			AgentGemini,
+			true,
+		},
+		{
+			"opencode prefix",
+			"opencode:sess-id",
+			AgentOpenCode,
+			true,
+		},
+		{
+			"cursor prefix",
+			"cursor:sess-id",
+			AgentCursor,
+			true,
+		},
+		{
+			"amp prefix",
+			"amp:T-019ca26f",
+			AgentAmp,
+			true,
+		},
+		{
+			"unknown prefix",
+			"future:sess-id",
+			"",
+			false,
+		},
+		{
+			"empty string",
+			"",
+			AgentClaude,
+			true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def, ok := AgentByPrefix(tt.sessionID)
+			if ok != tt.wantOK {
+				t.Fatalf(
+					"AgentByPrefix(%q) ok = %v, want %v",
+					tt.sessionID, ok, tt.wantOK,
+				)
+			}
+			if ok && def.Type != tt.wantType {
+				t.Errorf(
+					"AgentByPrefix(%q).Type = %q, want %q",
+					tt.sessionID, def.Type, tt.wantType,
+				)
+			}
+		})
+	}
+}
+
+func TestRegistryCompleteness(t *testing.T) {
+	allTypes := []AgentType{
+		AgentClaude,
+		AgentCodex,
+		AgentCopilot,
+		AgentGemini,
+		AgentOpenCode,
+		AgentCursor,
+		AgentAmp,
+	}
+
+	registered := make(map[AgentType]bool)
+	for _, def := range Registry {
+		registered[def.Type] = true
+	}
+
+	for _, at := range allTypes {
+		if !registered[at] {
+			t.Errorf(
+				"AgentType %q missing from Registry", at,
+			)
+		}
+	}
+}
+
 func TestInferRelationshipTypes(t *testing.T) {
 	tests := []struct {
 		name   string

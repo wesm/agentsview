@@ -22,15 +22,17 @@ const (
 	maxWorkers = 8
 )
 
+// EngineConfig holds the configuration needed by the sync
+// engine, replacing per-agent positional parameters.
+type EngineConfig struct {
+	AgentDirs map[parser.AgentType][]string
+	Machine   string
+}
+
 // Engine orchestrates session file discovery and sync.
 type Engine struct {
 	db            *db.DB
-	claudeDirs    []string
-	codexDirs     []string
-	copilotDirs   []string
-	geminiDirs    []string
-	opencodeDirs  []string
-	cursorDir     string
+	agentDirs     map[parser.AgentType][]string
 	machine       string
 	syncMu        gosync.Mutex // serializes all sync operations
 	mu            gosync.RWMutex
@@ -49,10 +51,7 @@ type Engine struct {
 // in-memory skip cache from the database so that files
 // skipped in a prior run are not re-parsed on startup.
 func NewEngine(
-	database *db.DB,
-	claudeDirs, codexDirs, copilotDirs,
-	geminiDirs, opencodeDirs []string,
-	cursorDir, machine string,
+	database *db.DB, cfg EngineConfig,
 ) *Engine {
 	skipCache := make(map[string]int64)
 	if loaded, err := database.LoadSkippedFiles(); err == nil {
@@ -61,16 +60,16 @@ func NewEngine(
 		log.Printf("loading skip cache: %v", err)
 	}
 
+	dirs := make(map[parser.AgentType][]string, len(cfg.AgentDirs))
+	for k, v := range cfg.AgentDirs {
+		dirs[k] = append([]string(nil), v...)
+	}
+
 	return &Engine{
-		db:           database,
-		claudeDirs:   claudeDirs,
-		codexDirs:    codexDirs,
-		copilotDirs:  copilotDirs,
-		geminiDirs:   geminiDirs,
-		opencodeDirs: opencodeDirs,
-		cursorDir:    cursorDir,
-		machine:      machine,
-		skipCache:    skipCache,
+		db:        database,
+		agentDirs: dirs,
+		machine:   cfg.Machine,
+		skipCache: skipCache,
 	}
 }
 
@@ -125,13 +124,13 @@ func (e *Engine) SyncPaths(paths []string) {
 }
 
 // classifyPaths maps changed file system paths to
-// DiscoveredFile structs, filtering out paths that don't
+// parser.DiscoveredFile structs, filtering out paths that don't
 // match known session file patterns.
 func (e *Engine) classifyPaths(
 	paths []string,
-) []DiscoveredFile {
+) []parser.DiscoveredFile {
 	geminiProjectsByDir := make(map[string]map[string]string)
-	var files []DiscoveredFile
+	var files []parser.DiscoveredFile
 	for _, p := range paths {
 		if df, ok := e.classifyOnePath(
 			p, geminiProjectsByDir,
@@ -159,15 +158,29 @@ func isUnder(dir, path string) (string, bool) {
 	return rel, true
 }
 
+// findContainingDir returns the first dir from dirs that is a
+// parent of path, or "" if none match.
+func findContainingDir(dirs []string, path string) string {
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if _, ok := isUnder(d, path); ok {
+			return d
+		}
+	}
+	return ""
+}
+
 func (e *Engine) classifyOnePath(
 	path string,
 	geminiProjectsByDir map[string]map[string]string,
-) (DiscoveredFile, bool) {
+) (parser.DiscoveredFile, bool) {
 	sep := string(filepath.Separator)
 
 	// Claude: <claudeDir>/<project>/<session>.jsonl
 	//     or: <claudeDir>/<project>/<session>/subagents/agent-<id>.jsonl
-	for _, claudeDir := range e.claudeDirs {
+	for _, claudeDir := range e.agentDirs[parser.AgentClaude] {
 		if claudeDir == "" {
 			continue
 		}
@@ -185,7 +198,7 @@ func (e *Engine) classifyOnePath(
 				if strings.HasPrefix(stem, "agent-") {
 					continue
 				}
-				return DiscoveredFile{
+				return parser.DiscoveredFile{
 					Path:    path,
 					Project: parts[0],
 					Agent:   parser.AgentClaude,
@@ -198,9 +211,9 @@ func (e *Engine) classifyOnePath(
 					parts[3], ".jsonl",
 				)
 				if !strings.HasPrefix(stem, "agent-") {
-					return DiscoveredFile{}, false
+					continue
 				}
-				return DiscoveredFile{
+				return parser.DiscoveredFile{
 					Path:    path,
 					Project: parts[0],
 					Agent:   parser.AgentClaude,
@@ -210,7 +223,7 @@ func (e *Engine) classifyOnePath(
 	}
 
 	// Codex: <codexDir>/<year>/<month>/<day>/<file>.jsonl
-	for _, codexDir := range e.codexDirs {
+	for _, codexDir := range e.agentDirs[parser.AgentCodex] {
 		if codexDir == "" {
 			continue
 		}
@@ -219,15 +232,15 @@ func (e *Engine) classifyOnePath(
 			if len(parts) != 4 {
 				continue
 			}
-			if !isDigits(parts[0]) ||
-				!isDigits(parts[1]) ||
-				!isDigits(parts[2]) {
+			if !parser.IsDigits(parts[0]) ||
+				!parser.IsDigits(parts[1]) ||
+				!parser.IsDigits(parts[2]) {
 				continue
 			}
 			if !strings.HasSuffix(parts[3], ".jsonl") {
 				continue
 			}
-			return DiscoveredFile{
+			return parser.DiscoveredFile{
 				Path:  path,
 				Agent: parser.AgentCodex,
 			}, true
@@ -236,7 +249,7 @@ func (e *Engine) classifyOnePath(
 
 	// Copilot: <copilotDir>/session-state/<uuid>.jsonl
 	//      or: <copilotDir>/session-state/<uuid>/events.jsonl
-	for _, copilotDir := range e.copilotDirs {
+	for _, copilotDir := range e.agentDirs[parser.AgentCopilot] {
 		if copilotDir == "" {
 			continue
 		}
@@ -259,7 +272,7 @@ func (e *Engine) classifyOnePath(
 				if _, err := os.Stat(dirEvents); err == nil {
 					continue
 				}
-				return DiscoveredFile{
+				return parser.DiscoveredFile{
 					Path:  path,
 					Agent: parser.AgentCopilot,
 				}, true
@@ -267,7 +280,7 @@ func (e *Engine) classifyOnePath(
 				if parts[1] != "events.jsonl" {
 					continue
 				}
-				return DiscoveredFile{
+				return parser.DiscoveredFile{
 					Path:  path,
 					Agent: parser.AgentCopilot,
 				}, true
@@ -279,7 +292,7 @@ func (e *Engine) classifyOnePath(
 
 	// Gemini: <geminiDir>/tmp/<dir>/chats/session-*.json
 	// <dir> is either a SHA-256 hash (old) or project name (new).
-	for _, geminiDir := range e.geminiDirs {
+	for _, geminiDir := range e.agentDirs[parser.AgentGemini] {
 		if geminiDir == "" {
 			continue
 		}
@@ -298,12 +311,12 @@ func (e *Engine) classifyOnePath(
 			dirName := parts[1]
 			if _, ok := geminiProjectsByDir[geminiDir]; !ok {
 				geminiProjectsByDir[geminiDir] =
-					buildGeminiProjectMap(geminiDir)
+					parser.BuildGeminiProjectMap(geminiDir)
 			}
-			project := resolveGeminiProject(
+			project := parser.ResolveGeminiProject(
 				dirName, geminiProjectsByDir[geminiDir],
 			)
-			return DiscoveredFile{
+			return parser.DiscoveredFile{
 				Path:    path,
 				Project: project,
 				Agent:   parser.AgentGemini,
@@ -312,23 +325,26 @@ func (e *Engine) classifyOnePath(
 	}
 
 	// Cursor: <cursorDir>/<project>/agent-transcripts/<uuid>.{txt,jsonl}
-	if e.cursorDir != "" {
-		if rel, ok := isUnder(e.cursorDir, path); ok {
+	for _, cursorDir := range e.agentDirs[parser.AgentCursor] {
+		if cursorDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(cursorDir, path); ok {
 			parts := strings.Split(rel, sep)
 			if len(parts) != 3 {
-				return DiscoveredFile{}, false
+				continue
 			}
 			if parts[1] != "agent-transcripts" {
-				return DiscoveredFile{}, false
+				continue
 			}
-			if !isCursorTranscriptExt(parts[2]) {
-				return DiscoveredFile{}, false
+			if !parser.IsCursorTranscriptExt(parts[2]) {
+				continue
 			}
 			project := parser.DecodeCursorProjectDir(parts[0])
 			if project == "" {
 				project = "unknown"
 			}
-			return DiscoveredFile{
+			return parser.DiscoveredFile{
 				Path:    path,
 				Project: project,
 				Agent:   parser.AgentCursor,
@@ -336,7 +352,23 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
-	return DiscoveredFile{}, false
+	// Amp: <ampDir>/T-*.json
+	for _, ampDir := range e.agentDirs[parser.AgentAmp] {
+		if ampDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(ampDir, path); ok {
+			if strings.Count(rel, sep) == 0 &&
+				parser.IsAmpThreadFileName(filepath.Base(rel)) {
+				return parser.DiscoveredFile{
+					Path:  path,
+					Agent: parser.AgentAmp,
+				}, true
+			}
+		}
+	}
+
+	return parser.DiscoveredFile{}, false
 }
 
 // resyncTempSuffix is appended to the original DB path to
@@ -540,37 +572,31 @@ func (e *Engine) syncAllLocked(
 ) SyncStats {
 	t0 := time.Now()
 
-	var claude, codex, copilot, gemini []DiscoveredFile
-	for _, d := range e.claudeDirs {
-		claude = append(claude, DiscoverClaudeProjects(d)...)
+	var all []parser.DiscoveredFile
+	counts := make(map[parser.AgentType]int)
+	for _, def := range parser.Registry {
+		if !def.FileBased || def.DiscoverFunc == nil {
+			continue
+		}
+		for _, d := range e.agentDirs[def.Type] {
+			found := def.DiscoverFunc(d)
+			counts[def.Type] += len(found)
+			all = append(all, found...)
+		}
 	}
-	for _, d := range e.codexDirs {
-		codex = append(codex, DiscoverCodexSessions(d)...)
-	}
-	for _, d := range e.copilotDirs {
-		copilot = append(copilot, DiscoverCopilotSessions(d)...)
-	}
-	for _, d := range e.geminiDirs {
-		gemini = append(gemini, DiscoverGeminiSessions(d)...)
-	}
-	cursor := DiscoverCursorSessions(e.cursorDir)
-
-	all := make(
-		[]DiscoveredFile, 0,
-		len(claude)+len(codex)+len(copilot)+len(gemini)+len(cursor),
-	)
-	all = append(all, claude...)
-	all = append(all, codex...)
-	all = append(all, copilot...)
-	all = append(all, gemini...)
-	all = append(all, cursor...)
 
 	verbose := onProgress == nil
 
 	if verbose {
 		log.Printf(
-			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor) in %s",
-			len(all), len(claude), len(codex), len(copilot), len(gemini), len(cursor),
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp) in %s",
+			len(all),
+			counts[parser.AgentClaude],
+			counts[parser.AgentCodex],
+			counts[parser.AgentCopilot],
+			counts[parser.AgentGemini],
+			counts[parser.AgentCursor],
+			counts[parser.AgentAmp],
 			time.Since(t0).Round(time.Millisecond),
 		)
 	}
@@ -644,7 +670,7 @@ func (e *Engine) syncAllLocked(
 // modified sessions are fully parsed. Returns pending writes.
 func (e *Engine) syncOpenCode() []pendingWrite {
 	var allPending []pendingWrite
-	for _, dir := range e.opencodeDirs {
+	for _, dir := range e.agentDirs[parser.AgentOpenCode] {
 		if dir == "" {
 			continue
 		}
@@ -705,11 +731,11 @@ func (e *Engine) syncOneOpenCode(dir string) []pendingWrite {
 // startWorkers fans out file processing across a worker pool
 // and returns a channel of results.
 func (e *Engine) startWorkers(
-	files []DiscoveredFile,
+	files []parser.DiscoveredFile,
 ) <-chan syncJob {
 	workers := min(max(runtime.NumCPU(), 2), maxWorkers)
 
-	jobs := make(chan DiscoveredFile, len(files))
+	jobs := make(chan parser.DiscoveredFile, len(files))
 	results := make(chan syncJob, len(files))
 
 	for range workers {
@@ -818,7 +844,7 @@ type processResult struct {
 }
 
 func (e *Engine) processFile(
-	file DiscoveredFile,
+	file parser.DiscoveredFile,
 ) processResult {
 
 	info, err := os.Stat(file.Path)
@@ -853,6 +879,8 @@ func (e *Engine) processFile(
 		res = e.processGemini(file, info)
 	case parser.AgentCursor:
 		res = e.processCursor(file, info)
+	case parser.AgentAmp:
+		res = e.processAmp(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -932,7 +960,7 @@ func (e *Engine) shouldSkipByPath(
 }
 
 func (e *Engine) processClaude(
-	file DiscoveredFile, info os.FileInfo,
+	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 
 	sessionID := strings.TrimSuffix(info.Name(), ".jsonl")
@@ -981,7 +1009,7 @@ func (e *Engine) processClaude(
 }
 
 func (e *Engine) processCodex(
-	file DiscoveredFile, info os.FileInfo,
+	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 
 	// Fast path: skip by file_path + mtime before parsing.
@@ -1012,7 +1040,7 @@ func (e *Engine) processCodex(
 }
 
 func (e *Engine) processCopilot(
-	file DiscoveredFile, info os.FileInfo,
+	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 	if e.shouldSkipByPath(file.Path, info) {
 		return processResult{skip: true}
@@ -1041,7 +1069,7 @@ func (e *Engine) processCopilot(
 }
 
 func (e *Engine) processGemini(
-	file DiscoveredFile, info os.FileInfo,
+	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 	// Fast path: skip by file_path + mtime before parsing.
 	if e.shouldSkipByPath(file.Path, info) {
@@ -1070,13 +1098,43 @@ func (e *Engine) processGemini(
 	}
 }
 
+func (e *Engine) processAmp(
+	file parser.DiscoveredFile, info os.FileInfo,
+) processResult {
+	// Fast path: skip by file_path + mtime before parsing.
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseAmpSession(
+		file.Path, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
+}
+
 func (e *Engine) processCursor(
-	file DiscoveredFile, info os.FileInfo,
+	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 	// Skip .txt if a sibling .jsonl exists — .jsonl is the
 	// richer format and takes precedence.
 	if stem, ok := strings.CutSuffix(file.Path, ".txt"); ok {
-		if isRegularFile(stem + ".jsonl") {
+		if parser.IsRegularFile(stem + ".jsonl") {
 			return processResult{skip: true}
 		}
 	}
@@ -1092,9 +1150,11 @@ func (e *Engine) processCursor(
 	// The parser opens with O_NOFOLLOW (rejecting symlinked
 	// final components), and this check catches parent
 	// directory swaps.
-	if e.cursorDir != "" {
+	if root := findContainingDir(
+		e.agentDirs[parser.AgentCursor], file.Path,
+	); root != "" {
 		if err := validateCursorContainment(
-			e.cursorDir, file.Path,
+			root, file.Path,
 		); err != nil {
 			return processResult{
 				err: fmt.Errorf(
@@ -1306,42 +1366,17 @@ func countMessages(batch []pendingWrite) int {
 // FindSourceFile locates the original source file for a
 // session ID.
 func (e *Engine) FindSourceFile(sessionID string) string {
-	switch {
-	case strings.HasPrefix(sessionID, "opencode:"):
-		return ""
-	case strings.HasPrefix(sessionID, "codex:"):
-		for _, d := range e.codexDirs {
-			if f := FindCodexSourceFile(d, sessionID[6:]); f != "" {
-				return f
-			}
-		}
-		return ""
-	case strings.HasPrefix(sessionID, "copilot:"):
-		for _, d := range e.copilotDirs {
-			if f := FindCopilotSourceFile(d, sessionID[8:]); f != "" {
-				return f
-			}
-		}
-		return ""
-	case strings.HasPrefix(sessionID, "gemini:"):
-		for _, d := range e.geminiDirs {
-			if f := FindGeminiSourceFile(d, sessionID[7:]); f != "" {
-				return f
-			}
-		}
-		return ""
-	case strings.HasPrefix(sessionID, "cursor:"):
-		return FindCursorSourceFile(
-			e.cursorDir, sessionID[7:],
-		)
-	default:
-		for _, d := range e.claudeDirs {
-			if f := FindClaudeSourceFile(d, sessionID); f != "" {
-				return f
-			}
-		}
+	def, ok := parser.AgentByPrefix(sessionID)
+	if !ok || !def.FileBased || def.FindSourceFunc == nil {
 		return ""
 	}
+	rawID := strings.TrimPrefix(sessionID, def.IDPrefix)
+	for _, d := range e.agentDirs[def.Type] {
+		if f := def.FindSourceFunc(d, rawID); f != "" {
+			return f
+		}
+	}
+	return ""
 }
 
 // SyncSingleSession re-syncs a single session by its ID.
@@ -1351,7 +1386,11 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 	e.syncMu.Lock()
 	defer e.syncMu.Unlock()
 
-	if strings.HasPrefix(sessionID, "opencode:") {
+	def, ok := parser.AgentByPrefix(sessionID)
+	if !ok {
+		return fmt.Errorf("unknown agent for session %s", sessionID)
+	}
+	if !def.FileBased {
 		return e.syncSingleOpenCode(sessionID)
 	}
 
@@ -1362,19 +1401,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		)
 	}
 
-	var agent parser.AgentType
-	switch {
-	case strings.HasPrefix(sessionID, "codex:"):
-		agent = parser.AgentCodex
-	case strings.HasPrefix(sessionID, "copilot:"):
-		agent = parser.AgentCopilot
-	case strings.HasPrefix(sessionID, "gemini:"):
-		agent = parser.AgentGemini
-	case strings.HasPrefix(sessionID, "cursor:"):
-		agent = parser.AgentCursor
-	default:
-		agent = parser.AgentClaude
-	}
+	agent := def.Type
 
 	// Clear skip cache so explicit re-sync always processes
 	// the file, even if it was cached as non-interactive
@@ -1384,7 +1411,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 	// Reuse processFile for stat and DB-skip logic. For
 	// Claude this is the full pipeline; for Codex we need
 	// includeExec=true so we call the parser directly.
-	file := DiscoveredFile{
+	file := parser.DiscoveredFile{
 		Path:  path,
 		Agent: agent,
 	}
@@ -1450,7 +1477,7 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 // processCodexIncludeExec re-parses a Codex session with
 // exec-originated sessions included.
 func (e *Engine) processCodexIncludeExec(
-	file DiscoveredFile,
+	file parser.DiscoveredFile,
 ) processResult {
 	sess, msgs, err := parser.ParseCodexSession(
 		file.Path, e.machine, true,
@@ -1478,7 +1505,7 @@ func (e *Engine) syncSingleOpenCode(
 	rawID := strings.TrimPrefix(sessionID, "opencode:")
 
 	var lastErr error
-	for _, dir := range e.opencodeDirs {
+	for _, dir := range e.agentDirs[parser.AgentOpenCode] {
 		if dir == "" {
 			continue
 		}
@@ -1499,7 +1526,7 @@ func (e *Engine) syncSingleOpenCode(
 		return nil
 	}
 
-	if len(e.opencodeDirs) == 0 {
+	if len(e.agentDirs[parser.AgentOpenCode]) == 0 {
 		return fmt.Errorf("opencode dir not configured")
 	}
 	if lastErr != nil {

@@ -71,6 +71,20 @@ func NormalizeToolCategory(rawName string) string {
 	case "LS":
 		return "Read"
 
+	// Amp tools (not already covered above)
+	case "create_file":
+		return "Write"
+	case "look_at":
+		return "Read"
+	case "undo_edit":
+		return "Edit"
+	case "finder":
+		return "Grep"
+	case "read_web_page":
+		return "Read"
+	case "skill":
+		return "Tool"
+
 	default:
 		return "Other"
 	}

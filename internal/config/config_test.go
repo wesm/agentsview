@@ -1,13 +1,17 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/wesm/agentsview/internal/parser"
 )
 
 const configFileName = "config.json"
@@ -201,14 +205,20 @@ func TestLoadFile_ReadsDirArrays(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(cfg.ClaudeProjectDirs) != 2 {
-		t.Fatalf("ClaudeProjectDirs len = %d, want 2", len(cfg.ClaudeProjectDirs))
+	claudeDirs := cfg.ResolveDirs(parser.AgentClaude)
+	if len(claudeDirs) != 2 {
+		t.Fatalf(
+			"claude dirs len = %d, want 2",
+			len(claudeDirs),
+		)
 	}
-	if cfg.ClaudeProjectDirs[0] != "/path/one" || cfg.ClaudeProjectDirs[1] != "/path/two" {
-		t.Errorf("ClaudeProjectDirs = %v", cfg.ClaudeProjectDirs)
+	if claudeDirs[0] != "/path/one" ||
+		claudeDirs[1] != "/path/two" {
+		t.Errorf("claude dirs = %v", claudeDirs)
 	}
-	if len(cfg.CodexSessionsDirs) != 1 || cfg.CodexSessionsDirs[0] != "/codex/a" {
-		t.Errorf("CodexSessionsDirs = %v", cfg.CodexSessionsDirs)
+	codexDirs := cfg.ResolveDirs(parser.AgentCodex)
+	if len(codexDirs) != 1 || codexDirs[0] != "/codex/a" {
+		t.Errorf("codex dirs = %v", codexDirs)
 	}
 }
 
@@ -220,9 +230,31 @@ func TestResolveDirs(t *testing.T) {
 		expectDefault bool
 		wantDirs      []string
 	}{
-		{"DefaultOnly", map[string]any{}, "", true, nil},
-		{"ConfigOverrides", map[string]any{"claude_project_dirs": []string{"/a", "/b"}}, "", false, []string{"/a", "/b"}},
-		{"EnvOverrides", map[string]any{"claude_project_dirs": []string{"/a"}}, "/env/override", false, []string{"/env/override"}},
+		{
+			"DefaultOnly",
+			map[string]any{},
+			"",
+			true,
+			nil,
+		},
+		{
+			"ConfigOverrides",
+			map[string]any{
+				"claude_project_dirs": []string{"/a", "/b"},
+			},
+			"",
+			false,
+			[]string{"/a", "/b"},
+		},
+		{
+			"EnvOverrides",
+			map[string]any{
+				"claude_project_dirs": []string{"/a"},
+			},
+			"/env/override",
+			false,
+			[]string{"/env/override"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -238,19 +270,26 @@ func TestResolveDirs(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			dirs := cfg.ResolveClaudeDirs()
+			dirs := cfg.ResolveDirs(parser.AgentClaude)
 
 			want := tt.wantDirs
 			if tt.expectDefault {
-				want = []string{cfg.ClaudeProjectDir}
+				// Default is the home-dir based path
+				want = cfg.AgentDirs[parser.AgentClaude]
 			}
 
 			if len(dirs) != len(want) {
-				t.Fatalf("got %d dirs, want %d", len(dirs), len(want))
+				t.Fatalf(
+					"got %d dirs, want %d",
+					len(dirs), len(want),
+				)
 			}
 			for i, v := range dirs {
 				if v != want[i] {
-					t.Errorf("dirs[%d] = %q, want %q", i, v, want[i])
+					t.Errorf(
+						"dirs[%d] = %q, want %q",
+						i, v, want[i],
+					)
 				}
 			}
 		})
@@ -276,5 +315,73 @@ func TestResolveDataDir_DefaultAndEnvOverride(t *testing.T) {
 	}
 	if dir != custom {
 		t.Errorf("ResolveDataDir = %q, want %q", dir, custom)
+	}
+}
+
+func TestEnvOverridesConfigFile(t *testing.T) {
+	dir := setupTestEnv(t)
+	writeConfig(t, dir, map[string]any{
+		"codex_sessions_dirs": []string{"/from/config"},
+	})
+	t.Setenv("CODEX_SESSIONS_DIR", "/from/env")
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := cfg.ResolveDirs(parser.AgentCodex)
+	if len(dirs) != 1 || dirs[0] != "/from/env" {
+		t.Errorf(
+			"codex dirs = %v, want [/from/env]", dirs,
+		)
+	}
+}
+
+func TestLoadFile_MalformedDirValueLogsWarning(t *testing.T) {
+	dir := setupTestEnv(t)
+
+	// Write a config where claude_project_dirs is a string
+	// instead of a string array.
+	writeConfig(t, dir, map[string]any{
+		"claude_project_dirs": "/not/an/array",
+	})
+
+	// Capture log output during Load.
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The malformed key should trigger a warning.
+	logged := buf.String()
+	if !strings.Contains(logged, "claude_project_dirs") {
+		t.Errorf(
+			"expected warning mentioning config key, got: %q",
+			logged,
+		)
+	}
+	if !strings.Contains(logged, "expected string array") {
+		t.Errorf(
+			"expected warning about type, got: %q",
+			logged,
+		)
+	}
+
+	// ResolveDirs should return the default (malformed value
+	// was not applied).
+	dirs := cfg.ResolveDirs(parser.AgentClaude)
+	home, _ := os.UserHomeDir()
+	defaultDir := filepath.Join(home, ".claude", "projects")
+	if len(dirs) != 1 || dirs[0] != defaultDir {
+		t.Errorf(
+			"claude dirs = %v, want default [%s]",
+			dirs, defaultDir,
+		)
 	}
 }

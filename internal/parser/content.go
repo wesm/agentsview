@@ -52,8 +52,14 @@ func ExtractTextContent(
 					Category:  NormalizeToolCategory(name),
 					InputJSON: block.Get("input").Raw,
 				}
-				if name == "Skill" {
+				switch name {
+				case "Skill":
 					tc.SkillName = block.Get("input.skill").Str
+				case "skill":
+					tc.SkillName = block.Get("input.skill").Str
+					if tc.SkillName == "" {
+						tc.SkillName = block.Get("input.name").Str
+					}
 				}
 				toolCalls = append(toolCalls, tc)
 			}
@@ -111,7 +117,12 @@ func formatToolUse(block gjson.Result) string {
 	case "ExitPlanMode":
 		return "[Exiting Plan Mode]"
 	case "Read":
-		return fmt.Sprintf("[Read: %s]", input.Get("file_path").Str)
+		// Claude Code uses "file_path"; Amp uses "path"
+		path := input.Get("file_path").Str
+		if path == "" {
+			path = input.Get("path").Str
+		}
+		return fmt.Sprintf("[Read: %s]", path)
 	case "Glob":
 		return formatGlob(input)
 	case "Grep":
@@ -121,7 +132,36 @@ func formatToolUse(block gjson.Result) string {
 	case "Write":
 		return fmt.Sprintf("[Write: %s]", input.Get("file_path").Str)
 	case "Bash":
+		// Claude Code uses "command"; Amp uses "cmd"
+		if input.Get("command").Str == "" && input.Get("cmd").Str != "" {
+			return fmt.Sprintf("[Bash]\n$ %s", input.Get("cmd").Str)
+		}
 		return formatBash(input)
+	// Amp tools
+	case "edit_file":
+		return fmt.Sprintf("[Write: %s]", input.Get("path").Str)
+	case "create_file":
+		return fmt.Sprintf("[Write: %s]", input.Get("path").Str)
+	case "shell_command":
+		return fmt.Sprintf("[Bash]\n$ %s", input.Get("command").Str)
+	case "glob":
+		return fmt.Sprintf("[Glob: %s]", input.Get("filePattern").Str)
+	case "look_at":
+		return fmt.Sprintf("[Read: %s]", input.Get("path").Str)
+	case "apply_patch":
+		return fmt.Sprintf("[Patch: %s]", input.Get("path").Str)
+	case "undo_edit":
+		return fmt.Sprintf("[Undo: %s]", input.Get("path").Str)
+	case "finder":
+		return fmt.Sprintf("[Find: %s]", input.Get("query").Str)
+	case "read_web_page":
+		return fmt.Sprintf("[Web: %s]", input.Get("url").Str)
+	case "skill":
+		skill := input.Get("skill").Str
+		if skill == "" {
+			skill = input.Get("name").Str
+		}
+		return fmt.Sprintf("[Skill: %s]", skill)
 	case "Task":
 		return formatTask(input)
 	case "Skill":

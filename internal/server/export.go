@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/parser"
 )
 
 // getSessionWithMessages fetches a session and its messages by ID,
@@ -528,9 +529,11 @@ footer a:hover { text-decoration: underline; }
 func generateExportHTML(
 	session *db.Session, msgs []db.Message,
 ) string {
-	agentDisplay := "Claude"
-	if session.Agent == "codex" {
-		agentDisplay = "Codex"
+	agentDisplay := string(session.Agent)
+	if def, ok := parser.AgentByType(
+		parser.AgentType(session.Agent),
+	); ok {
+		agentDisplay = def.DisplayName
 	}
 
 	startedAt := ""

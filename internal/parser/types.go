@@ -15,7 +15,141 @@ const (
 	AgentGemini   AgentType = "gemini"
 	AgentOpenCode AgentType = "opencode"
 	AgentCursor   AgentType = "cursor"
+	AgentAmp      AgentType = "amp"
 )
+
+// AgentDef describes a supported coding agent's filesystem
+// layout, configuration keys, and session ID conventions.
+type AgentDef struct {
+	Type        AgentType
+	DisplayName string   // "Claude Code", "Codex", etc.
+	EnvVar      string   // env var for dir override
+	ConfigKey   string   // JSON key in config.json ("" = none)
+	DefaultDirs []string // paths relative to $HOME
+	IDPrefix    string   // session ID prefix ("" for Claude)
+	WatchSubdir string   // subdir to watch ("" = watch root)
+	FileBased   bool     // false for DB-backed agents
+
+	// DiscoverFunc finds session files under a root directory.
+	// Nil for non-file-based agents.
+	DiscoverFunc func(string) []DiscoveredFile
+
+	// FindSourceFunc locates a single session's source file
+	// given a root directory and the raw session ID (prefix
+	// already stripped). Nil for non-file-based agents.
+	FindSourceFunc func(string, string) string
+}
+
+// Registry lists all supported agents. Order is stable and
+// used for iteration in config, sync, and watcher setup.
+var Registry = []AgentDef{
+	{
+		Type:           AgentClaude,
+		DisplayName:    "Claude Code",
+		EnvVar:         "CLAUDE_PROJECTS_DIR",
+		ConfigKey:      "claude_project_dirs",
+		DefaultDirs:    []string{".claude/projects"},
+		IDPrefix:       "",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverClaudeProjects,
+		FindSourceFunc: FindClaudeSourceFile,
+	},
+	{
+		Type:           AgentCodex,
+		DisplayName:    "Codex",
+		EnvVar:         "CODEX_SESSIONS_DIR",
+		ConfigKey:      "codex_sessions_dirs",
+		DefaultDirs:    []string{".codex/sessions"},
+		IDPrefix:       "codex:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverCodexSessions,
+		FindSourceFunc: FindCodexSourceFile,
+	},
+	{
+		Type:           AgentCopilot,
+		DisplayName:    "Copilot",
+		EnvVar:         "COPILOT_DIR",
+		ConfigKey:      "copilot_dirs",
+		DefaultDirs:    []string{".copilot"},
+		IDPrefix:       "copilot:",
+		WatchSubdir:    "session-state",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverCopilotSessions,
+		FindSourceFunc: FindCopilotSourceFile,
+	},
+	{
+		Type:           AgentGemini,
+		DisplayName:    "Gemini",
+		EnvVar:         "GEMINI_DIR",
+		ConfigKey:      "gemini_dirs",
+		DefaultDirs:    []string{".gemini"},
+		IDPrefix:       "gemini:",
+		WatchSubdir:    "tmp",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverGeminiSessions,
+		FindSourceFunc: FindGeminiSourceFile,
+	},
+	{
+		Type:        AgentOpenCode,
+		DisplayName: "OpenCode",
+		EnvVar:      "OPENCODE_DIR",
+		ConfigKey:   "opencode_dirs",
+		DefaultDirs: []string{".local/share/opencode"},
+		IDPrefix:    "opencode:",
+		FileBased:   false,
+	},
+	{
+		Type:           AgentCursor,
+		DisplayName:    "Cursor",
+		EnvVar:         "CURSOR_PROJECTS_DIR",
+		DefaultDirs:    []string{".cursor/projects"},
+		IDPrefix:       "cursor:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverCursorSessions,
+		FindSourceFunc: FindCursorSourceFile,
+	},
+	{
+		Type:           AgentAmp,
+		DisplayName:    "Amp",
+		EnvVar:         "AMP_DIR",
+		DefaultDirs:    []string{".local/share/amp/threads"},
+		IDPrefix:       "amp:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverAmpSessions,
+		FindSourceFunc: FindAmpSourceFile,
+	},
+}
+
+// AgentByType returns the AgentDef for the given type.
+func AgentByType(t AgentType) (AgentDef, bool) {
+	for _, def := range Registry {
+		if def.Type == t {
+			return def, true
+		}
+	}
+	return AgentDef{}, false
+}
+
+// AgentByPrefix returns the AgentDef whose IDPrefix matches
+// the session ID. For Claude (empty prefix), the match
+// succeeds only when no other prefix matches and the ID
+// does not contain a colon.
+func AgentByPrefix(sessionID string) (AgentDef, bool) {
+	for _, def := range Registry {
+		if def.IDPrefix != "" &&
+			strings.HasPrefix(sessionID, def.IDPrefix) {
+			return def, true
+		}
+	}
+	// No prefixed agent matched. Fall back to Claude only
+	// if the ID has no colon (unprefixed).
+	if !strings.Contains(sessionID, ":") {
+		if def, ok := AgentByType(AgentClaude); ok {
+			return def, true
+		}
+	}
+	return AgentDef{}, false
+}
 
 // RelationshipType describes how a session relates to its parent.
 type RelationshipType string

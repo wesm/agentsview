@@ -14,6 +14,7 @@ import (
 
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/dbtest"
+	"github.com/wesm/agentsview/internal/parser"
 	"github.com/wesm/agentsview/internal/sync"
 	"github.com/wesm/agentsview/internal/testjsonl"
 )
@@ -21,8 +22,10 @@ import (
 type testEnv struct {
 	claudeDir   string
 	codexDir    string
+	cursorDir   string
 	geminiDir   string
 	opencodeDir string
+	ampDir      string
 	db          *db.DB
 	engine      *sync.Engine
 }
@@ -30,6 +33,7 @@ type testEnv struct {
 type testEnvOpts struct {
 	claudeDirs []string
 	codexDirs  []string
+	cursorDirs []string
 }
 
 type TestEnvOption func(*testEnvOpts)
@@ -43,6 +47,12 @@ func WithClaudeDirs(dirs []string) TestEnvOption {
 func WithCodexDirs(dirs []string) TestEnvOption {
 	return func(o *testEnvOpts) {
 		o.codexDirs = dirs
+	}
+}
+
+func WithCursorDirs(dirs []string) TestEnvOption {
+	return func(o *testEnvOpts) {
+		o.cursorDirs = dirs
 	}
 }
 
@@ -60,6 +70,7 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 	env := &testEnv{
 		geminiDir:   t.TempDir(),
 		opencodeDir: t.TempDir(),
+		ampDir:      t.TempDir(),
 		db:          dbtest.OpenTestDB(t),
 	}
 
@@ -79,10 +90,25 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 		env.codexDir = codexDirs[0]
 	}
 
-	env.engine = sync.NewEngine(
-		env.db, claudeDirs, codexDirs, nil,
-		[]string{env.geminiDir}, []string{env.opencodeDir}, "", "local",
-	)
+	cursorDirs := options.cursorDirs
+	if len(cursorDirs) == 0 {
+		env.cursorDir = t.TempDir()
+		cursorDirs = []string{env.cursorDir}
+	} else {
+		env.cursorDir = cursorDirs[0]
+	}
+
+	env.engine = sync.NewEngine(env.db, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude:   claudeDirs,
+			parser.AgentCodex:    codexDirs,
+			parser.AgentCursor:   cursorDirs,
+			parser.AgentGemini:   {env.geminiDir},
+			parser.AgentOpenCode: {env.opencodeDir},
+			parser.AgentAmp:      {env.ampDir},
+		},
+		Machine: "local",
+	})
 	return env
 }
 
@@ -139,6 +165,31 @@ func (e *testEnv) writeGeminiSession(
 ) string {
 	t.Helper()
 	return e.writeSession(t, e.geminiDir, relPath, content)
+}
+
+// writeAmpThread creates an Amp thread JSON file under the
+// configured Amp threads directory.
+func (e *testEnv) writeAmpThread(
+	t *testing.T, filename, content string,
+) string {
+	t.Helper()
+	return e.writeSession(t, e.ampDir, filename, content)
+}
+
+// writeCursorSession creates a Cursor transcript file under
+// the given cursorDir at <project>/agent-transcripts/<file>.
+func (e *testEnv) writeCursorSession(
+	t *testing.T, cursorDir, project, filename,
+	content string,
+) string {
+	t.Helper()
+	return e.writeSession(
+		t, cursorDir,
+		filepath.Join(
+			project, "agent-transcripts", filename,
+		),
+		content,
+	)
 }
 
 func TestSyncEngineIntegration(t *testing.T) {
@@ -900,6 +951,74 @@ func TestSyncPathsGeminiRejectsWrongStructure(t *testing.T) {
 	}
 }
 
+func TestSyncPathsAmp(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := `{"id":"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd","created":1704103200000,"title":"Amp session","env":{"initial":{"trees":[{"displayName":"amp_proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello from amp"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`
+
+	path := env.writeAmpThread(
+		t, "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json",
+		content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db,
+		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+		func(sess *db.Session) {
+			if sess.Agent != "amp" {
+				t.Errorf("agent = %q, want amp", sess.Agent)
+			}
+		},
+	)
+	assertSessionMessageCount(
+		t, env.db,
+		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd", 2,
+	)
+
+	updated := `{"id":"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd","created":1704103200000,"title":"Amp session","env":{"initial":{"trees":[{"displayName":"amp_proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello from amp"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]},{"role":"assistant","content":[{"type":"text","text":"incremental update"}]}]}`
+	os.WriteFile(path, []byte(updated), 0o644)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionMessageCount(
+		t, env.db,
+		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd", 3,
+	)
+}
+
+func TestSyncPathsAmpRejectsWrongStructure(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := `{"id":"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd","created":1704103200000,"title":"Amp session","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`
+
+	// Nested paths under ampDir should be ignored.
+	nested := env.writeAmpThread(
+		t, filepath.Join("nested", "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json"),
+		content,
+	)
+	// Non-thread filename pattern at ampDir root should be ignored.
+	wrongName := env.writeAmpThread(
+		t, "thread-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json",
+		content,
+	)
+	// Malformed thread ID should be ignored.
+	malformed := env.writeAmpThread(
+		t, "T-.json",
+		content,
+	)
+
+	env.engine.SyncPaths([]string{nested, wrongName, malformed})
+
+	sess, _ := env.db.GetSession(
+		context.Background(), "amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+	)
+	if sess != nil {
+		t.Error("Amp files outside root-level valid T-<id>.json should be ignored")
+	}
+}
+
 func TestSyncPathsStatsUpdated(t *testing.T) {
 	env := setupTestEnv(t)
 
@@ -1545,6 +1664,84 @@ func TestSyncEngineMultiClaudeDir(t *testing.T) {
 	src := env.engine.FindSourceFile("sess2")
 	if src == "" {
 		t.Error("FindSourceFile failed for sess2 in second directory")
+	}
+}
+
+// TestSyncEngineMultiCursorDir verifies that SyncAll and
+// SyncPaths work when multiple Cursor project directories
+// are configured, and that the containment check in
+// processCursor correctly identifies the containing root
+// for files under non-first directories.
+func TestSyncEngineMultiCursorDir(t *testing.T) {
+	cursorDir1 := t.TempDir()
+	cursorDir2 := t.TempDir()
+	env := setupTestEnv(
+		t, WithCursorDirs([]string{cursorDir1, cursorDir2}),
+	)
+
+	transcript1 := "user:\nHello from cursor dir1\n" +
+		"assistant:\nHi from dir1!\n"
+	transcript2 := "user:\nHello from cursor dir2\n" +
+		"assistant:\nHi from dir2!\n"
+
+	// Write sessions to different Cursor directories.
+	// Cursor project dir uses hyphenated encoding.
+	env.writeCursorSession(
+		t, cursorDir1,
+		"Users-alice-code-proj1",
+		"sess1.txt", transcript1,
+	)
+	path2 := env.writeCursorSession(
+		t, cursorDir2,
+		"Users-alice-code-proj2",
+		"sess2.txt", transcript2,
+	)
+
+	// SyncAll should discover sessions from both dirs.
+	runSyncAndAssert(t, env.engine, sync.SyncStats{
+		TotalSessions: 2, Synced: 2, Skipped: 0,
+	})
+
+	assertSessionState(
+		t, env.db, "cursor:sess1",
+		func(sess *db.Session) {
+			if sess.Agent != "cursor" {
+				t.Errorf(
+					"agent = %q, want cursor",
+					sess.Agent,
+				)
+			}
+		},
+	)
+	assertSessionState(
+		t, env.db, "cursor:sess2",
+		func(sess *db.Session) {
+			if sess.Agent != "cursor" {
+				t.Errorf(
+					"agent = %q, want cursor",
+					sess.Agent,
+				)
+			}
+		},
+	)
+
+	// SyncPaths should handle a file from the second dir.
+	updated := "user:\nHello from cursor dir2\n" +
+		"assistant:\nHi from dir2!\n" +
+		"user:\nFollow-up\n" +
+		"assistant:\nGot it.\n"
+	os.WriteFile(path2, []byte(updated), 0o644)
+	env.engine.SyncPaths([]string{path2})
+
+	assertSessionMessageCount(t, env.db, "cursor:sess2", 4)
+
+	// FindSourceFile should work across directories.
+	src := env.engine.FindSourceFile("cursor:sess2")
+	if src == "" {
+		t.Error(
+			"FindSourceFile failed for cursor:sess2 " +
+				"in second directory",
+		)
 	}
 }
 
@@ -2311,5 +2508,190 @@ func TestResyncAllAbortsMixedSourceEmptyFiles(t *testing.T) {
 	assertSessionMessageCount(t, env.db, "mixed-file", 2)
 	assertSessionMessageCount(
 		t, env.db, "opencode:"+sessionID, 2,
+	)
+}
+
+// TestNewEngineDefensiveCopy verifies that NewEngine deep-copies
+// the AgentDirs map so that external mutations after construction
+// do not affect the engine's behavior.
+func TestNewEngineDefensiveCopy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	claudeDir := t.TempDir()
+	database := dbtest.OpenTestDB(t)
+
+	dirs := map[parser.AgentType][]string{
+		parser.AgentClaude: {claudeDir},
+	}
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: dirs,
+		Machine:   "local",
+	})
+
+	// Write a session the engine should find.
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "hello").
+		String()
+	path := filepath.Join(
+		claudeDir, "proj", "copy-test.jsonl",
+	)
+	dbtest.WriteTestFile(t, path, []byte(content))
+
+	// Mutate the original map after construction: clear
+	// the Claude dirs and add a bogus entry.
+	dirs[parser.AgentClaude] = nil
+	dirs[parser.AgentCodex] = []string{"/bogus"}
+
+	// Engine should still find the session via its own copy.
+	stats := engine.SyncAll(nil)
+	if stats.Synced != 1 {
+		t.Fatalf(
+			"Synced = %d, want 1 (engine used mutated map)",
+			stats.Synced,
+		)
+	}
+	assertSessionMessageCount(t, database, "copy-test", 1)
+
+	// Verify slice-level aliasing is also prevented.
+	// Build a fresh engine where we mutate an element
+	// inside the original slice (not replace the slice).
+	claudeDir2 := t.TempDir()
+	sliceDirs := []string{claudeDir2}
+	dirs2 := map[parser.AgentType][]string{
+		parser.AgentClaude: sliceDirs,
+	}
+	db2 := dbtest.OpenTestDB(t)
+	engine2 := sync.NewEngine(db2, sync.EngineConfig{
+		AgentDirs: dirs2,
+		Machine:   "local",
+	})
+
+	content2 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "slice test").
+		String()
+	path2 := filepath.Join(
+		claudeDir2, "proj", "slice-test.jsonl",
+	)
+	dbtest.WriteTestFile(t, path2, []byte(content2))
+
+	// Mutate the element inside the original slice.
+	sliceDirs[0] = "/nonexistent"
+
+	stats2 := engine2.SyncAll(nil)
+	if stats2.Synced != 1 {
+		t.Fatalf(
+			"Synced = %d, want 1 (engine used aliased slice)",
+			stats2.Synced,
+		)
+	}
+	assertSessionMessageCount(t, db2, "slice-test", 1)
+}
+
+// TestSyncPathsClaudeFallsThrough verifies that a file under
+// a Claude root that fails the subagent shape check (non-agent-
+// prefix in a subagents dir) is still checked against later
+// agents when roots overlap.
+func TestSyncPathsClaudeFallsThrough(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Claude root contains a path that looks like a subagent
+	// dir but the file doesn't have an agent- prefix. The Amp
+	// root is nested so the same file matches Amp's structure.
+	parent := t.TempDir()
+	claudeDir := parent
+	// Amp root: <claudeDir>/proj/sess/subagents
+	ampDir := filepath.Join(
+		claudeDir, "proj", "sess", "subagents",
+	)
+
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {claudeDir},
+			parser.AgentAmp:    {ampDir},
+		},
+		Machine: "local",
+	})
+
+	content := `{"id":"T-019ca26f-eeee-dddd-cccc-bbbbbbbbbbbb","created":1704103200000,"title":"Claude overlap","env":{"initial":{"trees":[{"displayName":"proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`
+
+	// This path is 4 parts under claudeDir
+	// (proj/sess/subagents/T-*.json) and matches the
+	// subagent shape check, but the filename doesn't start
+	// with "agent-", so Claude rejects it. It should fall
+	// through to Amp.
+	ampPath := filepath.Join(
+		ampDir,
+		"T-019ca26f-eeee-dddd-cccc-bbbbbbbbbbbb.json",
+	)
+	dbtest.WriteTestFile(t, ampPath, []byte(content))
+
+	engine.SyncPaths([]string{ampPath})
+
+	assertSessionState(
+		t, database,
+		"amp:T-019ca26f-eeee-dddd-cccc-bbbbbbbbbbbb",
+		func(sess *db.Session) {
+			if sess.Agent != "amp" {
+				t.Errorf(
+					"agent = %q, want amp", sess.Agent,
+				)
+			}
+		},
+	)
+}
+
+// TestSyncPathsClassifyFallsThrough verifies that a file
+// under a Cursor root that doesn't match the Cursor transcript
+// structure is still checked against later agents (e.g. Amp).
+// Before the fix, the Cursor block returned false immediately,
+// preventing any subsequent agent from matching.
+func TestSyncPathsClassifyFallsThrough(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Use a shared parent dir so both agent roots overlap:
+	// cursorDir = parent/cursor
+	// ampDir    = parent/cursor/nested-amp
+	// A valid Amp file under ampDir also lives under
+	// cursorDir but doesn't match the Cursor structure.
+	parent := t.TempDir()
+	cursorDir := filepath.Join(parent, "cursor")
+	ampDir := filepath.Join(cursorDir, "nested-amp")
+
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentCursor: {cursorDir},
+			parser.AgentAmp:    {ampDir},
+		},
+		Machine: "local",
+	})
+
+	content := `{"id":"T-019ca26f-ffff-aaaa-bbbb-cccccccccccc","created":1704103200000,"title":"Overlap test","env":{"initial":{"trees":[{"displayName":"proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`
+
+	ampPath := filepath.Join(
+		ampDir,
+		"T-019ca26f-ffff-aaaa-bbbb-cccccccccccc.json",
+	)
+	dbtest.WriteTestFile(t, ampPath, []byte(content))
+
+	engine.SyncPaths([]string{ampPath})
+
+	assertSessionState(
+		t, database,
+		"amp:T-019ca26f-ffff-aaaa-bbbb-cccccccccccc",
+		func(sess *db.Session) {
+			if sess.Agent != "amp" {
+				t.Errorf(
+					"agent = %q, want amp", sess.Agent,
+				)
+			}
+		},
 	)
 }

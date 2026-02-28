@@ -344,7 +344,7 @@ describe("SessionsStore", () => {
   });
 
   describe("setProjectFilter", () => {
-    it("should reset non-project filters and pagination", async () => {
+    it("should reset non-project/date filters, preserve agent, and reset pagination", async () => {
       sessions.filters.agent = "codex";
       sessions.filters.date = "2024-06-15";
       sessions.filters.dateFrom = "2024-06-01";
@@ -362,7 +362,7 @@ describe("SessionsStore", () => {
       });
 
       expect(sessions.filters.project).toBe("myproj");
-      expect(sessions.filters.agent).toBe("");
+      expect(sessions.filters.agent).toBe("codex");
       expect(sessions.filters.date).toBe("");
       expect(sessions.filters.dateFrom).toBe("");
       expect(sessions.filters.dateTo).toBe("");
@@ -372,7 +372,7 @@ describe("SessionsStore", () => {
 
       expectListSessionsCalledWith({
         project: "myproj",
-        agent: undefined,
+        agent: "codex",
         date: undefined,
         date_from: undefined,
         date_to: undefined,

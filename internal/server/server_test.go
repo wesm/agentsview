@@ -21,6 +21,7 @@ import (
 	"github.com/wesm/agentsview/internal/config"
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/dbtest"
+	"github.com/wesm/agentsview/internal/parser"
 	"github.com/wesm/agentsview/internal/server"
 	"github.com/wesm/agentsview/internal/sync"
 	"github.com/wesm/agentsview/internal/testjsonl"
@@ -95,9 +96,13 @@ func setupWithServerOpts(
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	engine := sync.NewEngine(
-		database, []string{claudeDir}, []string{codexDir}, nil, nil, nil, "", "test",
-	)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {claudeDir},
+			parser.AgentCodex:  {codexDir},
+		},
+		Machine: "test",
+	})
 	srv := server.New(cfg, database, engine, srvOpts...)
 
 	// Wrap handler to set default Host header for all test
@@ -1963,10 +1968,13 @@ func TestWatchSession_Events(t *testing.T) {
 	content := b.String()
 	sessionPath := te.writeSessionFile(t, "watch-proj", "watch-sess.jsonl", b)
 
-	engine := sync.NewEngine(
-		te.db, []string{te.claudeDir},
-		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "", "test",
-	)
+	engine := sync.NewEngine(te.db, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {te.claudeDir},
+			parser.AgentCodex:  {filepath.Join(te.dataDir, "codex")},
+		},
+		Machine: "test",
+	})
 	engine.SyncAll(nil)
 
 	ctx, cancel := context.WithTimeout(
@@ -2009,10 +2017,13 @@ func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 	content := b.String()
 	sessionPath := te.writeSessionFile(t, "vanish-proj", "vanish-sess.jsonl", b)
 
-	engine := sync.NewEngine(
-		te.db, []string{te.claudeDir},
-		[]string{filepath.Join(te.dataDir, "codex")}, nil, nil, nil, "", "test",
-	)
+	engine := sync.NewEngine(te.db, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {te.claudeDir},
+			parser.AgentCodex:  {filepath.Join(te.dataDir, "codex")},
+		},
+		Machine: "test",
+	})
 	engine.SyncAll(nil)
 
 	ctx, cancel := context.WithTimeout(

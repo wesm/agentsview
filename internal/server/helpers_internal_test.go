@@ -14,6 +14,7 @@ import (
 
 	"github.com/wesm/agentsview/internal/config"
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/parser"
 	"github.com/wesm/agentsview/internal/sync"
 )
 
@@ -40,7 +41,12 @@ func testServer(
 		DBPath:       dbPath,
 		WriteTimeout: writeTimeout,
 	}
-	engine := sync.NewEngine(database, []string{dir}, nil, nil, nil, nil, "", "test")
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {dir},
+		},
+		Machine: "test",
+	})
 	return New(cfg, database, engine, opts...)
 }
 
