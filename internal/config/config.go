@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -159,6 +160,10 @@ func (c *Config) loadFile() error {
 		}
 		var dirs []string
 		if err := json.Unmarshal(rawVal, &dirs); err != nil {
+			log.Printf(
+				"config: %s: expected string array: %v",
+				def.ConfigKey, err,
+			)
 			continue
 		}
 		if len(dirs) > 0 {

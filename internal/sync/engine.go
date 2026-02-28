@@ -60,9 +60,14 @@ func NewEngine(
 		log.Printf("loading skip cache: %v", err)
 	}
 
+	dirs := make(map[parser.AgentType][]string, len(cfg.AgentDirs))
+	for k, v := range cfg.AgentDirs {
+		dirs[k] = append([]string(nil), v...)
+	}
+
 	return &Engine{
 		db:        database,
-		agentDirs: cfg.AgentDirs,
+		agentDirs: dirs,
 		machine:   cfg.Machine,
 		skipCache: skipCache,
 	}
