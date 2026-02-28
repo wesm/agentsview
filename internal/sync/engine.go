@@ -1181,7 +1181,7 @@ func (e *Engine) processIflow(
 	file DiscoveredFile, info os.FileInfo,
 ) processResult {
 	// Extract session ID from filename: session-<uuid>.jsonl
-	sessionID := strings.TrimPrefix(strings.TrimSuffix(info.Name(), ".jsonl"), "session-")
+	sessionID := "iflow:" + strings.TrimPrefix(strings.TrimSuffix(info.Name(), ".jsonl"), "session-")
 
 	if e.shouldSkipFile(sessionID, info) {
 		sess, _ := e.db.GetSession(
