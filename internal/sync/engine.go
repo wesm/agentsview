@@ -153,6 +153,20 @@ func isUnder(dir, path string) (string, bool) {
 	return rel, true
 }
 
+// findContainingDir returns the first dir from dirs that is a
+// parent of path, or "" if none match.
+func findContainingDir(dirs []string, path string) string {
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if _, ok := isUnder(d, path); ok {
+			return d
+		}
+	}
+	return ""
+}
+
 func (e *Engine) classifyOnePath(
 	path string,
 	geminiProjectsByDir map[string]map[string]string,
@@ -1131,10 +1145,11 @@ func (e *Engine) processCursor(
 	// The parser opens with O_NOFOLLOW (rejecting symlinked
 	// final components), and this check catches parent
 	// directory swaps.
-	cursorDirs := e.agentDirs[parser.AgentCursor]
-	if len(cursorDirs) > 0 && cursorDirs[0] != "" {
+	if root := findContainingDir(
+		e.agentDirs[parser.AgentCursor], file.Path,
+	); root != "" {
 		if err := validateCursorContainment(
-			cursorDirs[0], file.Path,
+			root, file.Path,
 		); err != nil {
 			return processResult{
 				err: fmt.Errorf(

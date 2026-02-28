@@ -144,7 +144,9 @@ func AgentByPrefix(sessionID string) (AgentDef, bool) {
 	// No prefixed agent matched. Fall back to Claude only
 	// if the ID has no colon (unprefixed).
 	if !strings.Contains(sessionID, ":") {
-		return Registry[0], true // Claude is always first
+		if def, ok := AgentByType(AgentClaude); ok {
+			return def, true
+		}
 	}
 	return AgentDef{}, false
 }

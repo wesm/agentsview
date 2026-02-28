@@ -22,6 +22,7 @@ import (
 type testEnv struct {
 	claudeDir   string
 	codexDir    string
+	cursorDir   string
 	geminiDir   string
 	opencodeDir string
 	ampDir      string
@@ -32,6 +33,7 @@ type testEnv struct {
 type testEnvOpts struct {
 	claudeDirs []string
 	codexDirs  []string
+	cursorDirs []string
 }
 
 type TestEnvOption func(*testEnvOpts)
@@ -45,6 +47,12 @@ func WithClaudeDirs(dirs []string) TestEnvOption {
 func WithCodexDirs(dirs []string) TestEnvOption {
 	return func(o *testEnvOpts) {
 		o.codexDirs = dirs
+	}
+}
+
+func WithCursorDirs(dirs []string) TestEnvOption {
+	return func(o *testEnvOpts) {
+		o.cursorDirs = dirs
 	}
 }
 
@@ -82,10 +90,19 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 		env.codexDir = codexDirs[0]
 	}
 
+	cursorDirs := options.cursorDirs
+	if len(cursorDirs) == 0 {
+		env.cursorDir = t.TempDir()
+		cursorDirs = []string{env.cursorDir}
+	} else {
+		env.cursorDir = cursorDirs[0]
+	}
+
 	env.engine = sync.NewEngine(env.db, sync.EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
 			parser.AgentClaude:   claudeDirs,
 			parser.AgentCodex:    codexDirs,
+			parser.AgentCursor:   cursorDirs,
 			parser.AgentGemini:   {env.geminiDir},
 			parser.AgentOpenCode: {env.opencodeDir},
 			parser.AgentAmp:      {env.ampDir},
@@ -157,6 +174,22 @@ func (e *testEnv) writeAmpThread(
 ) string {
 	t.Helper()
 	return e.writeSession(t, e.ampDir, filename, content)
+}
+
+// writeCursorSession creates a Cursor transcript file under
+// the given cursorDir at <project>/agent-transcripts/<file>.
+func (e *testEnv) writeCursorSession(
+	t *testing.T, cursorDir, project, filename,
+	content string,
+) string {
+	t.Helper()
+	return e.writeSession(
+		t, cursorDir,
+		filepath.Join(
+			project, "agent-transcripts", filename,
+		),
+		content,
+	)
 }
 
 func TestSyncEngineIntegration(t *testing.T) {
@@ -1631,6 +1664,84 @@ func TestSyncEngineMultiClaudeDir(t *testing.T) {
 	src := env.engine.FindSourceFile("sess2")
 	if src == "" {
 		t.Error("FindSourceFile failed for sess2 in second directory")
+	}
+}
+
+// TestSyncEngineMultiCursorDir verifies that SyncAll and
+// SyncPaths work when multiple Cursor project directories
+// are configured, and that the containment check in
+// processCursor correctly identifies the containing root
+// for files under non-first directories.
+func TestSyncEngineMultiCursorDir(t *testing.T) {
+	cursorDir1 := t.TempDir()
+	cursorDir2 := t.TempDir()
+	env := setupTestEnv(
+		t, WithCursorDirs([]string{cursorDir1, cursorDir2}),
+	)
+
+	transcript1 := "user:\nHello from cursor dir1\n" +
+		"assistant:\nHi from dir1!\n"
+	transcript2 := "user:\nHello from cursor dir2\n" +
+		"assistant:\nHi from dir2!\n"
+
+	// Write sessions to different Cursor directories.
+	// Cursor project dir uses hyphenated encoding.
+	env.writeCursorSession(
+		t, cursorDir1,
+		"Users-alice-code-proj1",
+		"sess1.txt", transcript1,
+	)
+	path2 := env.writeCursorSession(
+		t, cursorDir2,
+		"Users-alice-code-proj2",
+		"sess2.txt", transcript2,
+	)
+
+	// SyncAll should discover sessions from both dirs.
+	runSyncAndAssert(t, env.engine, sync.SyncStats{
+		TotalSessions: 2, Synced: 2, Skipped: 0,
+	})
+
+	assertSessionState(
+		t, env.db, "cursor:sess1",
+		func(sess *db.Session) {
+			if sess.Agent != "cursor" {
+				t.Errorf(
+					"agent = %q, want cursor",
+					sess.Agent,
+				)
+			}
+		},
+	)
+	assertSessionState(
+		t, env.db, "cursor:sess2",
+		func(sess *db.Session) {
+			if sess.Agent != "cursor" {
+				t.Errorf(
+					"agent = %q, want cursor",
+					sess.Agent,
+				)
+			}
+		},
+	)
+
+	// SyncPaths should handle a file from the second dir.
+	updated := "user:\nHello from cursor dir2\n" +
+		"assistant:\nHi from dir2!\n" +
+		"user:\nFollow-up\n" +
+		"assistant:\nGot it.\n"
+	os.WriteFile(path2, []byte(updated), 0o644)
+	env.engine.SyncPaths([]string{path2})
+
+	assertSessionMessageCount(t, env.db, "cursor:sess2", 4)
+
+	// FindSourceFile should work across directories.
+	src := env.engine.FindSourceFile("cursor:sess2")
+	if src == "" {
+		t.Error(
+			"FindSourceFile failed for cursor:sess2 " +
+				"in second directory",
+		)
 	}
 }
 
