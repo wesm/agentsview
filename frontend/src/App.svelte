@@ -18,6 +18,7 @@
   import { router } from "./lib/stores/router.svelte.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
   import { copyToClipboard } from "./lib/utils/clipboard.js";
+  import { agentColor } from "./lib/utils/agents.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
 
   let copiedSessionId = $state("");
@@ -185,11 +186,7 @@
             <span class="breadcrumb-meta">
               <span
                 class="agent-badge"
-                class:agent-claude={session.agent === "claude"}
-                class:agent-codex={session.agent === "codex"}
-                class:agent-copilot={session.agent === "copilot"}
-                class:agent-gemini={session.agent === "gemini"}
-                class:agent-opencode={session.agent === "opencode"}
+                style:background={agentColor(session.agent)}
               >{session.agent}</span>
               {#if session.started_at}
                 <span class="session-time">
@@ -311,25 +308,6 @@
     background: var(--text-muted);
   }
 
-  .agent-claude {
-    background: var(--accent-blue);
-  }
-
-  .agent-codex {
-    background: var(--accent-green);
-  }
-
-  .agent-copilot {
-    background: var(--accent-amber);
-  }
-
-  .agent-gemini {
-    background: var(--accent-rose);
-  }
-
-  .agent-opencode {
-    background: var(--accent-purple);
-  }
 
   .session-time {
     font-size: 10px;
