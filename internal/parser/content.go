@@ -162,7 +162,7 @@ func formatToolUse(block gjson.Result) string {
 			skill = input.Get("name").Str
 		}
 		return fmt.Sprintf("[Skill: %s]", skill)
-	case "Task":
+	case "Task", "Agent":
 		return formatTask(input)
 	case "Skill":
 		return fmt.Sprintf("[Skill: %s]", input.Get("skill").Str)

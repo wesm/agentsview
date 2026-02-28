@@ -94,6 +94,22 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolName: "write_stdin", Category: "Bash"}})
 	})
 
+	t.Run("Agent function call normalizes to Task category", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-agent", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "explore code", tsEarlyS1),
+			testjsonl.CodexFunctionCallArgsJSON("Agent", map[string]any{
+				"description":   "explore codebase",
+				"subagent_type": "Explore",
+			}, tsEarlyS5),
+		)
+		sess, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "codex:fc-agent", sess.ID)
+		assert.Equal(t, 2, len(msgs))
+		assert.Contains(t, msgs[1].Content, "[Task: explore codebase (Explore)]")
+		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{ToolName: "Agent", Category: "Task"}})
+	})
+
 	t.Run("function call no name skipped", func(t *testing.T) {
 		content := testjsonl.JoinJSONL(
 			testjsonl.CodexSessionMetaJSON("fc-2", "/tmp", "user", tsEarly),
