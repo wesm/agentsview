@@ -116,6 +116,19 @@ func ParseClaudeSession(
 			continue
 		}
 
+		// Collect agent_progress events for subagent mapping.
+		// Claude Code v2.1+ emits these instead of queue-operation for Agent tool calls.
+		if entryType == "progress" {
+			if gjson.Get(line, "data.type").Str == "agent_progress" {
+				tuid := gjson.Get(line, "parentToolUseID").Str
+				agentID := gjson.Get(line, "data.agentId").Str
+				if tuid != "" && agentID != "" {
+					subagentMap[tuid] = "agent-" + agentID
+				}
+			}
+			continue
+		}
+
 		if entryType != "user" && entryType != "assistant" {
 			continue
 		}
@@ -495,7 +508,7 @@ func annotateSubagentSessions(
 	for i := range messages {
 		for j := range messages[i].ToolCalls {
 			tc := &messages[i].ToolCalls[j]
-			if tc.ToolName == "Task" && tc.ToolUseID != "" {
+			if (tc.ToolName == "Task" || tc.ToolName == "Agent") && tc.ToolUseID != "" {
 				if sid, ok := subagentMap[tc.ToolUseID]; ok {
 					tc.SubagentSessionID = sid
 				}

@@ -583,7 +583,7 @@ var (
 	thinkingLegacyRe = regexp.MustCompile(
 		`(?s)\[Thinking\]\n?(.*?)(?:\n\[|\n\n|$)`)
 	toolBlockRe = regexp.MustCompile(
-		`(?s)\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|` +
+		`(?s)\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|Agent|` +
 			`Question|Todo List|Entering Plan Mode|` +
 			`Exiting Plan Mode|exec_command|shell_command|` +
 			`write_stdin|apply_patch|shell|parallel|` +

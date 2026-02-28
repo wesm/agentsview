@@ -18,7 +18,7 @@ func NormalizeToolCategory(rawName string) string {
 		return "Grep"
 	case "Glob":
 		return "Glob"
-	case "Task":
+	case "Task", "Agent":
 		return "Task"
 	case "Skill":
 		return "Tool"
