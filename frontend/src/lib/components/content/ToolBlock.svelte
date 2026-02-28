@@ -8,6 +8,11 @@
     generateFallbackContent,
   } from "../../utils/tool-params.js";
 
+  /** Returns true for tool names that represent a subagent call ("Task" or "Agent"). */
+  function isSubagentTool(name: string | undefined): boolean {
+    return name === "Task" || name === "Agent";
+  }
+
   interface Props {
     content: string;
     label?: string;
@@ -33,7 +38,7 @@
 
   /** For Task tool calls, extract key metadata fields */
   let taskMeta = $derived.by(() => {
-    if (toolCall?.tool_name !== "Task" || !inputParams)
+    if (!isSubagentTool(toolCall?.tool_name) || !inputParams)
       return null;
     const meta: { label: string; value: string }[] = [];
     if (inputParams.subagent_type) {
@@ -107,13 +112,13 @@
   });
 
   let taskPrompt = $derived(
-    toolCall?.tool_name === "Task"
+    isSubagentTool(toolCall?.tool_name)
       ? inputParams?.prompt ?? null
       : null,
   );
 
   let subagentSessionId = $derived(
-    toolCall?.tool_name === "Task"
+    isSubagentTool(toolCall?.tool_name)
       ? toolCall?.subagent_session_id ?? null
       : null,
   );

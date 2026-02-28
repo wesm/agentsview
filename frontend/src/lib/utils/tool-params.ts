@@ -106,7 +106,7 @@ export function generateFallbackContent(
   toolName: string,
   params: Params,
 ): string | null {
-  if (toolName === "Task") return null;
+  if (toolName === "Task" || toolName === "Agent") return null;
   if (toolName === "Edit") {
     const lines: string[] = [];
     if (params.old_string != null) {
