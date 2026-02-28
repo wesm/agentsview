@@ -489,15 +489,24 @@ func ExtractIflowProjectHints(
 			continue
 		}
 		if gjson.Get(line, "type").Str == "user" {
+			// Skip meta/system-injected user entries
+			if gjson.Get(line, "isMeta").Bool() ||
+				gjson.Get(line, "isCompactSummary").Bool() {
+				continue
+			}
+
 			if cwd == "" {
 				cwd = gjson.Get(line, "cwd").Str
 			}
 			if gitBranch == "" {
 				gitBranch = gjson.Get(line, "gitBranch").Str
 			}
-			// Return immediately after extracting from first user line
-			// to avoid scanning potentially massive session files
-			return cwd, gitBranch
+
+			// Only return early after capturing at least one non-empty hint
+			// to avoid missing valid hints from later entries
+			if cwd != "" || gitBranch != "" {
+				return cwd, gitBranch
+			}
 		}
 	}
 	if err := lr.Err(); err != nil {
