@@ -40,6 +40,8 @@ func ParseIflowSession(
 	if strings.HasPrefix(sessionID, "session-") {
 		sessionID = strings.TrimPrefix(sessionID, "session-")
 	}
+	// Normalize iFlow IDs with namespace prefix
+	sessionID = "iflow:" + sessionID
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -88,15 +90,17 @@ func ParseIflowSession(
 			continue
 		}
 
-		// Check parentSessionID from first user/assistant entry.
+		// Track parentSessionID from first user/assistant entry.
 		if !foundParentSID {
 			if sid := gjson.Get(line, "sessionId").Str; sid != "" {
 				foundParentSID = true
 				// iFlow sessionId is the full session filename (e.g., "session-uuid")
 				// Extract the ID by trimming "session-" prefix and compare with sessionID
 				sidID := strings.TrimPrefix(sid, "session-")
-				if sidID != sessionID {
-					parentSessionID = sidID
+				// Compare with the raw UUID (without iflow: prefix)
+				rawSessionID := strings.TrimPrefix(sessionID, "iflow:")
+				if sidID != rawSessionID {
+					parentSessionID = "iflow:" + sidID
 				}
 			}
 		}
@@ -281,7 +285,9 @@ func parseDAGIflow(
 				// Large-gap fork: follow first child on main,
 				// collect other children as fork branches.
 				for _, kid := range kids[1:] {
-					forkSID := sessionID + "-" +
+					// Normalize fork session ID with iflow: prefix
+					rawSessionID := strings.TrimPrefix(sessionID, "iflow:")
+					forkSID := "iflow:" + rawSessionID + "-" +
 						entries[kid].uuid
 					forkPath := walkBranch(kid, forkSID)
 					forkBranches = append(
@@ -344,7 +350,9 @@ func parseDAGIflow(
 			// Fork session: ID derived from first entry's uuid,
 			// parent is the branch that forked.
 			firstEntry := entries[b.indices[0]]
-			sid = sessionID + "-" + firstEntry.uuid
+			// Normalize fork session ID with iflow: prefix
+			rawSessionID := strings.TrimPrefix(sessionID, "iflow:")
+			sid = "iflow:" + rawSessionID + "-" + firstEntry.uuid
 			relType = RelFork
 		}
 

@@ -18,7 +18,7 @@ func TestParseIflowSession(t *testing.T) {
 		{
 			name:            "basic iFlow session",
 			filename:        "testdata/iflow/session-5de701fc-7454-4858-a249-95cac4fd3b51.jsonl",
-			expectID:        "5de701fc-7454-4858-a249-95cac4fd3b51",
+			expectID:        "iflow:5de701fc-7454-4858-a249-95cac4fd3b51",
 			expectMessageCount: 2,
 			expectFirstMessage: "启动app时确保环境变量 DOCKER_API_VERSION=\"1.46\"",
 		},
