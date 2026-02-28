@@ -495,9 +495,9 @@ func ExtractIflowProjectHints(
 			if gitBranch == "" {
 				gitBranch = gjson.Get(line, "gitBranch").Str
 			}
-			if cwd != "" && gitBranch != "" {
-				return cwd, gitBranch
-			}
+			// Return immediately after extracting from first user line
+			// to avoid scanning potentially massive session files
+			return cwd, gitBranch
 		}
 	}
 	if err := lr.Err(); err != nil {
