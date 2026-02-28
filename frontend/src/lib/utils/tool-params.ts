@@ -26,12 +26,12 @@ export function extractToolParamMeta(
         label: "file",
         value: truncate(String(params.file_path), 80),
       });
-    if (params.offset)
+    if (params.offset != null)
       meta.push({
         label: "offset",
         value: String(params.offset),
       });
-    if (params.limit)
+    if (params.limit != null)
       meta.push({
         label: "limit",
         value: String(params.limit),
@@ -119,8 +119,9 @@ export function generateFallbackContent(
     }
     return lines.length ? lines.join("\n") : null;
   }
-  if (toolName === "Write" && params.content) {
-    return truncate(String(params.content), 500);
+  if (toolName === "Write" && params.content != null) {
+    const text = String(params.content);
+    return text ? truncate(text, 500) : "(empty file)";
   }
   const lines: string[] = [];
   for (const [key, value] of Object.entries(params)) {

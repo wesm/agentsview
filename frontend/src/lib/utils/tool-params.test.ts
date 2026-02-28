@@ -140,6 +140,19 @@ describe("extractToolParamMeta", () => {
     ).toBeNull();
   });
 
+  it("preserves zero-valued offset and limit", () => {
+    const meta = extractToolParamMeta("Read", {
+      file_path: "/src/app.ts",
+      offset: 0,
+      limit: 0,
+    });
+    expect(meta).toEqual([
+      { label: "file", value: "/src/app.ts" },
+      { label: "offset", value: "0" },
+      { label: "limit", value: "0" },
+    ]);
+  });
+
   it("truncates long file paths", () => {
     const longPath = "/a".repeat(50);
     const meta = extractToolParamMeta("Read", {
@@ -205,6 +218,15 @@ describe("generateFallbackContent", () => {
       content: long,
     })!;
     expect(result.length).toBeLessThanOrEqual(501);
+  });
+
+  it("shows empty-file marker for Write with empty content", () => {
+    expect(
+      generateFallbackContent("Write", {
+        file_path: "/src/empty.ts",
+        content: "",
+      }),
+    ).toBe("(empty file)");
   });
 
   it("falls back to generic display for Write without content", () => {
