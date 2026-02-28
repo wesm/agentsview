@@ -2553,4 +2553,38 @@ func TestNewEngineDefensiveCopy(t *testing.T) {
 		)
 	}
 	assertSessionMessageCount(t, database, "copy-test", 1)
+
+	// Verify slice-level aliasing is also prevented.
+	// Build a fresh engine where we mutate an element
+	// inside the original slice (not replace the slice).
+	claudeDir2 := t.TempDir()
+	sliceDirs := []string{claudeDir2}
+	dirs2 := map[parser.AgentType][]string{
+		parser.AgentClaude: sliceDirs,
+	}
+	db2 := dbtest.OpenTestDB(t)
+	engine2 := sync.NewEngine(db2, sync.EngineConfig{
+		AgentDirs: dirs2,
+		Machine:   "local",
+	})
+
+	content2 := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "slice test").
+		String()
+	path2 := filepath.Join(
+		claudeDir2, "proj", "slice-test.jsonl",
+	)
+	dbtest.WriteTestFile(t, path2, []byte(content2))
+
+	// Mutate the element inside the original slice.
+	sliceDirs[0] = "/nonexistent"
+
+	stats2 := engine2.SyncAll(nil)
+	if stats2.Synced != 1 {
+		t.Fatalf(
+			"Synced = %d, want 1 (engine used aliased slice)",
+			stats2.Synced,
+		)
+	}
+	assertSessionMessageCount(t, db2, "slice-test", 1)
 }

@@ -349,8 +349,9 @@ func TestLoadFile_MalformedDirValueLogsWarning(t *testing.T) {
 
 	// Capture log output during Load.
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	t.Cleanup(func() { log.SetOutput(prev) })
 
 	cfg, err := LoadMinimal()
 	if err != nil {
