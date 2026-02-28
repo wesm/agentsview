@@ -326,10 +326,34 @@ func isValidSessionID(id string) bool {
 }
 
 func isAlphanumOrDashUnderscore(c rune) bool {
+	return isAlphanum(c) ||
+		c == '-' || c == '_'
+}
+
+func isAlphanum(c rune) bool {
 	return (c >= 'a' && c <= 'z') ||
 		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '-' || c == '_'
+		(c >= '0' && c <= '9')
+}
+
+func isValidAmpThreadID(id string) bool {
+	if !strings.HasPrefix(id, "T-") {
+		return false
+	}
+	if len(id) == len("T-") {
+		return false
+	}
+	if !isAlphanum(rune(id[len("T-")])) {
+		return false
+	}
+	return isValidSessionID(id)
+}
+
+func isAmpThreadFileName(name string) bool {
+	if !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	return isValidAmpThreadID(strings.TrimSuffix(name, ".json"))
 }
 
 // DiscoverGeminiSessions finds all session JSON files under
@@ -761,8 +785,7 @@ func DiscoverAmpSessions(threadsDir string) []DiscoveredFile {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, "T-") ||
-			!strings.HasSuffix(name, ".json") {
+		if !isAmpThreadFileName(name) {
 			continue
 		}
 		files = append(files, DiscoveredFile{
@@ -780,7 +803,7 @@ func DiscoverAmpSessions(threadsDir string) []DiscoveredFile {
 // FindAmpSourceFile locates an Amp thread file by its raw
 // thread ID (without the "amp:" prefix).
 func FindAmpSourceFile(threadsDir, threadID string) string {
-	if threadsDir == "" || !isValidSessionID(threadID) {
+	if threadsDir == "" || !isValidAmpThreadID(threadID) {
 		return ""
 	}
 	candidate := filepath.Join(threadsDir, threadID+".json")

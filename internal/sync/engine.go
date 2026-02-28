@@ -161,11 +161,6 @@ func isUnder(dir, path string) (string, bool) {
 	return rel, true
 }
 
-func isAmpThreadFileName(name string) bool {
-	return strings.HasPrefix(name, "T-") &&
-		strings.HasSuffix(name, ".json")
-}
-
 func (e *Engine) classifyOnePath(
 	path string,
 	geminiProjectsByDir map[string]map[string]string,

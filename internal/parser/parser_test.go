@@ -191,6 +191,12 @@ func TestExtractTextContent(t *testing.T) {
 			[]ParsedToolCall{{ToolUseID: "toolu_790", ToolName: "skill", Category: "Tool", InputJSON: `{"skill":"legacy-skill"}`, SkillName: "legacy-skill"}},
 		},
 		{
+			"Amp skill tool falls back to input.name when input.skill is empty",
+			`[{"type":"tool_use","id":"toolu_791","name":"skill","input":{"skill":"","name":"frontend-design"}}]`,
+			"[Skill: frontend-design]", false, true,
+			[]ParsedToolCall{{ToolUseID: "toolu_791", ToolName: "skill", Category: "Tool", InputJSON: `{"skill":"","name":"frontend-design"}`, SkillName: "frontend-design"}},
+		},
+		{
 			"tool_use with empty name",
 			`[{"type":"tool_use","name":"","input":{}}]`,
 			"[Tool: ]", false, true, nil,

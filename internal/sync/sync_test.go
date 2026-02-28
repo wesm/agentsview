@@ -182,8 +182,10 @@ func TestDiscoverAmpSessions(t *testing.T) {
 			files: map[string]string{
 				"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json": "{}",
 				"T-019ca26f-ffff-eeee-dddd-cccccccccccc.json": "{}",
-				"README.md":      "{}",
-				"T-not-json.txt": "{}",
+				"T-.json":         "{}",
+				"T--invalid.json": "{}",
+				"README.md":       "{}",
+				"T-not-json.txt":  "{}",
 			},
 			wantFiles: []string{
 				"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json",
@@ -307,7 +309,13 @@ func TestFindAmpSourceFile(t *testing.T) {
 
 	t.Run("Validation", func(t *testing.T) {
 		dir := t.TempDir()
-		tests := []string{"", "../bad", "T bad", "bad"}
+		tests := []string{
+			"",
+			"../bad",
+			"T bad",
+			"bad",
+			"T-",
+		}
 		for _, id := range tests {
 			got := FindAmpSourceFile(dir, id)
 			if got != "" {

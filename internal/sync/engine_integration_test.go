@@ -948,6 +948,37 @@ func TestSyncPathsAmp(t *testing.T) {
 	)
 }
 
+func TestSyncPathsAmpRejectsWrongStructure(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := `{"id":"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd","created":1704103200000,"title":"Amp session","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`
+
+	// Nested paths under ampDir should be ignored.
+	nested := env.writeAmpThread(
+		t, filepath.Join("nested", "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json"),
+		content,
+	)
+	// Non-thread filename pattern at ampDir root should be ignored.
+	wrongName := env.writeAmpThread(
+		t, "thread-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json",
+		content,
+	)
+	// Malformed thread ID should be ignored.
+	malformed := env.writeAmpThread(
+		t, "T-.json",
+		content,
+	)
+
+	env.engine.SyncPaths([]string{nested, wrongName, malformed})
+
+	sess, _ := env.db.GetSession(
+		context.Background(), "amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+	)
+	if sess != nil {
+		t.Error("Amp files outside root-level valid T-<id>.json should be ignored")
+	}
+}
+
 func TestSyncPathsStatsUpdated(t *testing.T) {
 	env := setupTestEnv(t)
 
