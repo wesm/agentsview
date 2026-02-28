@@ -2589,6 +2589,62 @@ func TestNewEngineDefensiveCopy(t *testing.T) {
 	assertSessionMessageCount(t, db2, "slice-test", 1)
 }
 
+// TestSyncPathsClaudeFallsThrough verifies that a file under
+// a Claude root that fails the subagent shape check (non-agent-
+// prefix in a subagents dir) is still checked against later
+// agents when roots overlap.
+func TestSyncPathsClaudeFallsThrough(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Claude root contains a path that looks like a subagent
+	// dir but the file doesn't have an agent- prefix. The Amp
+	// root is nested so the same file matches Amp's structure.
+	parent := t.TempDir()
+	claudeDir := parent
+	// Amp root: <claudeDir>/proj/sess/subagents
+	ampDir := filepath.Join(
+		claudeDir, "proj", "sess", "subagents",
+	)
+
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {claudeDir},
+			parser.AgentAmp:    {ampDir},
+		},
+		Machine: "local",
+	})
+
+	content := `{"id":"T-019ca26f-eeee-dddd-cccc-bbbbbbbbbbbb","created":1704103200000,"title":"Claude overlap","env":{"initial":{"trees":[{"displayName":"proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`
+
+	// This path is 4 parts under claudeDir
+	// (proj/sess/subagents/T-*.json) and matches the
+	// subagent shape check, but the filename doesn't start
+	// with "agent-", so Claude rejects it. It should fall
+	// through to Amp.
+	ampPath := filepath.Join(
+		ampDir,
+		"T-019ca26f-eeee-dddd-cccc-bbbbbbbbbbbb.json",
+	)
+	dbtest.WriteTestFile(t, ampPath, []byte(content))
+
+	engine.SyncPaths([]string{ampPath})
+
+	assertSessionState(
+		t, database,
+		"amp:T-019ca26f-eeee-dddd-cccc-bbbbbbbbbbbb",
+		func(sess *db.Session) {
+			if sess.Agent != "amp" {
+				t.Errorf(
+					"agent = %q, want amp", sess.Agent,
+				)
+			}
+		},
+	)
+}
+
 // TestSyncPathsClassifyFallsThrough verifies that a file
 // under a Cursor root that doesn't match the Cursor transcript
 // structure is still checked against later agents (e.g. Amp).
