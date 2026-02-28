@@ -1,12 +1,10 @@
-package sync
+package parser
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/wesm/agentsview/internal/parser"
 )
 
 const (
@@ -31,7 +29,7 @@ func setupFileSystem(t *testing.T, dir string, files map[string]string) {
 }
 
 // assertDiscoveredFiles verifies that the discovered files match the expected filenames and agent type.
-func assertDiscoveredFiles(t *testing.T, got []DiscoveredFile, wantFilenames []string, wantAgent parser.AgentType) {
+func assertDiscoveredFiles(t *testing.T, got []DiscoveredFile, wantFilenames []string, wantAgent AgentType) {
 	t.Helper()
 
 	want := make(map[string]bool)
@@ -113,7 +111,7 @@ func TestDiscoverClaudeProjects(t *testing.T) {
 			setupFileSystem(t, dir, tt.files)
 			files := DiscoverClaudeProjects(dir)
 
-			assertDiscoveredFiles(t, files, tt.wantFiles, parser.AgentClaude)
+			assertDiscoveredFiles(t, files, tt.wantFiles, AgentClaude)
 
 			if tt.name == "Subagents" {
 				for _, f := range files {
@@ -166,7 +164,7 @@ func TestDiscoverCodexSessions(t *testing.T) {
 			dir := t.TempDir()
 			setupFileSystem(t, dir, tt.files)
 			files := DiscoverCodexSessions(dir)
-			assertDiscoveredFiles(t, files, tt.wantFiles, parser.AgentCodex)
+			assertDiscoveredFiles(t, files, tt.wantFiles, AgentCodex)
 		})
 	}
 }
@@ -205,7 +203,7 @@ func TestDiscoverAmpSessions(t *testing.T) {
 			setupFileSystem(t, dir, tt.files)
 			files := DiscoverAmpSessions(dir)
 			assertDiscoveredFiles(
-				t, files, tt.wantFiles, parser.AgentAmp,
+				t, files, tt.wantFiles, AgentAmp,
 			)
 		})
 	}
@@ -425,9 +423,9 @@ func TestIsValidSessionID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
-			got := isValidSessionID(tt.id)
+			got := IsValidSessionID(tt.id)
 			if got != tt.want {
-				t.Errorf("isValidSessionID(%q) = %v, want %v",
+				t.Errorf("IsValidSessionID(%q) = %v, want %v",
 					tt.id, got, tt.want)
 			}
 		})
@@ -444,14 +442,14 @@ func TestIsDigits(t *testing.T) {
 		{"", false},
 		{"12a", false},
 		{"abc", false},
-		{"１２３", true}, // Fullwidth digits are supported
+		{"\uff11\uff12\uff13", true}, // Fullwidth digits are supported
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.s, func(t *testing.T) {
-			got := isDigits(tt.s)
+			got := IsDigits(tt.s)
 			if got != tt.want {
-				t.Errorf("isDigits(%q) = %v, want %v",
+				t.Errorf("IsDigits(%q) = %v, want %v",
 					tt.s, got, tt.want)
 			}
 		})
@@ -523,8 +521,8 @@ func TestDiscoverGeminiSessions(t *testing.T) {
 			}
 
 			for _, f := range files {
-				if f.Agent != parser.AgentGemini {
-					t.Errorf("agent = %q, want %q", f.Agent, parser.AgentGemini)
+				if f.Agent != AgentGemini {
+					t.Errorf("agent = %q, want %q", f.Agent, AgentGemini)
 				}
 				if !wantMap[f.Path] {
 					t.Errorf("unexpected file discovered: %q", f.Path)
@@ -564,7 +562,7 @@ func TestFindGeminiSourceFile(t *testing.T) {
 		name     string
 		files    map[string]string
 		targetID string
-		wantFile string // empty if nonexistent
+		wantFile string
 	}{
 		{
 			name: "Found",
@@ -620,12 +618,10 @@ func TestFindGeminiSourceFile(t *testing.T) {
 }
 
 func TestGeminiPathHash(t *testing.T) {
-	// Known SHA-256 of "/Users/alice/code/sample-repo"
 	hash := geminiPathHash("/Users/alice/code/sample-repo")
 	if len(hash) != 64 {
 		t.Errorf("hash length = %d, want 64", len(hash))
 	}
-	// Hash should be deterministic
 	if geminiPathHash("/Users/alice/code/sample-repo") != hash {
 		t.Error("hash not deterministic")
 	}
@@ -641,16 +637,14 @@ func TestBuildGeminiProjectMap(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	m := buildGeminiProjectMap(dir)
+	m := BuildGeminiProjectMap(dir)
 
-	// Hash key (old format)
 	hash := geminiPathHash("/Users/alice/code/my-app")
 	if m[hash] != "my_app" {
 		t.Errorf("project for hash = %q, want %q",
 			m[hash], "my_app")
 	}
 
-	// Name key (new format)
 	if m["my-app"] != "my_app" {
 		t.Errorf("project for name = %q, want %q",
 			m["my-app"], "my_app")
@@ -658,7 +652,7 @@ func TestBuildGeminiProjectMap(t *testing.T) {
 }
 
 func TestBuildGeminiProjectMapMissingFile(t *testing.T) {
-	m := buildGeminiProjectMap(t.TempDir())
+	m := BuildGeminiProjectMap(t.TempDir())
 	if len(m) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(m))
 	}
@@ -705,7 +699,7 @@ func TestResolveGeminiProject(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveGeminiProject(
+			got := ResolveGeminiProject(
 				tt.dirName, projectMap,
 			)
 			if got != tt.want {
@@ -718,7 +712,6 @@ func TestResolveGeminiProject(t *testing.T) {
 func TestBuildGeminiProjectMapTrustedFolders(t *testing.T) {
 	dir := t.TempDir()
 
-	// No projects.json, but trustedFolders.json exists.
 	tfJSON := `{"trustedFolders":["/Users/alice/code/my-app","/Users/alice/code/other"]}`
 	if err := os.WriteFile(
 		filepath.Join(dir, "trustedFolders.json"),
@@ -727,9 +720,8 @@ func TestBuildGeminiProjectMapTrustedFolders(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	m := buildGeminiProjectMap(dir)
+	m := BuildGeminiProjectMap(dir)
 
-	// Hash keys for trustedFolders paths should resolve.
 	hash1 := geminiPathHash("/Users/alice/code/my-app")
 	if m[hash1] != "my_app" {
 		t.Errorf("hash for my-app = %q, want %q",
@@ -745,7 +737,6 @@ func TestBuildGeminiProjectMapTrustedFolders(t *testing.T) {
 func TestBuildGeminiProjectMapBothFiles(t *testing.T) {
 	dir := t.TempDir()
 
-	// projects.json has one path.
 	pJSON := `{"projects":{"/Users/alice/code/proj-a":"proj-a"}}`
 	if err := os.WriteFile(
 		filepath.Join(dir, "projects.json"),
@@ -754,7 +745,6 @@ func TestBuildGeminiProjectMapBothFiles(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// trustedFolders.json has an additional path.
 	tfJSON := `{"trustedFolders":["/Users/alice/code/proj-b"]}`
 	if err := os.WriteFile(
 		filepath.Join(dir, "trustedFolders.json"),
@@ -763,7 +753,7 @@ func TestBuildGeminiProjectMapBothFiles(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	m := buildGeminiProjectMap(dir)
+	m := BuildGeminiProjectMap(dir)
 
 	hashA := geminiPathHash("/Users/alice/code/proj-a")
 	if m[hashA] != "proj_a" {
@@ -780,7 +770,6 @@ func TestBuildGeminiProjectMapBothFiles(t *testing.T) {
 func TestBuildGeminiProjectMapProjectsWin(t *testing.T) {
 	dir := t.TempDir()
 
-	// projects.json maps a path.
 	pJSON := `{"projects":{"/Users/alice/code/my-app":"my-app"}}`
 	if err := os.WriteFile(
 		filepath.Join(dir, "projects.json"),
@@ -789,8 +778,6 @@ func TestBuildGeminiProjectMapProjectsWin(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// trustedFolders.json also has the same path.
-	// projects.json should win (processed first).
 	tfJSON := `{"trustedFolders":["/Users/alice/code/my-app"]}`
 	if err := os.WriteFile(
 		filepath.Join(dir, "trustedFolders.json"),
@@ -799,13 +786,12 @@ func TestBuildGeminiProjectMapProjectsWin(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	m := buildGeminiProjectMap(dir)
+	m := BuildGeminiProjectMap(dir)
 
 	hash := geminiPathHash("/Users/alice/code/my-app")
 	if m[hash] != "my_app" {
 		t.Errorf("hash = %q, want %q", m[hash], "my_app")
 	}
-	// Name key from projects.json should also exist.
 	if m["my-app"] != "my_app" {
 		t.Errorf("name key = %q, want %q",
 			m["my-app"], "my_app")
@@ -818,7 +804,7 @@ func TestDiscoverCopilotSessions(t *testing.T) {
 	tests := []struct {
 		name      string
 		files     map[string]string
-		wantFiles []string // Using full paths relative to dir to check Discover output strictly
+		wantFiles []string
 	}{
 		{
 			name: "BareFormat",
@@ -857,7 +843,7 @@ func TestDiscoverCopilotSessions(t *testing.T) {
 			name: "BareWithInvalidDir",
 			files: map[string]string{
 				filepath.Join(copilotStateDir, "invalid-dir-uuid.jsonl"):        "{}",
-				filepath.Join(copilotStateDir, "invalid-dir-uuid", "other.txt"): "{}", // Dir without events.jsonl
+				filepath.Join(copilotStateDir, "invalid-dir-uuid", "other.txt"): "{}",
 			},
 			wantFiles: []string{
 				filepath.Join(copilotStateDir, "invalid-dir-uuid.jsonl"),
@@ -870,7 +856,7 @@ func TestDiscoverCopilotSessions(t *testing.T) {
 				filepath.Join(copilotStateDir, "dup-uuid-1234", "events.jsonl"): "{}",
 			},
 			wantFiles: []string{
-				filepath.Join(copilotStateDir, "dup-uuid-1234", "events.jsonl"), // Dir format preferred
+				filepath.Join(copilotStateDir, "dup-uuid-1234", "events.jsonl"),
 			},
 		},
 		{
@@ -899,8 +885,8 @@ func TestDiscoverCopilotSessions(t *testing.T) {
 			}
 
 			for _, f := range files {
-				if f.Agent != parser.AgentCopilot {
-					t.Errorf("agent = %q, want %q", f.Agent, parser.AgentCopilot)
+				if f.Agent != AgentCopilot {
+					t.Errorf("agent = %q, want %q", f.Agent, AgentCopilot)
 				}
 				if !wantMap[f.Path] {
 					t.Errorf("unexpected file discovered: %q", f.Path)
@@ -929,7 +915,7 @@ func TestFindCopilotSourceFile(t *testing.T) {
 		name     string
 		files    map[string]string
 		targetID string
-		wantFile string // empty if nonexistent
+		wantFile string
 	}{
 		{
 			name:     "Bare",
@@ -1000,13 +986,11 @@ func TestFindCopilotSourceFile(t *testing.T) {
 func TestIsDirOrSymlink(t *testing.T) {
 	dir := t.TempDir()
 
-	// Real directory
 	realDir := filepath.Join(dir, "real-dir")
 	if err := os.MkdirAll(realDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	// Regular file
 	realFile := filepath.Join(dir, "file.txt")
 	if err := os.WriteFile(
 		realFile, []byte("hi"), 0o644,
@@ -1014,21 +998,18 @@ func TestIsDirOrSymlink(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// Symlink to directory
 	if err := os.Symlink(
 		realDir, filepath.Join(dir, "link-to-dir"),
 	); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	// Symlink to file
 	if err := os.Symlink(
 		realFile, filepath.Join(dir, "link-to-file"),
 	); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	// Broken symlink
 	if err := os.Symlink(
 		filepath.Join(dir, "gone"),
 		filepath.Join(dir, "broken"),
@@ -1063,8 +1044,6 @@ func TestIsDirOrSymlink(t *testing.T) {
 }
 
 func TestFindClaudeSourceFile_Symlink(t *testing.T) {
-	// Real directory lives outside the search root so the
-	// session is only reachable through the symlink.
 	externalDir := t.TempDir()
 	realDir := filepath.Join(externalDir, "real-project")
 	if err := os.MkdirAll(realDir, 0o755); err != nil {
@@ -1202,10 +1181,10 @@ func TestDiscoverCursorSessions(t *testing.T) {
 				)
 			}
 			for _, f := range files {
-				if f.Agent != parser.AgentCursor {
+				if f.Agent != AgentCursor {
 					t.Errorf(
 						"agent = %q, want %q",
-						f.Agent, parser.AgentCursor,
+						f.Agent, AgentCursor,
 					)
 				}
 			}

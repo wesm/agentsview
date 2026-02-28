@@ -16,6 +16,7 @@ import (
 
 	"github.com/wesm/agentsview/internal/config"
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/parser"
 	"github.com/wesm/agentsview/internal/server"
 	"github.com/wesm/agentsview/internal/sync"
 )
@@ -145,29 +146,20 @@ func runServe(args []string) {
 	database := mustOpenDB(cfg)
 	defer database.Close()
 
-	warnMissingDirs(cfg.ResolveClaudeDirs(), "claude")
-	warnMissingDirs(cfg.ResolveCodexDirs(), "codex")
-	warnMissingDirs(cfg.ResolveCopilotDirs(), "copilot")
-	warnMissingDirs(cfg.ResolveGeminiDirs(), "gemini")
-	warnMissingDirs(cfg.ResolveOpenCodeDirs(), "opencode")
-	if cfg.AmpDir != "" {
-		warnMissingDirs([]string{cfg.AmpDir}, "amp")
+	for _, def := range parser.Registry {
+		warnMissingDirs(
+			cfg.ResolveDirs(def.Type),
+			string(def.Type),
+		)
 	}
 
 	// Remove stale temp DB from a prior crashed resync.
 	cleanResyncTemp(cfg.DBPath)
 
-	engine := sync.NewEngine(
-		database,
-		cfg.ResolveClaudeDirs(),
-		cfg.ResolveCodexDirs(),
-		cfg.ResolveCopilotDirs(),
-		cfg.ResolveGeminiDirs(),
-		cfg.ResolveOpenCodeDirs(),
-		cfg.CursorProjectsDir,
-		cfg.AmpDir,
-		"local",
-	)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: cfg.AgentDirs,
+		Machine:   "local",
+	})
 
 	runInitialSync(engine)
 
@@ -349,42 +341,22 @@ func startFileWatcher(
 	}
 
 	var roots []watchRoot
-	for _, d := range cfg.ResolveClaudeDirs() {
-		if _, err := os.Stat(d); err == nil {
-			roots = append(roots, watchRoot{d, d})
+	for _, def := range parser.Registry {
+		if !def.FileBased {
+			continue
 		}
-	}
-	for _, d := range cfg.ResolveCodexDirs() {
-		if _, err := os.Stat(d); err == nil {
-			roots = append(roots, watchRoot{d, d})
-		}
-	}
-	for _, d := range cfg.ResolveCopilotDirs() {
-		copilotState := filepath.Join(d, "session-state")
-		if _, err := os.Stat(copilotState); err == nil {
-			roots = append(roots, watchRoot{d, copilotState})
-		}
-	}
-	for _, d := range cfg.ResolveGeminiDirs() {
-		geminiTmp := filepath.Join(d, "tmp")
-		if _, err := os.Stat(geminiTmp); err == nil {
-			roots = append(roots, watchRoot{d, geminiTmp})
-		}
-	}
-	if cfg.CursorProjectsDir != "" {
-		if _, err := os.Stat(cfg.CursorProjectsDir); err == nil {
-			roots = append(roots, watchRoot{
-				cfg.CursorProjectsDir,
-				cfg.CursorProjectsDir,
-			})
-		}
-	}
-	if cfg.AmpDir != "" {
-		if _, err := os.Stat(cfg.AmpDir); err == nil {
-			roots = append(roots, watchRoot{
-				cfg.AmpDir,
-				cfg.AmpDir,
-			})
+		for _, d := range cfg.ResolveDirs(def.Type) {
+			watchDir := d
+			if def.WatchSubdir != "" {
+				watchDir = filepath.Join(
+					d, def.WatchSubdir,
+				)
+			}
+			if _, err := os.Stat(watchDir); err == nil {
+				roots = append(
+					roots, watchRoot{d, watchDir},
+				)
+			}
 		}
 	}
 

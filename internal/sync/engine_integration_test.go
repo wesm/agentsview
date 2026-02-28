@@ -14,6 +14,7 @@ import (
 
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/dbtest"
+	"github.com/wesm/agentsview/internal/parser"
 	"github.com/wesm/agentsview/internal/sync"
 	"github.com/wesm/agentsview/internal/testjsonl"
 )
@@ -81,10 +82,16 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 		env.codexDir = codexDirs[0]
 	}
 
-	env.engine = sync.NewEngine(
-		env.db, claudeDirs, codexDirs, nil,
-		[]string{env.geminiDir}, []string{env.opencodeDir}, "", env.ampDir, "local",
-	)
+	env.engine = sync.NewEngine(env.db, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude:   claudeDirs,
+			parser.AgentCodex:    codexDirs,
+			parser.AgentGemini:   {env.geminiDir},
+			parser.AgentOpenCode: {env.opencodeDir},
+			parser.AgentAmp:      {env.ampDir},
+		},
+		Machine: "local",
+	})
 	return env
 }
 

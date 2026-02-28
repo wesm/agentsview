@@ -10,35 +10,43 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/wesm/agentsview/internal/parser"
 )
 
 // Config holds all application configuration.
 type Config struct {
-	Host              string        `json:"host"`
-	Port              int           `json:"port"`
-	NoBrowser         bool          `json:"no_browser"`
-	ClaudeProjectDir  string        `json:"claude_project_dir"`
-	CodexSessionsDir  string        `json:"codex_sessions_dir"`
-	CopilotDir        string        `json:"copilot_dir"`
-	GeminiDir         string        `json:"gemini_dir"`
-	OpenCodeDir       string        `json:"opencode_dir"`
-	CursorProjectsDir string        `json:"cursor_projects_dir"`
-	AmpDir            string        `json:"amp_dir"`
-	DataDir           string        `json:"data_dir"`
-	DBPath            string        `json:"-"`
-	CursorSecret      string        `json:"cursor_secret"`
-	GithubToken       string        `json:"github_token,omitempty"`
-	WriteTimeout      time.Duration `json:"-"`
+	Host         string        `json:"host"`
+	Port         int           `json:"port"`
+	NoBrowser    bool          `json:"no_browser"`
+	DataDir      string        `json:"data_dir"`
+	DBPath       string        `json:"-"`
+	CursorSecret string        `json:"cursor_secret"`
+	GithubToken  string        `json:"github_token,omitempty"`
+	WriteTimeout time.Duration `json:"-"`
 
-	// Multi-directory support (from config.json).
-	// When set, these take precedence over the single-dir
-	// fields above. Env vars override these with a
-	// single-element slice.
-	ClaudeProjectDirs []string `json:"claude_project_dirs,omitempty"`
-	CodexSessionsDirs []string `json:"codex_sessions_dirs,omitempty"`
-	CopilotDirs       []string `json:"copilot_dirs,omitempty"`
-	GeminiDirs        []string `json:"gemini_dirs,omitempty"`
-	OpenCodeDirs      []string `json:"opencode_dirs,omitempty"`
+	// AgentDirs maps each AgentType to its configured
+	// directories. Single-dir agents store a one-element
+	// slice; unconfigured agents use nil.
+	AgentDirs map[parser.AgentType][]string `json:"-"`
+
+	// agentDirSource tracks how each agent's dirs were
+	// set so loadFile doesn't override env-set values.
+	agentDirSource map[parser.AgentType]dirSource
+}
+
+type dirSource int
+
+const (
+	dirDefault dirSource = iota
+	dirEnv
+)
+
+// ResolveDirs returns the effective directories for an agent.
+func (c *Config) ResolveDirs(
+	agent parser.AgentType,
+) []string {
+	return c.AgentDirs[agent]
 }
 
 // Default returns a Config with default values.
@@ -50,19 +58,26 @@ func Default() (Config, error) {
 		)
 	}
 	dataDir := filepath.Join(home, ".agentsview")
+
+	agentDirs := make(map[parser.AgentType][]string)
+	agentDirSource := make(map[parser.AgentType]dirSource)
+	for _, def := range parser.Registry {
+		dirs := make([]string, len(def.DefaultDirs))
+		for i, rel := range def.DefaultDirs {
+			dirs[i] = filepath.Join(home, rel)
+		}
+		agentDirs[def.Type] = dirs
+		agentDirSource[def.Type] = dirDefault
+	}
+
 	return Config{
-		Host:              "127.0.0.1",
-		Port:              8080,
-		ClaudeProjectDir:  filepath.Join(home, ".claude", "projects"),
-		CodexSessionsDir:  filepath.Join(home, ".codex", "sessions"),
-		CopilotDir:        filepath.Join(home, ".copilot"),
-		GeminiDir:         filepath.Join(home, ".gemini"),
-		OpenCodeDir:       filepath.Join(home, ".local", "share", "opencode"),
-		CursorProjectsDir: filepath.Join(home, ".cursor", "projects"),
-		AmpDir:            filepath.Join(home, ".local", "share", "amp", "threads"),
-		DataDir:           dataDir,
-		DBPath:            filepath.Join(dataDir, "sessions.db"),
-		WriteTimeout:      30 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           8080,
+		DataDir:        dataDir,
+		DBPath:         filepath.Join(dataDir, "sessions.db"),
+		WriteTimeout:   30 * time.Second,
+		AgentDirs:      agentDirs,
+		agentDirSource: agentDirSource,
 	}, nil
 }
 
@@ -112,13 +127,8 @@ func (c *Config) loadFile() error {
 	}
 
 	var file struct {
-		GithubToken       string   `json:"github_token"`
-		CursorSecret      string   `json:"cursor_secret"`
-		ClaudeProjectDirs []string `json:"claude_project_dirs"`
-		CodexSessionsDirs []string `json:"codex_sessions_dirs"`
-		CopilotDirs       []string `json:"copilot_dirs"`
-		GeminiDirs        []string `json:"gemini_dirs"`
-		OpenCodeDirs      []string `json:"opencode_dirs"`
+		GithubToken  string `json:"github_token"`
+		CursorSecret string `json:"cursor_secret"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parsing config: %w", err)
@@ -129,23 +139,31 @@ func (c *Config) loadFile() error {
 	if file.CursorSecret != "" {
 		c.CursorSecret = file.CursorSecret
 	}
-	// Only apply config-file arrays when not already set by
-	// env var. loadEnv runs before loadFile, so a non-nil
-	// slice here means the env var won.
-	if len(file.ClaudeProjectDirs) > 0 && c.ClaudeProjectDirs == nil {
-		c.ClaudeProjectDirs = file.ClaudeProjectDirs
+
+	// Parse config-file dir arrays for agents that have a
+	// ConfigKey. Only apply when not already set by env var.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parsing config raw: %w", err)
 	}
-	if len(file.CodexSessionsDirs) > 0 && c.CodexSessionsDirs == nil {
-		c.CodexSessionsDirs = file.CodexSessionsDirs
-	}
-	if len(file.CopilotDirs) > 0 && c.CopilotDirs == nil {
-		c.CopilotDirs = file.CopilotDirs
-	}
-	if len(file.GeminiDirs) > 0 && c.GeminiDirs == nil {
-		c.GeminiDirs = file.GeminiDirs
-	}
-	if len(file.OpenCodeDirs) > 0 && c.OpenCodeDirs == nil {
-		c.OpenCodeDirs = file.OpenCodeDirs
+	for _, def := range parser.Registry {
+		if def.ConfigKey == "" {
+			continue
+		}
+		rawVal, exists := raw[def.ConfigKey]
+		if !exists {
+			continue
+		}
+		if c.agentDirSource[def.Type] == dirEnv {
+			continue
+		}
+		var dirs []string
+		if err := json.Unmarshal(rawVal, &dirs); err != nil {
+			continue
+		}
+		if len(dirs) > 0 {
+			c.AgentDirs[def.Type] = dirs
+		}
 	}
 	return nil
 }
@@ -190,68 +208,15 @@ func (c *Config) ensureCursorSecret() error {
 }
 
 func (c *Config) loadEnv() {
-	if v := os.Getenv("CLAUDE_PROJECTS_DIR"); v != "" {
-		c.ClaudeProjectDir = v
-		c.ClaudeProjectDirs = []string{v}
-	}
-	if v := os.Getenv("CODEX_SESSIONS_DIR"); v != "" {
-		c.CodexSessionsDir = v
-		c.CodexSessionsDirs = []string{v}
-	}
-	if v := os.Getenv("COPILOT_DIR"); v != "" {
-		c.CopilotDir = v
-		c.CopilotDirs = []string{v}
-	}
-	if v := os.Getenv("GEMINI_DIR"); v != "" {
-		c.GeminiDir = v
-		c.GeminiDirs = []string{v}
-	}
-	if v := os.Getenv("OPENCODE_DIR"); v != "" {
-		c.OpenCodeDir = v
-		c.OpenCodeDirs = []string{v}
-	}
-	if v := os.Getenv("CURSOR_PROJECTS_DIR"); v != "" {
-		c.CursorProjectsDir = v
-	}
-	if v := os.Getenv("AMP_DIR"); v != "" {
-		c.AmpDir = v
+	for _, def := range parser.Registry {
+		if v := os.Getenv(def.EnvVar); v != "" {
+			c.AgentDirs[def.Type] = []string{v}
+			c.agentDirSource[def.Type] = dirEnv
+		}
 	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v
 	}
-}
-
-// ResolveClaudeDirs returns the effective list of Claude
-// project directories. Precedence: env var (single) >
-// config file array > default (single).
-func (c *Config) ResolveClaudeDirs() []string {
-	return c.resolveDirs(c.ClaudeProjectDirs, c.ClaudeProjectDir)
-}
-
-func (c *Config) ResolveCodexDirs() []string {
-	return c.resolveDirs(c.CodexSessionsDirs, c.CodexSessionsDir)
-}
-
-func (c *Config) ResolveCopilotDirs() []string {
-	return c.resolveDirs(c.CopilotDirs, c.CopilotDir)
-}
-
-func (c *Config) ResolveGeminiDirs() []string {
-	return c.resolveDirs(c.GeminiDirs, c.GeminiDir)
-}
-
-func (c *Config) ResolveOpenCodeDirs() []string {
-	return c.resolveDirs(c.OpenCodeDirs, c.OpenCodeDir)
-}
-
-func (c *Config) resolveDirs(multi []string, single string) []string {
-	if len(multi) > 0 {
-		return multi
-	}
-	if single != "" {
-		return []string{single}
-	}
-	return nil
 }
 
 // RegisterServeFlags registers serve-command flags on fs.
