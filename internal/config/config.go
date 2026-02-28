@@ -23,6 +23,7 @@ type Config struct {
 	GeminiDir         string        `json:"gemini_dir"`
 	OpenCodeDir       string        `json:"opencode_dir"`
 	CursorProjectsDir string        `json:"cursor_projects_dir"`
+	AmpDir            string        `json:"amp_dir"`
 	DataDir           string        `json:"data_dir"`
 	DBPath            string        `json:"-"`
 	CursorSecret      string        `json:"cursor_secret"`
@@ -58,6 +59,7 @@ func Default() (Config, error) {
 		GeminiDir:         filepath.Join(home, ".gemini"),
 		OpenCodeDir:       filepath.Join(home, ".local", "share", "opencode"),
 		CursorProjectsDir: filepath.Join(home, ".cursor", "projects"),
+		AmpDir:            filepath.Join(home, ".local", "share", "amp", "threads"),
 		DataDir:           dataDir,
 		DBPath:            filepath.Join(dataDir, "sessions.db"),
 		WriteTimeout:      30 * time.Second,
@@ -210,6 +212,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("CURSOR_PROJECTS_DIR"); v != "" {
 		c.CursorProjectsDir = v
+	}
+	if v := os.Getenv("AMP_DIR"); v != "" {
+		c.AmpDir = v
 	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v

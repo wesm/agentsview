@@ -743,6 +743,53 @@ func resolveGeminiProject(
 	return parser.NormalizeName(dirName)
 }
 
+// DiscoverAmpSessions finds all thread JSON files under
+// the Amp threads directory (~/.local/share/amp/threads/T-*.json).
+func DiscoverAmpSessions(threadsDir string) []DiscoveredFile {
+	if threadsDir == "" {
+		return nil
+	}
+
+	entries, err := os.ReadDir(threadsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "T-") ||
+			!strings.HasSuffix(name, ".json") {
+			continue
+		}
+		files = append(files, DiscoveredFile{
+			Path:  filepath.Join(threadsDir, name),
+			Agent: parser.AgentAmp,
+		})
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindAmpSourceFile locates an Amp thread file by its raw
+// thread ID (without the "amp:" prefix).
+func FindAmpSourceFile(threadsDir, threadID string) string {
+	if threadsDir == "" || !isValidSessionID(threadID) {
+		return ""
+	}
+	candidate := filepath.Join(threadsDir, threadID+".json")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
+}
+
 // DiscoverCopilotSessions finds all JSONL files under
 // <copilotDir>/session-state/. Supports both bare format
 // (<uuid>.jsonl) and directory format (<uuid>/events.jsonl).

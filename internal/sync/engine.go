@@ -31,6 +31,7 @@ type Engine struct {
 	geminiDirs    []string
 	opencodeDirs  []string
 	cursorDir     string
+	ampDir        string
 	machine       string
 	syncMu        gosync.Mutex // serializes all sync operations
 	mu            gosync.RWMutex
@@ -52,7 +53,7 @@ func NewEngine(
 	database *db.DB,
 	claudeDirs, codexDirs, copilotDirs,
 	geminiDirs, opencodeDirs []string,
-	cursorDir, machine string,
+	cursorDir, ampDir, machine string,
 ) *Engine {
 	skipCache := make(map[string]int64)
 	if loaded, err := database.LoadSkippedFiles(); err == nil {
@@ -69,6 +70,7 @@ func NewEngine(
 		geminiDirs:   geminiDirs,
 		opencodeDirs: opencodeDirs,
 		cursorDir:    cursorDir,
+		ampDir:       ampDir,
 		machine:      machine,
 		skipCache:    skipCache,
 	}
@@ -554,23 +556,25 @@ func (e *Engine) syncAllLocked(
 		gemini = append(gemini, DiscoverGeminiSessions(d)...)
 	}
 	cursor := DiscoverCursorSessions(e.cursorDir)
+	amp := DiscoverAmpSessions(e.ampDir)
 
 	all := make(
 		[]DiscoveredFile, 0,
-		len(claude)+len(codex)+len(copilot)+len(gemini)+len(cursor),
+		len(claude)+len(codex)+len(copilot)+len(gemini)+len(cursor)+len(amp),
 	)
 	all = append(all, claude...)
 	all = append(all, codex...)
 	all = append(all, copilot...)
 	all = append(all, gemini...)
 	all = append(all, cursor...)
+	all = append(all, amp...)
 
 	verbose := onProgress == nil
 
 	if verbose {
 		log.Printf(
-			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor) in %s",
-			len(all), len(claude), len(codex), len(copilot), len(gemini), len(cursor),
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp) in %s",
+			len(all), len(claude), len(codex), len(copilot), len(gemini), len(cursor), len(amp),
 			time.Since(t0).Round(time.Millisecond),
 		)
 	}
@@ -853,6 +857,8 @@ func (e *Engine) processFile(
 		res = e.processGemini(file, info)
 	case parser.AgentCursor:
 		res = e.processCursor(file, info)
+	case parser.AgentAmp:
+		res = e.processAmp(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -1050,6 +1056,36 @@ func (e *Engine) processGemini(
 
 	sess, msgs, err := parser.ParseGeminiSession(
 		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
+}
+
+func (e *Engine) processAmp(
+	file DiscoveredFile, info os.FileInfo,
+) processResult {
+	// Fast path: skip by file_path + mtime before parsing.
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseAmpSession(
+		file.Path, e.machine,
 	)
 	if err != nil {
 		return processResult{err: err}
@@ -1334,6 +1370,8 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 		return FindCursorSourceFile(
 			e.cursorDir, sessionID[7:],
 		)
+	case strings.HasPrefix(sessionID, "amp:"):
+		return FindAmpSourceFile(e.ampDir, sessionID[4:])
 	default:
 		for _, d := range e.claudeDirs {
 			if f := FindClaudeSourceFile(d, sessionID); f != "" {
@@ -1372,6 +1410,8 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		agent = parser.AgentGemini
 	case strings.HasPrefix(sessionID, "cursor:"):
 		agent = parser.AgentCursor
+	case strings.HasPrefix(sessionID, "amp:"):
+		agent = parser.AgentAmp
 	default:
 		agent = parser.AgentClaude
 	}

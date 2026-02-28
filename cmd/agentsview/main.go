@@ -62,9 +62,9 @@ func main() {
 func printUsage() {
 	fmt.Printf(`agentsview %s - local web viewer for AI agent sessions
 
-Syncs Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, and Cursor
-session data into SQLite, serves an analytics dashboard and session
-browser via a local web UI.
+Syncs Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Cursor,
+and Amp session data into SQLite, serves an analytics dashboard and
+session browser via a local web UI.
 
 Usage:
   agentsview [flags]          Start the server (default command)
@@ -99,6 +99,7 @@ Environment variables:
   GEMINI_DIR              Gemini CLI directory
   OPENCODE_DIR            OpenCode data directory
   CURSOR_PROJECTS_DIR     Cursor projects directory
+  AMP_DIR                 Amp threads directory
   AGENT_VIEWER_DATA_DIR   Data directory (database, config)
 
 Multiple directories:
@@ -149,6 +150,9 @@ func runServe(args []string) {
 	warnMissingDirs(cfg.ResolveCopilotDirs(), "copilot")
 	warnMissingDirs(cfg.ResolveGeminiDirs(), "gemini")
 	warnMissingDirs(cfg.ResolveOpenCodeDirs(), "opencode")
+	if cfg.AmpDir != "" {
+		warnMissingDirs([]string{cfg.AmpDir}, "amp")
+	}
 
 	// Remove stale temp DB from a prior crashed resync.
 	cleanResyncTemp(cfg.DBPath)
@@ -161,6 +165,7 @@ func runServe(args []string) {
 		cfg.ResolveGeminiDirs(),
 		cfg.ResolveOpenCodeDirs(),
 		cfg.CursorProjectsDir,
+		cfg.AmpDir,
 		"local",
 	)
 
@@ -371,6 +376,14 @@ func startFileWatcher(
 			roots = append(roots, watchRoot{
 				cfg.CursorProjectsDir,
 				cfg.CursorProjectsDir,
+			})
+		}
+	}
+	if cfg.AmpDir != "" {
+		if _, err := os.Stat(cfg.AmpDir); err == nil {
+			roots = append(roots, watchRoot{
+				cfg.AmpDir,
+				cfg.AmpDir,
 			})
 		}
 	}
