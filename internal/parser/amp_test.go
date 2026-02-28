@@ -18,9 +18,10 @@ func runAmpParserTest(
 }
 
 func TestParseAmpSession_Basic(t *testing.T) {
+	threadID := "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd"
 	content := `{
 		"v": 1,
-		"id": "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+		"id": "` + threadID + `",
 		"created": 1704067200000,
 		"title": "Migrate database schema",
 		"messages": [
@@ -40,12 +41,13 @@ func TestParseAmpSession_Basic(t *testing.T) {
 		}
 	}`
 
-	sess, msgs, err := runAmpParserTest(t, content)
+	path := createTestFile(t, threadID+".json", content)
+	sess, msgs, err := ParseAmpSession(path, "local")
 	require.NoError(t, err)
 	require.NotNil(t, sess)
 
 	assertSessionMeta(t, sess,
-		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+		"amp:"+threadID,
 		"myproject", AgentAmp,
 	)
 
@@ -321,24 +323,42 @@ func TestParseAmpSession_Errors(t *testing.T) {
 }
 
 func TestParseAmpSession_MismatchedID(t *testing.T) {
-	// JSON id doesn't match the T-<valid> pattern required by
-	// FindAmpSourceFile. Parser should fall back to filename.
-	content := `{
-		"v": 1,
-		"id": "bogus-not-a-thread-id",
-		"created": 1704067200000,
-		"messages": [
-			{"role": "user", "content": [{"type": "text", "text": "hello"}]}
-		]
-	}`
+	t.Run("invalid JSON id", func(t *testing.T) {
+		content := `{
+			"v": 1,
+			"id": "bogus-not-a-thread-id",
+			"created": 1704067200000,
+			"messages": [
+				{"role": "user", "content": [{"type": "text", "text": "hello"}]}
+			]
+		}`
 
-	path := createTestFile(t, "T-fallback-uuid.json", content)
-	sess, _, err := ParseAmpSession(path, "local")
-	require.NoError(t, err)
-	require.NotNil(t, sess)
+		path := createTestFile(t, "T-fallback-uuid.json", content)
+		sess, _, err := ParseAmpSession(path, "local")
+		require.NoError(t, err)
+		require.NotNil(t, sess)
+		assert.Equal(t, "amp:T-fallback-uuid", sess.ID)
+	})
 
-	// Should use the filename-derived ID, not the bogus JSON id.
-	assert.Equal(t, "amp:T-fallback-uuid", sess.ID)
+	t.Run("valid JSON id differs from filename", func(t *testing.T) {
+		// Both the JSON id and filename are valid T-<id>
+		// patterns, but they disagree. Filename must win so
+		// FindAmpSourceFile can locate the file by ID.
+		content := `{
+			"v": 1,
+			"id": "T-from-json",
+			"created": 1704067200000,
+			"messages": [
+				{"role": "user", "content": [{"type": "text", "text": "hello"}]}
+			]
+		}`
+
+		path := createTestFile(t, "T-from-file.json", content)
+		sess, _, err := ParseAmpSession(path, "local")
+		require.NoError(t, err)
+		require.NotNil(t, sess)
+		assert.Equal(t, "amp:T-from-file", sess.ID)
+	})
 }
 
 func TestAmpThreadID(t *testing.T) {

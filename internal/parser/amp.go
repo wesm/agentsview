@@ -31,12 +31,16 @@ func ParseAmpSession(
 
 	root := gjson.ParseBytes(data)
 
-	threadID := root.Get("id").Str
-	if threadID == "" || !isValidAmpThreadID(threadID) {
-		// Fall back to filename-derived ID when the JSON id
-		// is missing or doesn't match the T-<id> pattern
-		// required by FindAmpSourceFile/SyncSingleSession.
-		threadID = ampThreadIDFromPath(path)
+	// The session ID must match the filename so that
+	// FindAmpSourceFile can locate the file by ID. Prefer
+	// the filename-derived ID; fall back to the JSON id only
+	// when the filename doesn't yield a valid ID.
+	threadID := ampThreadIDFromPath(path)
+	if threadID == "" {
+		threadID = root.Get("id").Str
+		if !isValidAmpThreadID(threadID) {
+			threadID = ""
+		}
 	}
 	if threadID == "" {
 		return nil, nil, fmt.Errorf(
