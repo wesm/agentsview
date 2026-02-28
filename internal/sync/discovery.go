@@ -911,6 +911,33 @@ func DiscoverIflowProjects(projectsDir string) []DiscoveredFile {
 	return files
 }
 
+// extractIflowBaseSessionID extracts the base session ID from an iFlow
+// session ID. Fork IDs are formatted as <baseUUID>-<childUUID>, so we
+// remove the child UUID suffix to get the base session ID for file lookup.
+// Both base and child UUIDs are full UUIDs with hyphens, so we count
+// hyphens to determine where the base UUID ends (after 4 hyphens).
+func extractIflowBaseSessionID(sessionID string) string {
+	// iFlow fork IDs have the format: baseUUID-childUUID
+	// where both are full UUIDs with hyphens.
+	// A standard UUID has format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (4 hyphens)
+	// So the base UUID ends after the 4th hyphen, and the child UUID starts after that.
+
+	hyphenCount := 0
+	for i, r := range sessionID {
+		if r == '-' {
+			hyphenCount++
+			// The 5th hyphen marks the boundary between base and child UUIDs
+			if hyphenCount == 5 {
+				// Return everything before this hyphen (the base UUID)
+				return sessionID[:i]
+			}
+		}
+	}
+
+	// If we didn't find 5 hyphens, this is not a fork ID
+	return sessionID
+}
+
 // FindIflowSourceFile finds the original JSONL file for an iFlow
 // session ID by searching all project directories.
 func FindIflowSourceFile(
@@ -920,12 +947,15 @@ func FindIflowSourceFile(
 		return ""
 	}
 
+	// For fork IDs, extract the base session ID to find the source file
+	baseID := extractIflowBaseSessionID(sessionID)
+
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return ""
 	}
 
-	target := "session-" + sessionID + ".jsonl"
+	target := "session-" + baseID + ".jsonl"
 	for _, entry := range entries {
 		if !isDirOrSymlink(entry, projectsDir) {
 			continue

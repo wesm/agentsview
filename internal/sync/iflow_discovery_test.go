@@ -125,4 +125,20 @@ func TestFindIflowSourceFile(t *testing.T) {
 	if notFound != "" {
 		t.Errorf("expected empty string for non-existent file, got %s", notFound)
 	}
+
+	// Test finding a fork ID (should extract base session ID)
+	// Fork IDs have format: <baseUUID>-<childUUID>
+	// The file lookup should use only the base UUID
+	baseSessionID := "96e6d875-92eb-40b9-b193-a9ba99f0f709"
+	forkSessionID := baseSessionID + "-12345678-1234-5678-9abc-def012345678"
+	forkSessionFile := filepath.Join(proj, "session-"+baseSessionID+".jsonl")
+	if err := os.WriteFile(forkSessionFile, []byte(`{"test":"fork"}`), 0o644); err != nil {
+		t.Fatalf("failed to create fork session file: %v", err)
+	}
+
+	// Test finding the fork session - should find the base file
+	foundFork := FindIflowSourceFile(tmpDir, forkSessionID)
+	if foundFork != forkSessionFile {
+		t.Errorf("expected to find %s for fork ID %s, got %s", forkSessionFile, forkSessionID, foundFork)
+	}
 }

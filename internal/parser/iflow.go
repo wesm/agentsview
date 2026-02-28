@@ -92,9 +92,11 @@ func ParseIflowSession(
 		if !foundParentSID {
 			if sid := gjson.Get(line, "sessionId").Str; sid != "" {
 				foundParentSID = true
-				// iFlow sessionId is the full session filename
-				if sid != filename {
-					parentSessionID = strings.TrimPrefix(sid, "session-")
+				// iFlow sessionId is the full session filename (e.g., "session-uuid")
+				// Extract the ID by trimming "session-" prefix and compare with sessionID
+				sidID := strings.TrimPrefix(sid, "session-")
+				if sidID != sessionID {
+					parentSessionID = sidID
 				}
 			}
 		}
