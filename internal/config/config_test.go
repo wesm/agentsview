@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -332,6 +334,53 @@ func TestEnvOverridesConfigFile(t *testing.T) {
 	if len(dirs) != 1 || dirs[0] != "/from/env" {
 		t.Errorf(
 			"codex dirs = %v, want [/from/env]", dirs,
+		)
+	}
+}
+
+func TestLoadFile_MalformedDirValueLogsWarning(t *testing.T) {
+	dir := setupTestEnv(t)
+
+	// Write a config where claude_project_dirs is a string
+	// instead of a string array.
+	writeConfig(t, dir, map[string]any{
+		"claude_project_dirs": "/not/an/array",
+	})
+
+	// Capture log output during Load.
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	cfg, err := LoadMinimal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The malformed key should trigger a warning.
+	logged := buf.String()
+	if !strings.Contains(logged, "claude_project_dirs") {
+		t.Errorf(
+			"expected warning mentioning config key, got: %q",
+			logged,
+		)
+	}
+	if !strings.Contains(logged, "expected string array") {
+		t.Errorf(
+			"expected warning about type, got: %q",
+			logged,
+		)
+	}
+
+	// ResolveDirs should return the default (malformed value
+	// was not applied).
+	dirs := cfg.ResolveDirs(parser.AgentClaude)
+	home, _ := os.UserHomeDir()
+	defaultDir := filepath.Join(home, ".claude", "projects")
+	if len(dirs) != 1 || dirs[0] != defaultDir {
+		t.Errorf(
+			"claude dirs = %v, want default [%s]",
+			dirs, defaultDir,
 		)
 	}
 }

@@ -2510,3 +2510,47 @@ func TestResyncAllAbortsMixedSourceEmptyFiles(t *testing.T) {
 		t, env.db, "opencode:"+sessionID, 2,
 	)
 }
+
+// TestNewEngineDefensiveCopy verifies that NewEngine deep-copies
+// the AgentDirs map so that external mutations after construction
+// do not affect the engine's behavior.
+func TestNewEngineDefensiveCopy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	claudeDir := t.TempDir()
+	database := dbtest.OpenTestDB(t)
+
+	dirs := map[parser.AgentType][]string{
+		parser.AgentClaude: {claudeDir},
+	}
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: dirs,
+		Machine:   "local",
+	})
+
+	// Write a session the engine should find.
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "hello").
+		String()
+	path := filepath.Join(
+		claudeDir, "proj", "copy-test.jsonl",
+	)
+	dbtest.WriteTestFile(t, path, []byte(content))
+
+	// Mutate the original map after construction: clear
+	// the Claude dirs and add a bogus entry.
+	dirs[parser.AgentClaude] = nil
+	dirs[parser.AgentCodex] = []string{"/bogus"}
+
+	// Engine should still find the session via its own copy.
+	stats := engine.SyncAll(nil)
+	if stats.Synced != 1 {
+		t.Fatalf(
+			"Synced = %d, want 1 (engine used mutated map)",
+			stats.Synced,
+		)
+	}
+	assertSessionMessageCount(t, database, "copy-test", 1)
+}
