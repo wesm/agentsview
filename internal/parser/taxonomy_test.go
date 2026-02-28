@@ -43,6 +43,14 @@ func TestNormalizeToolCategory(t *testing.T) {
 		{"glob", "Glob"},
 		{"task", "Task"},
 
+		// Amp tools
+		{"create_file", "Write"},
+		{"look_at", "Read"},
+		{"undo_edit", "Edit"},
+		{"finder", "Grep"},
+		{"read_web_page", "Read"},
+		{"skill", "Tool"},
+
 		// Copilot tools
 		{"view", "Read"},
 		{"report_intent", "Tool"},

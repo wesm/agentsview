@@ -179,6 +179,12 @@ func TestExtractTextContent(t *testing.T) {
 			[]ParsedToolCall{{ToolUseID: "toolu_456", ToolName: "Skill", Category: "Tool", InputJSON: `{"skill":"superpowers:brainstorming"}`, SkillName: "superpowers:brainstorming"}},
 		},
 		{
+			"Amp skill tool extracts skill_name",
+			`[{"type":"tool_use","id":"toolu_789","name":"skill","input":{"name":"frontend-design"}}]`,
+			"[Skill: frontend-design]", false, true,
+			[]ParsedToolCall{{ToolUseID: "toolu_789", ToolName: "skill", Category: "Tool", InputJSON: `{"name":"frontend-design"}`, SkillName: "frontend-design"}},
+		},
+		{
 			"tool_use with empty name",
 			`[{"type":"tool_use","name":"","input":{}}]`,
 			"[Tool: ]", false, true, nil,
@@ -378,6 +384,67 @@ func TestFormatToolUseVariants(t *testing.T) {
 			"SendMessage",
 			`{"type":"tool_use","name":"SendMessage","input":{"type":"message","recipient":"researcher","content":"hello"}}`,
 			"[SendMessage: message to researcher]",
+		},
+		// Amp tools
+		{
+			"Read with path (Amp)",
+			`{"type":"tool_use","name":"Read","input":{"path":"/tmp/foo.go"}}`,
+			"[Read: /tmp/foo.go]",
+		},
+		{
+			"Bash with cmd (Amp)",
+			`{"type":"tool_use","name":"Bash","input":{"cmd":"ls -la"}}`,
+			"[Bash]\n$ ls -la",
+		},
+		{
+			"edit_file",
+			`{"type":"tool_use","name":"edit_file","input":{"path":"main.go"}}`,
+			"[Edit: main.go]",
+		},
+		{
+			"create_file",
+			`{"type":"tool_use","name":"create_file","input":{"path":"new.go"}}`,
+			"[Write: new.go]",
+		},
+		{
+			"shell_command",
+			`{"type":"tool_use","name":"shell_command","input":{"command":"echo hi"}}`,
+			"[Bash]\n$ echo hi",
+		},
+		{
+			"glob (Amp)",
+			`{"type":"tool_use","name":"glob","input":{"filePattern":"**/*.ts"}}`,
+			"[Glob: **/*.ts]",
+		},
+		{
+			"look_at",
+			`{"type":"tool_use","name":"look_at","input":{"path":"diagram.png"}}`,
+			"[Read: diagram.png]",
+		},
+		{
+			"apply_patch",
+			`{"type":"tool_use","name":"apply_patch","input":{"path":"fix.patch"}}`,
+			"[Patch: fix.patch]",
+		},
+		{
+			"undo_edit",
+			`{"type":"tool_use","name":"undo_edit","input":{"path":"main.go"}}`,
+			"[Undo: main.go]",
+		},
+		{
+			"finder",
+			`{"type":"tool_use","name":"finder","input":{"query":"JWT validation"}}`,
+			"[Find: JWT validation]",
+		},
+		{
+			"read_web_page",
+			`{"type":"tool_use","name":"read_web_page","input":{"url":"https://example.com"}}`,
+			"[Web: https://example.com]",
+		},
+		{
+			"skill (Amp)",
+			`{"type":"tool_use","name":"skill","input":{"name":"frontend-design"}}`,
+			"[Skill: frontend-design]",
 		},
 		{
 			json: `{"type":"tool_use","name":"empty_tool","input":{}}`,
