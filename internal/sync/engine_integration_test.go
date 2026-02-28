@@ -23,6 +23,7 @@ type testEnv struct {
 	codexDir    string
 	geminiDir   string
 	opencodeDir string
+	ampDir      string
 	db          *db.DB
 	engine      *sync.Engine
 }
@@ -60,6 +61,7 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 	env := &testEnv{
 		geminiDir:   t.TempDir(),
 		opencodeDir: t.TempDir(),
+		ampDir:      t.TempDir(),
 		db:          dbtest.OpenTestDB(t),
 	}
 
@@ -81,7 +83,7 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 
 	env.engine = sync.NewEngine(
 		env.db, claudeDirs, codexDirs, nil,
-		[]string{env.geminiDir}, []string{env.opencodeDir}, "", "", "local",
+		[]string{env.geminiDir}, []string{env.opencodeDir}, "", env.ampDir, "local",
 	)
 	return env
 }
@@ -139,6 +141,15 @@ func (e *testEnv) writeGeminiSession(
 ) string {
 	t.Helper()
 	return e.writeSession(t, e.geminiDir, relPath, content)
+}
+
+// writeAmpThread creates an Amp thread JSON file under the
+// configured Amp threads directory.
+func (e *testEnv) writeAmpThread(
+	t *testing.T, filename, content string,
+) string {
+	t.Helper()
+	return e.writeSession(t, e.ampDir, filename, content)
 }
 
 func TestSyncEngineIntegration(t *testing.T) {
@@ -898,6 +909,33 @@ func TestSyncPathsGeminiRejectsWrongStructure(t *testing.T) {
 				"should be ignored",
 		)
 	}
+}
+
+func TestSyncPathsAmp(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := `{"id":"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd","created":1704103200000,"title":"Amp session","env":{"initial":{"trees":[{"displayName":"amp_proj"}]}},"messages":[{"role":"user","content":[{"type":"text","text":"hello from amp"}]},{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`
+
+	path := env.writeAmpThread(
+		t, "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json",
+		content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db,
+		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+		func(sess *db.Session) {
+			if sess.Agent != "amp" {
+				t.Errorf("agent = %q, want amp", sess.Agent)
+			}
+		},
+	)
+	assertSessionMessageCount(
+		t, env.db,
+		"amp:T-019ca26f-aaaa-bbbb-cccc-dddddddddddd", 2,
+	)
 }
 
 func TestSyncPathsStatsUpdated(t *testing.T) {

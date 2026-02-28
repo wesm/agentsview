@@ -185,6 +185,12 @@ func TestExtractTextContent(t *testing.T) {
 			[]ParsedToolCall{{ToolUseID: "toolu_789", ToolName: "skill", Category: "Tool", InputJSON: `{"name":"frontend-design"}`, SkillName: "frontend-design"}},
 		},
 		{
+			"Amp skill tool supports legacy input.skill",
+			`[{"type":"tool_use","id":"toolu_790","name":"skill","input":{"skill":"legacy-skill"}}]`,
+			"[Skill: legacy-skill]", false, true,
+			[]ParsedToolCall{{ToolUseID: "toolu_790", ToolName: "skill", Category: "Tool", InputJSON: `{"skill":"legacy-skill"}`, SkillName: "legacy-skill"}},
+		},
+		{
 			"tool_use with empty name",
 			`[{"type":"tool_use","name":"","input":{}}]`,
 			"[Tool: ]", false, true, nil,

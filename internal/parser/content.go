@@ -56,7 +56,10 @@ func ExtractTextContent(
 				case "Skill":
 					tc.SkillName = block.Get("input.skill").Str
 				case "skill":
-					tc.SkillName = block.Get("input.name").Str
+					tc.SkillName = block.Get("input.skill").Str
+					if tc.SkillName == "" {
+						tc.SkillName = block.Get("input.name").Str
+					}
 				}
 				toolCalls = append(toolCalls, tc)
 			}
@@ -154,7 +157,11 @@ func formatToolUse(block gjson.Result) string {
 	case "read_web_page":
 		return fmt.Sprintf("[Web: %s]", input.Get("url").Str)
 	case "skill":
-		return fmt.Sprintf("[Skill: %s]", input.Get("name").Str)
+		skill := input.Get("skill").Str
+		if skill == "" {
+			skill = input.Get("name").Str
+		}
+		return fmt.Sprintf("[Skill: %s]", skill)
 	case "Task":
 		return formatTask(input)
 	case "Skill":

@@ -171,6 +171,52 @@ func TestDiscoverCodexSessions(t *testing.T) {
 	}
 }
 
+func TestDiscoverAmpSessions(t *testing.T) {
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantFiles []string
+	}{
+		{
+			name: "Basic",
+			files: map[string]string{
+				"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json": "{}",
+				"T-019ca26f-ffff-eeee-dddd-cccccccccccc.json": "{}",
+				"README.md":      "{}",
+				"T-not-json.txt": "{}",
+			},
+			wantFiles: []string{
+				"T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json",
+				"T-019ca26f-ffff-eeee-dddd-cccccccccccc.json",
+			},
+		},
+		{
+			name:      "Empty",
+			files:     map[string]string{},
+			wantFiles: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupFileSystem(t, dir, tt.files)
+			files := DiscoverAmpSessions(dir)
+			assertDiscoveredFiles(
+				t, files, tt.wantFiles, parser.AgentAmp,
+			)
+		})
+	}
+
+	t.Run("Nonexistent", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "does-not-exist")
+		files := DiscoverAmpSessions(dir)
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
+		}
+	})
+}
+
 func TestFindClaudeSourceFile(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -228,6 +274,47 @@ func TestFindClaudeSourceFile(t *testing.T) {
 			got := FindClaudeSourceFile(dir, id)
 			if got != "" {
 				t.Errorf("FindClaudeSourceFile(%q) = %q, want empty", id, got)
+			}
+		}
+	})
+}
+
+func TestFindAmpSourceFile(t *testing.T) {
+	t.Run("Found", func(t *testing.T) {
+		dir := t.TempDir()
+		rel := "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd.json"
+		setupFileSystem(t, dir, map[string]string{
+			rel: "{}",
+		})
+		got := FindAmpSourceFile(
+			dir, "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+		)
+		want := filepath.Join(dir, rel)
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Nonexistent", func(t *testing.T) {
+		dir := t.TempDir()
+		got := FindAmpSourceFile(
+			dir, "T-019ca26f-aaaa-bbbb-cccc-dddddddddddd",
+		)
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("Validation", func(t *testing.T) {
+		dir := t.TempDir()
+		tests := []string{"", "../bad", "T bad", "bad"}
+		for _, id := range tests {
+			got := FindAmpSourceFile(dir, id)
+			if got != "" {
+				t.Errorf(
+					"FindAmpSourceFile(%q) = %q, want empty",
+					id, got,
+				)
 			}
 		}
 	})
