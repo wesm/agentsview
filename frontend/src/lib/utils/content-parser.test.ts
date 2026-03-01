@@ -800,7 +800,7 @@ describe("enrichSegments - pi lowercase native tool aliases", () => {
     expect(toolSegs[0]!.label).toBe("Glob");
   });
 
-  it("aliases find to Read label", () => {
+  it("aliases find to Read label and extracts pattern preview", () => {
     const tc: ToolCall = {
       tool_name: "find",
       category: "Read",
@@ -810,6 +810,7 @@ describe("enrichSegments - pi lowercase native tool aliases", () => {
     const toolSegs = result.filter((s) => s.type === "tool");
     expect(toolSegs).toHaveLength(1);
     expect(toolSegs[0]!.label).toBe("Read");
+    expect(toolSegs[0]!.content).toBe("*.go");
   });
 
   it("expands lowercase bash command to $ format", () => {

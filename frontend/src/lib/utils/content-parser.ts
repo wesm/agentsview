@@ -59,7 +59,7 @@ function isBashTool(name: string): boolean {
 }
 
 function isReadTool(name: string): boolean {
-  return name === "Read" || name === "read" || name === "read_file";
+  return name === "Read" || name === "read" || name === "read_file" || name === "find";
 }
 
 const TOOL_RE = new RegExp(
