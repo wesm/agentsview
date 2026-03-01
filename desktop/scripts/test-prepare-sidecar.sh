@@ -30,6 +30,12 @@ assert_eq "$(map_go_target x86_64-pc-windows-msvc)" "windows amd64" "map windows
 assert_eq "$(map_go_target x86_64-unknown-linux-gnu)" "linux amd64" "map linux amd64"
 assert_fails "unsupported triple rejected" map_go_target "weird-target"
 
+resolved_version="$(resolve_version)"
+if [ -z "$resolved_version" ] || [ "$resolved_version" = "dev" ]; then
+  echo "assertion failed: resolve_version should use git metadata (got '$resolved_version')" >&2
+  exit 1
+fi
+
 target="$(
   TAURI_ENV_TARGET_TRIPLE="tauri-priority-target" CARGO_BUILD_TARGET="cargo-target" \
     resolve_target_triple

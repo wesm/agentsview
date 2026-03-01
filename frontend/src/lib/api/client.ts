@@ -484,13 +484,12 @@ export function generateInsight(
       buf = buf.replaceAll("\r\n", "\n");
 
       const parsed = processInsightFrames(buf, onStatus, onLog);
-      if (parsed) {
-        result = parsed;
+      buf = parsed.remaining;
+      if (parsed.result) {
+        result = parsed.result;
         reader.cancel();
         break;
       }
-      const last = buf.lastIndexOf("\n\n");
-      if (last !== -1) buf = buf.slice(last + 2);
     }
 
     // Flush any remaining multibyte bytes from decoder
@@ -514,16 +513,18 @@ function processInsightFrames(
   buf: string,
   onStatus?: (phase: string) => void,
   onLog?: (event: InsightLogEvent) => void,
-): Insight | undefined {
+): { result?: Insight; remaining: string } {
   let idx: number;
   let start = 0;
   while ((idx = buf.indexOf("\n\n", start)) !== -1) {
     const frame = buf.slice(start, idx);
     start = idx + 2;
     const result = processInsightFrame(frame, onStatus, onLog);
-    if (result) return result;
+    if (result) {
+      return { result, remaining: buf.slice(start) };
+    }
   }
-  return undefined;
+  return { remaining: buf.slice(start) };
 }
 
 function processInsightFrame(

@@ -84,6 +84,10 @@ jobs:
           fi
 
           "$sidecar" version > sidecar-version.txt
+          if grep -q "agentsview dev" sidecar-version.txt; then
+            echo "sidecar version should not be dev: $(cat sidecar-version.txt)" >&2
+            exit 1
+          fi
           if grep -q "commit unknown" sidecar-version.txt; then
             echo "sidecar metadata missing commit: $(cat sidecar-version.txt)" >&2
             exit 1

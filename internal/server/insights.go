@@ -130,6 +130,10 @@ type generateInsightRequest struct {
 	Agent    string `json:"agent"`
 }
 
+func insightGenerateClientMessage(agent string) string {
+	return fmt.Sprintf("%s generation failed", agent)
+}
+
 func (s *Server) handleGenerateInsight(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -335,9 +339,7 @@ func (s *Server) handleGenerateInsight(
 	if err != nil {
 		log.Printf("insight generate error: %v", err)
 		sendJSON("error", map[string]string{
-			"message": fmt.Sprintf(
-				"%s generation failed: %v", req.Agent, err,
-			),
+			"message": insightGenerateClientMessage(req.Agent),
 		})
 		return
 	}

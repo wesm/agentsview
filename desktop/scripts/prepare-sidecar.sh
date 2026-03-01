@@ -46,6 +46,23 @@ map_go_target() {
   esac
 }
 
+resolve_version() {
+  local resolved
+  resolved="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || true)"
+  if [ -n "$resolved" ]; then
+    echo "$resolved"
+    return 0
+  fi
+
+  resolved="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  if [ -n "$resolved" ]; then
+    echo "$resolved"
+    return 0
+  fi
+
+  echo "dev"
+}
+
 install_frontend_deps() {
   if [ -f "$REPO_ROOT/frontend/package-lock.json" ]; then
     npm ci
@@ -85,13 +102,13 @@ main() {
   fi
 
   local version commit build_date ldflags tmp_dir build_bin
-  version="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo "dev")"
+  version="$(resolve_version)"
   commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
   build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   ldflags="-X main.version=$version -X main.commit=$commit -X main.buildDate=$build_date -s -w"
 
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
+  trap 'rm -rf "${tmp_dir:-}"' EXIT
   build_bin="$tmp_dir/agentsview$ext"
 
   (

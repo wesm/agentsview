@@ -321,13 +321,17 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
     });
 
     tauri::async_runtime::spawn(async move {
+        let mut stdout_buffer = String::new();
         while let Some(event) = rx.recv().await {
             match event {
-                CommandEvent::Stdout(line_bytes) => {
-                    let line = String::from_utf8_lossy(&line_bytes);
-                    eprintln!("[agentsview] {}", line.trim_end());
+                CommandEvent::Stdout(chunk_bytes) => {
+                    let chunk = String::from_utf8_lossy(&chunk_bytes);
+                    eprintln!("[agentsview] {}", chunk.trim_end());
                     if !startup_handled.load(Ordering::SeqCst) {
-                        if let Some(port) = parse_listening_port(line.as_ref()) {
+                        if let Some(port) = parse_listening_port_from_stdout_buffer(
+                            &mut stdout_buffer,
+                            chunk.as_ref(),
+                        ) {
                             startup_handled.store(true, Ordering::SeqCst);
                             redirect_when_ready(window.clone(), port);
                         }
@@ -388,6 +392,26 @@ fn parse_listening_port(line: &str) -> Option<u16> {
         return None;
     }
     digits.parse::<u16>().ok()
+}
+
+fn parse_listening_port_from_stdout_buffer(buffer: &mut String, chunk: &str) -> Option<u16> {
+    buffer.push_str(chunk);
+
+    let mut consumed = 0;
+    while let Some(rel_idx) = buffer[consumed..].find('\n') {
+        let end = consumed + rel_idx;
+        let line = buffer[consumed..end].trim_end_matches('\r');
+        if let Some(port) = parse_listening_port(line) {
+            return Some(port);
+        }
+        consumed = end + 1;
+    }
+
+    if consumed > 0 {
+        buffer.drain(..consumed);
+    }
+
+    None
 }
 
 fn stop_backend(app: &AppHandle) {
@@ -485,6 +509,22 @@ mod tests {
     fn parse_listening_port_ignores_non_listening_urls() {
         let line = "probe successful for http://127.0.0.1:19090/health";
         assert_eq!(parse_listening_port(line), None);
+    }
+
+    #[test]
+    fn parse_listening_port_from_stdout_buffer_handles_chunked_output() {
+        let mut buf = String::new();
+        assert_eq!(
+            parse_listening_port_from_stdout_buffer(
+                &mut buf,
+                "agentsview dev listening at http://127.0.0.1:18"
+            ),
+            None
+        );
+        assert_eq!(
+            parse_listening_port_from_stdout_buffer(&mut buf, "080 (started in 1.2s)\n"),
+            Some(18080)
+        );
     }
 
     #[test]

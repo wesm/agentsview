@@ -312,8 +312,8 @@ func generateCodex(
 		_, _ = io.Copy(io.Discard, stdoutPipe)
 	}
 
+	stderrText := <-stderrDone
 	if waitErr := cmd.Wait(); waitErr != nil {
-		stderrText := <-stderrDone
 		if parseErr != nil {
 			return Result{}, fmt.Errorf(
 				"codex failed: %w (parse: %v)\nstderr: %s",
@@ -325,7 +325,6 @@ func generateCodex(
 			waitErr, stderrText,
 		)
 	}
-	stderrText := <-stderrDone
 	if parseErr != nil {
 		return Result{}, fmt.Errorf(
 			"parse codex stream: %w\nstderr: %s",
@@ -455,8 +454,8 @@ func generateGemini(
 		_, _ = io.Copy(io.Discard, stdoutPipe)
 	}
 
+	stderrText := <-stderrDone
 	if waitErr := cmd.Wait(); waitErr != nil {
-		stderrText := <-stderrDone
 		if parseErr != nil {
 			return Result{}, fmt.Errorf(
 				"gemini failed: %w (parse: %v)\nstderr: %s",
@@ -468,7 +467,6 @@ func generateGemini(
 			waitErr, stderrText,
 		)
 	}
-	stderrText := <-stderrDone
 	if parseErr != nil {
 		return Result{}, fmt.Errorf(
 			"parse gemini stream: %w\nstderr: %s",

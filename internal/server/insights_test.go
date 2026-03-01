@@ -163,7 +163,7 @@ func TestGenerateInsight_DefaultAgent(t *testing.T) {
 		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15"}`)
 	assertStatus(t, w, http.StatusOK)
 	assertBodyContains(t, w, "event: error")
-	assertBodyContains(t, w, "stub: no CLI")
+	assertBodyContains(t, w, "claude generation failed")
 }
 
 func TestGenerateInsight_StreamsLogs(t *testing.T) {

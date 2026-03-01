@@ -448,6 +448,37 @@ describe("generateInsight SSE parsing", () => {
     ]);
   });
 
+  it("does not replay already processed SSE frames across chunks", async () => {
+    const insight = {
+      id: 3,
+      type: "daily_activity",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
+      content: "# Report",
+    };
+    mockStream([
+      `event: log\ndata: {"stream":"stdout","line":"first"}\n\n`,
+      `event: log\ndata: {"stream":"stdout","line":"second"}\n\n`,
+      `event: done\ndata: ${JSON.stringify(insight)}\n\n`,
+    ]);
+
+    const { generateInsight } = await import("./client.js");
+    const logs: string[] = [];
+    const handle = generateInsight(
+      {
+        type: "daily_activity",
+        date_from: "2025-01-15",
+        date_to: "2025-01-15",
+      },
+      undefined,
+      (event) => logs.push(event.line),
+    );
+    activeHandles.push(handle);
+
+    await handle.done;
+    expect(logs).toEqual(["first", "second"]);
+  });
+
   it("rejects for non-ok response", async () => {
     vi.stubGlobal(
       "fetch",
