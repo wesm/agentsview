@@ -114,9 +114,7 @@ func ParsePiSession(
 				}
 				messages = append(messages, *msg)
 				ordinal++
-				if msg.Content != "" {
-					userCount++
-				}
+				userCount++
 
 			case "assistant":
 				msg := parsePiAssistantMessage(line, ordinal)

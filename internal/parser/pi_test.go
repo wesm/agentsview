@@ -239,6 +239,24 @@ func TestParsePiSession_UserMessageCount(t *testing.T) {
 		"UserMessageCount must exclude synthetic model_change/compaction entries")
 }
 
+// TestParsePiSession_UserMessageCountEmptyContent verifies that user messages
+// with non-text or empty payloads are still counted.
+func TestParsePiSession_UserMessageCountEmptyContent(t *testing.T) {
+	fixture := `{"type":"session","id":"sess-1","cwd":"/tmp","timestamp":"2025-01-01T10:00:00Z"}
+{"type":"message","timestamp":"2025-01-01T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"id":"1"}
+{"type":"message","timestamp":"2025-01-01T10:00:01Z","message":{"role":"user","content":[{"type":"image","source":{"data":"abc"}}]},"id":"2"}
+{"type":"message","timestamp":"2025-01-01T10:00:02Z","message":{"role":"user","content":""},"id":"3"}
+{"type":"message","timestamp":"2025-01-01T10:00:03Z","message":{"role":"assistant","content":[{"type":"text","text":"response"}]},"id":"4"}`
+
+	fixturePath := createTestFile(t, "pi-empty-content.jsonl", fixture)
+	sess, _, err := ParsePiSession(fixturePath, "", "local")
+	require.NoError(t, err)
+
+	// All 3 user messages should be counted, even those without text content.
+	assert.Equal(t, 3, sess.UserMessageCount,
+		"UserMessageCount must count user messages with empty or non-text content")
+}
+
 // TestParsePiSession_SilentSkips verifies that the parser silently ignores
 // malformed JSON, thinking_level_change entries, and unknown future entry types
 // without returning an error.
