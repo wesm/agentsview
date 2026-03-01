@@ -4,9 +4,11 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,8 +18,10 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 const HOST: &str = "127.0.0.1";
+const PREFERRED_PORT: u16 = 8080;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(125);
+const LOGIN_SHELL_ENV_TIMEOUT: Duration = Duration::from_secs(3);
 
 type DynError = Box<dyn Error>;
 type CommandRx = Receiver<CommandEvent>;
@@ -43,18 +47,17 @@ pub fn run() {
 }
 
 fn launch_backend(app: &mut App) -> Result<(), DynError> {
-    let port = reserve_port()?;
-    let (rx, child) = spawn_sidecar(app, port)?;
+    let window = main_window(app)?;
+    let (rx, child) = spawn_sidecar(app)?;
 
     save_sidecar(app, child)?;
-    forward_sidecar_logs(rx);
-    redirect_when_ready(main_window(app)?, port);
+    forward_sidecar_logs(rx, window);
 
     Ok(())
 }
 
-fn spawn_sidecar(app: &App, port: u16) -> Result<(CommandRx, CommandChild), DynError> {
-    let port_arg = port.to_string();
+fn spawn_sidecar(app: &App) -> Result<(CommandRx, CommandChild), DynError> {
+    let port_arg = PREFERRED_PORT.to_string();
     let mut command = app.shell().sidecar("agentsview")?;
     for (key, value) in sidecar_env() {
         command = command.env(key, value);
@@ -78,36 +81,26 @@ fn spawn_sidecar(app: &App, port: u16) -> Result<(CommandRx, CommandChild), DynE
 // exports. An optional ~/.agentsview/desktop.env file can
 // override specific keys as an escape hatch.
 fn sidecar_env() -> Vec<(OsString, OsString)> {
-    let mut merged: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
+    let skip_login_shell = std::env::var_os("AGENTSVIEW_DESKTOP_SKIP_LOGIN_SHELL_ENV");
+    let should_probe =
+        should_probe_login_shell(skip_login_shell.as_ref(), cfg!(target_os = "windows"));
 
-    if std::env::var_os("AGENTSVIEW_DESKTOP_SKIP_LOGIN_SHELL_ENV").is_none() {
-        if let Some(login_shell_env) = read_login_shell_env() {
-            for (k, v) in login_shell_env {
-                merged.insert(k, v);
-            }
-        }
-    }
-
-    for (k, v) in read_desktop_env_file() {
-        merged.insert(k, v);
-    }
-
-    if let Some(path) = std::env::var_os("AGENTSVIEW_DESKTOP_PATH") {
-        merged.insert(OsString::from("PATH"), path);
-    }
-
-    merged.into_iter().collect()
+    build_sidecar_env(
+        std::env::vars_os().collect(),
+        if should_probe {
+            read_login_shell_env().unwrap_or_default()
+        } else {
+            Vec::new()
+        },
+        read_desktop_env_file(),
+        std::env::var_os("AGENTSVIEW_DESKTOP_PATH"),
+        cfg!(target_os = "windows"),
+    )
 }
 
 // read_login_shell_env invokes the user's login shell and
 // parses NUL-delimited env output (`env -0`).
 fn read_login_shell_env() -> Option<Vec<(OsString, OsString)>> {
-    if cfg!(target_os = "windows") {
-        // Windows desktop launches generally inherit user/system
-        // env already; shell profile probing is a follow-up hardening task.
-        return None;
-    }
-
     let default_shell = if cfg!(target_os = "macos") {
         "/bin/zsh"
     } else {
@@ -118,25 +111,8 @@ fn read_login_shell_env() -> Option<Vec<(OsString, OsString)>> {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| default_shell.to_string());
 
-    let output = std::process::Command::new(shell)
-        .args(["-lic", "env -0"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let content = String::from_utf8(output.stdout).ok()?;
-    let mut vars = Vec::new();
-    for entry in content.split('\0') {
-        if entry.is_empty() {
-            continue;
-        }
-        if let Some((k, v)) = entry.split_once('=') {
-            vars.push((OsString::from(k), OsString::from(v)));
-        }
-    }
-    Some(vars)
+    let stdout = run_login_shell_env(shell.as_str(), LOGIN_SHELL_ENV_TIMEOUT)?;
+    Some(parse_nul_env(stdout.as_slice()))
 }
 
 // read_desktop_env_file parses ~/.agentsview/desktop.env as
@@ -151,6 +127,122 @@ fn read_desktop_env_file() -> Vec<(OsString, OsString)> {
         return Vec::new();
     };
 
+    parse_desktop_env_content(content.as_str())
+}
+
+fn resolve_home_dir() -> Option<PathBuf> {
+    resolve_home_dir_from_lookup(|key| std::env::var_os(key), cfg!(target_os = "windows"))
+}
+
+fn should_probe_login_shell(skip: Option<&OsString>, is_windows: bool) -> bool {
+    !is_windows && skip.is_none()
+}
+
+fn build_sidecar_env(
+    inherited: Vec<(OsString, OsString)>,
+    login_shell: Vec<(OsString, OsString)>,
+    desktop_file: Vec<(OsString, OsString)>,
+    forced_path: Option<OsString>,
+    case_insensitive_keys: bool,
+) -> Vec<(OsString, OsString)> {
+    let mut merged = BTreeMap::new();
+    merge_env_pairs(&mut merged, inherited, case_insensitive_keys);
+    merge_env_pairs(&mut merged, login_shell, case_insensitive_keys);
+    merge_env_pairs(&mut merged, desktop_file, case_insensitive_keys);
+
+    if let Some(path) = forced_path {
+        merged.insert(
+            normalize_env_key(std::ffi::OsStr::new("PATH"), case_insensitive_keys),
+            path,
+        );
+    }
+
+    merged.into_iter().collect()
+}
+
+fn merge_env_pairs(
+    dest: &mut BTreeMap<OsString, OsString>,
+    pairs: Vec<(OsString, OsString)>,
+    case_insensitive_keys: bool,
+) {
+    for (k, v) in pairs {
+        dest.insert(normalize_env_key(k.as_os_str(), case_insensitive_keys), v);
+    }
+}
+
+fn normalize_env_key(key: &std::ffi::OsStr, case_insensitive_keys: bool) -> OsString {
+    if case_insensitive_keys {
+        return OsString::from(key.to_string_lossy().to_ascii_uppercase());
+    }
+    key.to_os_string()
+}
+
+fn run_login_shell_env(shell: &str, timeout: Duration) -> Option<Vec<u8>> {
+    let mut child = std::process::Command::new(shell)
+        .args(["-lic", "env -0"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait().ok()? {
+            Some(status) => {
+                if !status.success() {
+                    return None;
+                }
+                break;
+            }
+            None => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    child.stdout.take()?.read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+fn parse_nul_env(content: &[u8]) -> Vec<(OsString, OsString)> {
+    let mut vars = Vec::new();
+    for entry in content.split(|b| *b == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let Some(eq) = entry.iter().position(|b| *b == b'=') else {
+            continue;
+        };
+        if eq == 0 {
+            continue;
+        }
+        vars.push((
+            os_string_from_bytes(&entry[..eq]),
+            os_string_from_bytes(&entry[eq + 1..]),
+        ));
+    }
+    vars
+}
+
+#[cfg(unix)]
+fn os_string_from_bytes(bytes: &[u8]) -> OsString {
+    use std::os::unix::ffi::OsStringExt;
+    OsString::from_vec(bytes.to_vec())
+}
+
+#[cfg(not(unix))]
+fn os_string_from_bytes(bytes: &[u8]) -> OsString {
+    OsString::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
+fn parse_desktop_env_content(content: &str) -> Vec<(OsString, OsString)> {
     let mut vars = Vec::new();
     for line in content.lines() {
         let line = line.trim();
@@ -169,15 +261,30 @@ fn read_desktop_env_file() -> Vec<(OsString, OsString)> {
     vars
 }
 
-fn resolve_home_dir() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(home));
+fn resolve_home_dir_from_lookup<F>(mut lookup: F, prefer_userprofile: bool) -> Option<PathBuf>
+where
+    F: FnMut(&str) -> Option<OsString>,
+{
+    let get = |key: &str, lookup: &mut F| lookup(key).filter(|v| !v.is_empty());
+
+    if prefer_userprofile {
+        if let Some(profile) = get("USERPROFILE", &mut lookup) {
+            return Some(PathBuf::from(profile));
+        }
+        if let Some(home) = get("HOME", &mut lookup) {
+            return Some(PathBuf::from(home));
+        }
+    } else {
+        if let Some(home) = get("HOME", &mut lookup) {
+            return Some(PathBuf::from(home));
+        }
+        if let Some(profile) = get("USERPROFILE", &mut lookup) {
+            return Some(PathBuf::from(profile));
+        }
     }
-    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(profile));
-    }
-    let drive = std::env::var_os("HOMEDRIVE").filter(|v| !v.is_empty())?;
-    let path = std::env::var_os("HOMEPATH").filter(|v| !v.is_empty())?;
+
+    let drive = get("HOMEDRIVE", &mut lookup)?;
+    let path = get("HOMEPATH", &mut lookup)?;
     let mut combined = OsString::from(drive);
     combined.push(path);
     Some(PathBuf::from(combined))
@@ -193,13 +300,31 @@ fn save_sidecar(app: &App, child: CommandChild) -> Result<(), DynError> {
     Ok(())
 }
 
-fn forward_sidecar_logs(mut rx: CommandRx) {
+fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
+    let startup_handled = Arc::new(AtomicBool::new(false));
+    let timeout_window = window.clone();
+    let timeout_state = startup_handled.clone();
+    thread::spawn(move || {
+        thread::sleep(READY_TIMEOUT);
+        if !timeout_state.load(Ordering::SeqCst) {
+            let _ = timeout_window.eval(
+                "document.getElementById('status').textContent = 'AgentsView backend did not become ready in time.';",
+            );
+        }
+    });
+
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line_bytes) => {
                     let line = String::from_utf8_lossy(&line_bytes);
                     eprintln!("[agentsview] {}", line.trim_end());
+                    if !startup_handled.load(Ordering::SeqCst) {
+                        if let Some(port) = parse_listening_port(line.as_ref()) {
+                            startup_handled.store(true, Ordering::SeqCst);
+                            redirect_when_ready(window.clone(), port);
+                        }
+                    }
                 }
                 CommandEvent::Stderr(line_bytes) => {
                     let line = String::from_utf8_lossy(&line_bytes);
@@ -210,6 +335,11 @@ fn forward_sidecar_logs(mut rx: CommandRx) {
                         "[agentsview] sidecar terminated (code: {:?}, signal: {:?})",
                         payload.code, payload.signal
                     );
+                    if !startup_handled.swap(true, Ordering::SeqCst) {
+                        let _ = window.eval(
+                            "document.getElementById('status').textContent = 'AgentsView backend exited before startup completed.';",
+                        );
+                    }
                     break;
                 }
                 CommandEvent::Error(err) => {
@@ -242,6 +372,17 @@ fn redirect_when_ready(window: WebviewWindow, port: u16) {
     });
 }
 
+fn parse_listening_port(line: &str) -> Option<u16> {
+    let marker = format!("http://{HOST}:");
+    let idx = line.find(marker.as_str())?;
+    let after = &line[(idx + marker.len())..];
+    let digits: String = after.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<u16>().ok()
+}
+
 fn stop_backend(app: &AppHandle) {
     let state = app.state::<SidecarState>();
     let Ok(mut guard) = state.child.lock() else {
@@ -255,15 +396,10 @@ fn stop_backend(app: &AppHandle) {
     }
 }
 
-fn reserve_port() -> Result<u16, DynError> {
-    let listener = TcpListener::bind((HOST, 0))?;
-    Ok(listener.local_addr()?.port())
-}
-
 fn wait_for_server(port: u16, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if stats_endpoint_ready(port) {
+        if backend_endpoint_ready(port) {
             return true;
         }
         thread::sleep(READY_POLL_INTERVAL);
@@ -271,32 +407,173 @@ fn wait_for_server(port: u16, timeout: Duration) -> bool {
     false
 }
 
-fn stats_endpoint_ready(port: u16) -> bool {
+fn backend_endpoint_ready(port: u16) -> bool {
+    let request =
+        format!("GET /api/v1/version HTTP/1.1\r\nHost: {HOST}:{port}\r\nConnection: close\r\n\r\n");
+    let response = match read_http_response(port, request.as_str()) {
+        Some(resp) => resp,
+        None => return false,
+    };
+    version_response_looks_valid(response.as_slice())
+}
+
+fn read_http_response(port: u16, request: &str) -> Option<Vec<u8>> {
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     let mut stream = match TcpStream::connect_timeout(&addr.into(), Duration::from_millis(250)) {
         Ok(stream) => stream,
-        Err(_) => return false,
+        Err(_) => return None,
     };
 
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(250)));
 
-    let request =
-        format!("GET /api/v1/stats HTTP/1.1\r\nHost: {HOST}:{port}\r\nConnection: close\r\n\r\n");
-
     if stream.write_all(request.as_bytes()).is_err() {
-        return false;
+        return None;
     }
 
-    let mut buf = [0_u8; 256];
-    let n = match stream.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => return false,
+    let mut buf = Vec::with_capacity(4096);
+    if stream.read_to_end(&mut buf).is_err() {
+        return None;
+    }
+    if buf.is_empty() {
+        return None;
+    }
+    Some(buf)
+}
+
+fn version_response_looks_valid(response: &[u8]) -> bool {
+    if !(response.starts_with(b"HTTP/1.1 200") || response.starts_with(b"HTTP/1.0 200")) {
+        return false;
+    }
+    let body = if let Some(idx) = response.windows(4).position(|w| w == b"\r\n\r\n") {
+        &response[(idx + 4)..]
+    } else if let Some(idx) = response.windows(2).position(|w| w == b"\n\n") {
+        &response[(idx + 2)..]
+    } else {
+        return false;
     };
-    if n == 0 {
-        return false;
+    let body = String::from_utf8_lossy(body);
+    body.contains("\"version\"") && body.contains("\"commit\"") && body.contains("\"build_date\"")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn parse_listening_port_extracts_backend_port() {
+        let line = "agentsview dev listening at http://127.0.0.1:18080 (started in 1.2s)";
+        assert_eq!(parse_listening_port(line), Some(18080));
+        assert_eq!(parse_listening_port("unrelated line"), None);
     }
 
-    let header = String::from_utf8_lossy(&buf[..n]);
-    header.starts_with("HTTP/1.1 200") || header.starts_with("HTTP/1.0 200")
+    #[test]
+    fn version_response_requires_identity_fields() {
+        let valid = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"version\":\"1.0.0\",\"commit\":\"abc\",\"build_date\":\"2026-01-01T00:00:00Z\"}";
+        assert!(version_response_looks_valid(valid));
+
+        let missing = b"HTTP/1.1 200 OK\r\n\r\n{\"version\":\"1.0.0\"}";
+        assert!(!version_response_looks_valid(missing));
+
+        let wrong_status = b"HTTP/1.1 404 Not Found\r\n\r\n{}";
+        assert!(!version_response_looks_valid(wrong_status));
+    }
+
+    #[test]
+    fn should_probe_login_shell_skips_windows_or_explicit_skip() {
+        assert!(should_probe_login_shell(None, false));
+        assert!(!should_probe_login_shell(Some(&OsString::from("1")), false));
+        assert!(!should_probe_login_shell(None, true));
+    }
+
+    #[test]
+    fn build_sidecar_env_applies_precedence_and_path_override() {
+        let merged = build_sidecar_env(
+            vec![
+                (OsString::from("PATH"), OsString::from("/bin")),
+                (OsString::from("HOME"), OsString::from("/base")),
+            ],
+            vec![(OsString::from("HOME"), OsString::from("/login"))],
+            vec![(OsString::from("HOME"), OsString::from("/desktop"))],
+            Some(OsString::from("/custom/path")),
+            false,
+        );
+        let map: HashMap<_, _> = merged.into_iter().collect();
+        assert_eq!(
+            map.get(&OsString::from("HOME")),
+            Some(&OsString::from("/desktop"))
+        );
+        assert_eq!(
+            map.get(&OsString::from("PATH")),
+            Some(&OsString::from("/custom/path"))
+        );
+    }
+
+    #[test]
+    fn build_sidecar_env_supports_case_insensitive_windows_keys() {
+        let merged = build_sidecar_env(
+            vec![(OsString::from("Path"), OsString::from("A"))],
+            vec![(OsString::from("PATH"), OsString::from("B"))],
+            vec![],
+            Some(OsString::from("C")),
+            true,
+        );
+        let map: HashMap<_, _> = merged.into_iter().collect();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&OsString::from("PATH")), Some(&OsString::from("C")));
+    }
+
+    #[test]
+    fn parse_desktop_env_content_ignores_comments_and_invalid_lines() {
+        let parsed = parse_desktop_env_content(
+            r#"
+            # comment
+            PATH=/custom/bin
+            BADLINE
+            =missingkey
+            FOO = bar
+            "#,
+        );
+        let map: HashMap<_, _> = parsed.into_iter().collect();
+        assert_eq!(
+            map.get(&OsString::from("PATH")),
+            Some(&OsString::from("/custom/bin"))
+        );
+        assert_eq!(
+            map.get(&OsString::from("FOO")),
+            Some(&OsString::from("bar"))
+        );
+        assert!(!map.contains_key(&OsString::from("BADLINE")));
+    }
+
+    #[test]
+    fn resolve_home_dir_from_lookup_honors_platform_precedence() {
+        let mut lookup = HashMap::new();
+        lookup.insert("HOME".to_string(), OsString::from("/home/a"));
+        lookup.insert("USERPROFILE".to_string(), OsString::from("C:\\Users\\a"));
+        let resolved_unix = resolve_home_dir_from_lookup(|k| lookup.get(k).cloned(), false);
+        assert_eq!(resolved_unix, Some(PathBuf::from("/home/a")));
+
+        let resolved_windows = resolve_home_dir_from_lookup(|k| lookup.get(k).cloned(), true);
+        assert_eq!(resolved_windows, Some(PathBuf::from("C:\\Users\\a")));
+    }
+
+    #[test]
+    fn parse_nul_env_tolerates_invalid_utf8_entries() {
+        let raw = b"PATH=/bin\0BROKEN=\xFF\xFE\0EMPTY=\0\0";
+        let parsed = parse_nul_env(raw);
+        let map: HashMap<_, _> = parsed.into_iter().collect();
+        assert!(map.contains_key(&OsString::from("PATH")));
+
+        #[cfg(unix)]
+        {
+            let broken = map
+                .get(&OsString::from("BROKEN"))
+                .expect("BROKEN key present");
+            assert_eq!(broken.as_os_str().as_bytes(), b"\xFF\xFE");
+        }
+    }
 }

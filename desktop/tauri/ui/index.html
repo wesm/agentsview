@@ -35,7 +35,7 @@
       }
 
       .shell {
-        width: min(680px, calc(100vw - 36px));
+        width: min(680px, 100%);
         border-radius: 20px;
         border: 1px solid var(--panel-border);
         background: rgba(255, 255, 255, 0.92);
@@ -184,6 +184,14 @@
         }
         to {
           background-position: 220% 50%;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .top-glow,
+        .meter::before,
+        .stage-dot {
+          animation: none !important;
         }
       }
     </style>

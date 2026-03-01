@@ -81,10 +81,17 @@ desktop-macos-app:
 desktop-windows-installer:
 	cd desktop/tauri && npm install && npm run tauri:build:windows
 	mkdir -p $(DESKTOP_DIST_DIR)/windows
+	rm -f $(DESKTOP_DIST_DIR)/windows/*.exe
+	@exe_count=$$(find desktop/tauri/src-tauri/target/release/bundle/nsis \
+		-maxdepth 1 -type f -name '*.exe' | wc -l | tr -d ' '); \
+	if [ "$$exe_count" -eq 0 ]; then \
+		echo "error: no Windows installer (.exe) found in bundle output" >&2; \
+		exit 1; \
+	fi; \
 	find desktop/tauri/src-tauri/target/release/bundle/nsis \
 		-maxdepth 1 -type f -name '*.exe' \
-		-exec cp {} $(DESKTOP_DIST_DIR)/windows/ \;
-	@echo "Windows installer copied to $(DESKTOP_DIST_DIR)/windows/"
+		-exec cp {} $(DESKTOP_DIST_DIR)/windows/ \;; \
+	echo "Copied $$exe_count Windows installer(s) to $(DESKTOP_DIST_DIR)/windows/"
 
 # Backward-compatible alias (macOS .app)
 desktop-app: desktop-macos-app

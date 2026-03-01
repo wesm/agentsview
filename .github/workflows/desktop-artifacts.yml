@@ -72,12 +72,48 @@ jobs:
         run: npm ci
         working-directory: desktop/tauri
 
+      - name: Desktop smoke tests
+        shell: bash
+        run: |
+          bash desktop/tauri/scripts/test-prepare-sidecar.sh
+          bash desktop/tauri/scripts/test-startup-ui.sh
+          cargo test --manifest-path desktop/tauri/src-tauri/Cargo.toml --lib
+
       - name: Build desktop bundle
         shell: bash
         run: |
           cd desktop/tauri
           npm run prepare-sidecar
           npx tauri build --bundles "${{ matrix.bundle }}"
+
+      - name: Smoke check sidecar metadata
+        shell: bash
+        run: |
+          target_triple="${TAURI_ENV_TARGET_TRIPLE:-${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host: /{print $2}')}}"
+          if [ -z "$target_triple" ]; then
+            echo "target triple is empty" >&2
+            exit 1
+          fi
+
+          ext=""
+          if [[ "$target_triple" == *"windows"* ]]; then
+            ext=".exe"
+          fi
+          sidecar="desktop/tauri/src-tauri/binaries/agentsview-${target_triple}${ext}"
+          if [ ! -f "$sidecar" ]; then
+            echo "missing sidecar binary: $sidecar" >&2
+            exit 1
+          fi
+
+          "$sidecar" version > sidecar-version.txt
+          if grep -q "commit unknown" sidecar-version.txt; then
+            echo "sidecar metadata missing commit: $(cat sidecar-version.txt)" >&2
+            exit 1
+          fi
+          if grep -Eq "built[[:space:]]*\)$" sidecar-version.txt; then
+            echo "sidecar metadata missing build date: $(cat sidecar-version.txt)" >&2
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:

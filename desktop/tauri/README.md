@@ -32,7 +32,9 @@ It builds `agentsview` and copies it to `src-tauri/binaries/agentsview-<target-t
 When launched from Finder/Explorer, desktop apps usually do not inherit your shell profile
 (`.zshrc`, `.bashrc`), which can hide CLIs like `claude`, `codex`, and `gemini` from `PATH`.
 
-The Tauri wrapper now loads login-shell env (`$SHELL -lic 'env -0'`) for the sidecar.
+On macOS/Linux, the Tauri wrapper loads login-shell env (`$SHELL -lic 'env -0'`) for
+the sidecar (with a short timeout to avoid startup hangs). On Windows this probing is
+skipped by default.
 
 Optional escape hatch:
 
