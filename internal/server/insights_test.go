@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -155,6 +156,64 @@ func TestGenerateInsight_DefaultAgent(t *testing.T) {
 		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15"}`)
 	assertStatus(t, w, http.StatusOK)
 	assertBodyContains(t, w, "event: error")
+	assertBodyContains(t, w, "stub: no CLI")
+}
+
+func TestGenerateInsight_StreamsLogs(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		onLog(insight.LogEvent{
+			Stream: "stdout",
+			Line:   `{"type":"system","status":"ready"}`,
+		})
+		onLog(insight.LogEvent{
+			Stream: "stderr",
+			Line:   "rate limit warning",
+		})
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+			Model:   "test-model",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	w := te.post(t, "/api/v1/insights/generate",
+		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`)
+	assertStatus(t, w, http.StatusOK)
+
+	events := parseSSE(w.Body.String())
+	if len(events) < 4 {
+		t.Fatalf("expected >=4 SSE events, got %d: %s", len(events), w.Body.String())
+	}
+	if events[0].Event != "status" {
+		t.Fatalf("first event = %q, want status", events[0].Event)
+	}
+	if events[1].Event != "log" || events[2].Event != "log" {
+		t.Fatalf("expected two log events, got: %#v", events)
+	}
+	if events[len(events)-1].Event != "done" {
+		t.Fatalf("last event = %q, want done", events[len(events)-1].Event)
+	}
+
+	var log1 insight.LogEvent
+	if err := json.Unmarshal([]byte(events[1].Data), &log1); err != nil {
+		t.Fatalf("unmarshal first log event: %v", err)
+	}
+	if log1.Stream != "stdout" {
+		t.Fatalf("first log stream = %q, want stdout", log1.Stream)
+	}
+
+	var log2 insight.LogEvent
+	if err := json.Unmarshal([]byte(events[2].Data), &log2); err != nil {
+		t.Fatalf("unmarshal second log event: %v", err)
+	}
+	if log2.Stream != "stderr" {
+		t.Fatalf("second log stream = %q, want stderr", log2.Stream)
+	}
 }
 
 func TestDeleteInsight_Found(t *testing.T) {

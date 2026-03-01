@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wesm/agentsview/internal/db"
@@ -176,7 +177,14 @@ func (s *Server) handleGenerateInsight(
 		return
 	}
 
-	stream.SendJSON("status", map[string]string{
+	var streamMu sync.Mutex
+	sendJSON := func(event string, v any) {
+		streamMu.Lock()
+		defer streamMu.Unlock()
+		stream.SendJSON(event, v)
+	}
+
+	sendJSON("status", map[string]string{
 		"phase": "generating",
 	})
 
@@ -191,7 +199,7 @@ func (s *Server) handleGenerateInsight(
 	)
 	if err != nil {
 		log.Printf("insight prompt error: %v", err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "failed to build prompt",
 		})
 		return
@@ -202,21 +210,24 @@ func (s *Server) handleGenerateInsight(
 	)
 	defer cancel()
 
-	result, err := s.generateFunc(
+	result, err := s.generateStreamFunc(
 		genCtx, req.Agent, prompt,
+		func(ev insight.LogEvent) {
+			sendJSON("log", ev)
+		},
 	)
 	if err != nil {
 		log.Printf("insight generate error: %v", err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": fmt.Sprintf(
-				"%s generation failed", req.Agent,
+				"%s generation failed: %v", req.Agent, err,
 			),
 		})
 		return
 	}
 
 	if strings.TrimSpace(result.Content) == "" {
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "agent returned empty content",
 		})
 		return
@@ -247,7 +258,7 @@ func (s *Server) handleGenerateInsight(
 	})
 	if err != nil {
 		log.Printf("insight insert error: %v", err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "failed to save insight",
 		})
 		return
@@ -257,11 +268,11 @@ func (s *Server) handleGenerateInsight(
 	if err != nil || saved == nil {
 		log.Printf("insight get error: id=%d err=%v",
 			id, err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "failed to retrieve saved insight",
 		})
 		return
 	}
 
-	stream.SendJSON("done", saved)
+	sendJSON("done", saved)
 }

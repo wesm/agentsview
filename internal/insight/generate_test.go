@@ -63,7 +63,7 @@ Second`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseCodexStream(strings.NewReader(tt.input))
+			result, err := parseCodexStream(strings.NewReader(tt.input), nil)
 			if tt.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
@@ -127,7 +127,7 @@ Part 2`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseStreamJSON(strings.NewReader(tt.input))
+			result, err := parseStreamJSON(strings.NewReader(tt.input), nil)
 			if tt.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
@@ -351,7 +351,7 @@ func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
 				t, tt.stdout, tt.exitCode,
 			)
 			result, err := generateClaude(
-				context.Background(), bin, "test",
+				context.Background(), bin, "test", nil,
 			)
 
 			if tt.wantErr {
@@ -400,7 +400,7 @@ func TestGenerateGemini_ModelFlag(t *testing.T) {
 	bin, argsFile := fakeGeminiBin(t, streamJSON, 0)
 
 	result, err := generateGemini(
-		context.Background(), bin, "test prompt",
+		context.Background(), bin, "test prompt", nil,
 	)
 	if err != nil {
 		t.Fatalf("generateGemini: %v", err)
@@ -453,7 +453,7 @@ func TestGenerateClaude_CancelledContext(t *testing.T) {
 	)
 	cancel()
 
-	_, err := generateClaude(ctx, bin, "test")
+	_, err := generateClaude(ctx, bin, "test", nil)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -470,7 +470,7 @@ func TestGenerateClaude_SuccessNotDiscarded(t *testing.T) {
 		t, `{"result":"OK","model":"m1"}`, 0,
 	)
 	result, err := generateClaude(
-		context.Background(), bin, "test",
+		context.Background(), bin, "test", nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

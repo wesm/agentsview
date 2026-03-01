@@ -295,19 +295,38 @@
               {/if}
             </div>
             <div class="task-body">
-              <span class="task-label">
-                {typeShort(task.type, task.dateFrom, task.dateTo)}
-                <span class="task-date">
-                  {formatDateRange(task.dateFrom, task.dateTo)}
+              <div class="task-main">
+                <span class="task-label">
+                  {typeShort(task.type, task.dateFrom, task.dateTo)}
+                  <span class="task-date">
+                    {formatDateRange(task.dateFrom, task.dateTo)}
+                  </span>
                 </span>
-              </span>
-              <span class="task-scope">
-                {task.project || "global"}
-              </span>
+                <span class="task-scope">
+                  {task.project || "global"}
+                </span>
+              </div>
               {#if task.status === "error"}
                 <span class="task-error-msg">{task.error}</span>
               {:else}
                 <span class="task-phase">{task.phase}</span>
+              {/if}
+              {#if task.logs.length > 0}
+                <div
+                  class="task-logs"
+                  role="log"
+                  aria-live="polite"
+                >
+                  {#each task.logs as entry}
+                    <div
+                      class="task-log-line"
+                      class:log-stderr={entry.stream === "stderr"}
+                    >
+                      <span class="task-log-stream">{entry.stream}</span>
+                      <span class="task-log-text">{entry.line}</span>
+                    </div>
+                  {/each}
+                </div>
               {/if}
             </div>
             <span class="task-agent">{task.agent}</span>
@@ -712,10 +731,10 @@
   .task-item {
     position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
-    height: 42px;
-    padding: 0 14px;
+    min-height: 42px;
+    padding: 8px 14px 10px;
     overflow: hidden;
   }
 
@@ -730,6 +749,7 @@
   .task-indicator {
     flex-shrink: 0;
     width: 14px;
+    margin-top: 2px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -755,10 +775,19 @@
     flex: 1;
     min-width: 0;
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0 5px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     line-height: 1.35;
+  }
+
+  .task-main {
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
   }
 
   .task-label {
@@ -776,26 +805,63 @@
   .task-scope {
     font-size: 10px;
     color: var(--text-muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    max-width: 45%;
   }
 
   .task-phase {
     width: 100%;
     font-size: 10px;
     color: var(--accent-blue);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     font-family: var(--font-mono);
     letter-spacing: -0.02em;
+    word-break: break-word;
   }
 
   .task-error-msg {
     width: 100%;
     font-size: 10px;
     color: var(--accent-red);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    word-break: break-word;
+  }
+
+  .task-logs {
+    width: 100%;
+    max-height: 132px;
+    overflow-y: auto;
+    margin-top: 2px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-muted);
+    border-radius: 6px;
+    background: var(--bg-inset);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .task-log-line {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    gap: 6px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .task-log-stream {
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .task-log-text {
+    min-width: 0;
+  }
+
+  .log-stderr .task-log-stream,
+  .log-stderr .task-log-text {
+    color: var(--accent-red);
   }
 
   .task-agent {
@@ -805,6 +871,7 @@
     font-family: var(--font-mono);
     letter-spacing: -0.02em;
     white-space: nowrap;
+    margin-top: 2px;
   }
 
   .task-dismiss {
@@ -817,6 +884,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-muted);
     opacity: 0;
+    margin-top: 1px;
     transition: opacity 0.15s, background 0.1s, color 0.1s;
   }
 

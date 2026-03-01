@@ -146,6 +146,7 @@ describe("date range mode switching", () => {
         type: "daily_activity",
       }),
       expect.any(Function),
+      expect.any(Function),
     );
   });
 
@@ -168,6 +169,7 @@ describe("date range mode switching", () => {
         date_from: "2025-01-15",
         date_to: "2025-01-15",
       }),
+      expect.any(Function),
       expect.any(Function),
     );
   });
@@ -281,6 +283,34 @@ describe("generate (multi-task)", () => {
     expect(insights.tasks).toHaveLength(1);
     expect(insights.tasks[0]!.status).toBe("error");
     expect(insights.tasks[0]!.error).toBe("CLI not found");
+  });
+
+  it("captures streaming logs per task", async () => {
+    let doneResolve!: (s: Insight) => void;
+    vi.mocked(api.generateInsight).mockImplementationOnce(
+      (_req, _onStatus, onLog) => {
+        onLog?.({ stream: "stdout", line: "{\"type\":\"system\"}" });
+        onLog?.({ stream: "stderr", line: "rate limit warning" });
+        return {
+          abort: vi.fn(),
+          done: new Promise<Insight>((resolve) => {
+            doneResolve = resolve;
+          }),
+        };
+      },
+    );
+
+    insights.generate();
+
+    expect(insights.tasks).toHaveLength(1);
+    expect(insights.tasks[0]!.logs).toEqual([
+      { stream: "stdout", line: "{\"type\":\"system\"}" },
+      { stream: "stderr", line: "rate limit warning" },
+    ]);
+
+    doneResolve(makeInsight({ id: 111 }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(insights.tasks).toHaveLength(0);
   });
 
   it("calls load instead of prepend when filters changed", async () => {

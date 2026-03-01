@@ -2,7 +2,6 @@ package insight
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,11 +35,36 @@ type GenerateFunc func(
 	ctx context.Context, agent, prompt string,
 ) (Result, error)
 
+// LogEvent represents one log line emitted by an insight
+// agent process.
+type LogEvent struct {
+	Stream string `json:"stream"` // stdout|stderr
+	Line   string `json:"line"`
+}
+
+// LogFunc receives real-time log events from the agent
+// subprocess.
+type LogFunc func(LogEvent)
+
+// GenerateStreamFunc is like GenerateFunc but includes a
+// log callback for streaming stdout/stderr events.
+type GenerateStreamFunc func(
+	ctx context.Context, agent, prompt string, onLog LogFunc,
+) (Result, error)
+
 // Generate invokes an AI agent CLI to generate an insight.
 // The agent parameter selects which CLI to use (claude,
 // codex, gemini). The prompt is passed via stdin.
 func Generate(
 	ctx context.Context, agent, prompt string,
+) (Result, error) {
+	return GenerateStream(ctx, agent, prompt, nil)
+}
+
+// GenerateStream invokes an AI agent CLI to generate an
+// insight while optionally streaming process logs.
+func GenerateStream(
+	ctx context.Context, agent, prompt string, onLog LogFunc,
 ) (Result, error) {
 	if !ValidAgents[agent] {
 		return Result{}, fmt.Errorf(
@@ -57,11 +81,11 @@ func Generate(
 
 	switch agent {
 	case "codex":
-		return generateCodex(ctx, path, prompt)
+		return generateCodex(ctx, path, prompt, onLog)
 	case "gemini":
-		return generateGemini(ctx, path, prompt)
+		return generateGemini(ctx, path, prompt, onLog)
 	default:
-		return generateClaude(ctx, path, prompt)
+		return generateClaude(ctx, path, prompt, onLog)
 	}
 }
 
@@ -119,22 +143,92 @@ func cleanEnv() []string {
 	return append(filtered, "CLAUDE_NO_SOUND=1")
 }
 
+func emitLog(onLog LogFunc, stream, line string) {
+	if onLog == nil {
+		return
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	onLog(LogEvent{
+		Stream: stream,
+		Line:   line,
+	})
+}
+
+func collectStreamLines(
+	r io.Reader, stream string, onLog LogFunc,
+) <-chan string {
+	ch := make(chan string, 1)
+	go func() {
+		defer close(ch)
+		sc := bufio.NewScanner(r)
+		// Allow larger JSONL lines than Scanner default.
+		buf := make([]byte, 0, 64*1024)
+		sc.Buffer(buf, 2*1024*1024)
+
+		var lines []string
+		for sc.Scan() {
+			line := sc.Text()
+			lines = append(lines, line)
+			emitLog(onLog, stream, line)
+		}
+		if err := sc.Err(); err != nil {
+			emitLog(
+				onLog, "stderr",
+				fmt.Sprintf("read %s: %v", stream, err),
+			)
+		}
+		ch <- strings.Join(lines, "\n")
+	}()
+	return ch
+}
+
 // generateClaude invokes `claude -p --output-format json`.
 func generateClaude(
-	ctx context.Context, path, prompt string,
+	ctx context.Context, path, prompt string, onLog LogFunc,
 ) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
 		"-p", "--output-format", "json",
 	)
 	cmd.Env = append(os.Environ(), "CLAUDE_NO_SOUND=1")
-	cmd.Stdin = bytes.NewReader([]byte(prompt))
+	cmd.Stdin = strings.NewReader(prompt)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"create stdout pipe: %w", err,
+		)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"create stderr pipe: %w", err,
+		)
+	}
 
-	runErr := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf("start claude: %w", err)
+	}
+
+	stderrDone := collectStreamLines(
+		stderrPipe, "stderr", onLog,
+	)
+	stdoutBytes, readErr := io.ReadAll(stdoutPipe)
+	if readErr != nil {
+		_, _ = io.Copy(io.Discard, stdoutPipe)
+	}
+	stderrText := <-stderrDone
+	runErr := cmd.Wait()
+	if readErr != nil {
+		return Result{}, fmt.Errorf(
+			"read claude stdout: %w", readErr,
+		)
+	}
+
+	emitLog(onLog, "stdout", string(stdoutBytes))
 
 	// Honor context cancellation over salvaging stdout, but
 	// only when the command actually failed. A successful
@@ -150,7 +244,7 @@ func generateClaude(
 		Result string `json:"result"`
 		Model  string `json:"model"`
 	}
-	if json.Unmarshal(stdout.Bytes(), &resp) == nil &&
+	if json.Unmarshal(stdoutBytes, &resp) == nil &&
 		strings.TrimSpace(resp.Result) != "" {
 		return Result{
 			Content: resp.Result,
@@ -162,20 +256,20 @@ func generateClaude(
 	if runErr != nil {
 		return Result{}, fmt.Errorf(
 			"claude CLI failed: %w\nstderr: %s",
-			runErr, stderr.String(),
+			runErr, stderrText,
 		)
 	}
 
 	return Result{}, fmt.Errorf(
 		"claude returned empty result\nraw: %s",
-		stdout.String(),
+		string(stdoutBytes),
 	)
 }
 
 // generateCodex invokes `codex exec` in read-only sandbox
 // and parses the JSONL stream for agent_message items.
 func generateCodex(
-	ctx context.Context, path, prompt string,
+	ctx context.Context, path, prompt string, onLog LogFunc,
 ) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
@@ -184,23 +278,29 @@ func generateCodex(
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 
-	var stderr bytes.Buffer
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{}, fmt.Errorf(
 			"create stdout pipe: %w", err,
 		)
 	}
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
 		return Result{}, fmt.Errorf(
-			"start codex: %w\nstderr: %s",
-			err, stderr.String(),
+			"create stderr pipe: %w", err,
 		)
 	}
 
-	content, parseErr := parseCodexStream(stdoutPipe)
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf(
+			"start codex: %w", err,
+		)
+	}
+
+	stderrDone := collectStreamLines(
+		stderrPipe, "stderr", onLog,
+	)
+	content, parseErr := parseCodexStream(stdoutPipe, onLog)
 
 	// Drain remaining stdout so cmd.Wait doesn't block.
 	if parseErr != nil {
@@ -208,19 +308,24 @@ func generateCodex(
 	}
 
 	if waitErr := cmd.Wait(); waitErr != nil {
+		stderrText := <-stderrDone
 		if parseErr != nil {
 			return Result{}, fmt.Errorf(
 				"codex failed: %w (parse: %v)\nstderr: %s",
-				waitErr, parseErr, stderr.String(),
+				waitErr, parseErr, stderrText,
 			)
 		}
 		return Result{}, fmt.Errorf(
 			"codex failed: %w\nstderr: %s",
-			waitErr, stderr.String(),
+			waitErr, stderrText,
 		)
 	}
+	stderrText := <-stderrDone
 	if parseErr != nil {
-		return Result{}, parseErr
+		return Result{}, fmt.Errorf(
+			"parse codex stream: %w\nstderr: %s",
+			parseErr, stderrText,
+		)
 	}
 
 	return Result{
@@ -244,7 +349,9 @@ type codexEvent struct {
 
 // parseCodexStream reads codex JSONL and extracts
 // agent_message text from item.completed/item.updated events.
-func parseCodexStream(r io.Reader) (string, error) {
+func parseCodexStream(
+	r io.Reader, onLog LogFunc,
+) (string, error) {
 	br := bufio.NewReader(r)
 	var messages []string
 	indexByID := make(map[string]int)
@@ -256,6 +363,7 @@ func parseCodexStream(r io.Reader) (string, error) {
 		}
 
 		trimmed := strings.TrimSpace(line)
+		emitLog(onLog, "stdout", trimmed)
 		if trimmed != "" {
 			var ev codexEvent
 			if json.Unmarshal(
@@ -304,7 +412,7 @@ func parseCodexStream(r io.Reader) (string, error) {
 // generateGemini invokes `gemini --output-format stream-json`
 // and parses the JSONL stream for result/assistant messages.
 func generateGemini(
-	ctx context.Context, path, prompt string,
+	ctx context.Context, path, prompt string, onLog LogFunc,
 ) (Result, error) {
 	cmd := exec.CommandContext(
 		ctx, path,
@@ -313,23 +421,29 @@ func generateGemini(
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 
-	var stderr bytes.Buffer
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{}, fmt.Errorf(
 			"create stdout pipe: %w", err,
 		)
 	}
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
 		return Result{}, fmt.Errorf(
-			"start gemini: %w\nstderr: %s",
-			err, stderr.String(),
+			"create stderr pipe: %w", err,
 		)
 	}
 
-	content, parseErr := parseStreamJSON(stdoutPipe)
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf(
+			"start gemini: %w", err,
+		)
+	}
+
+	stderrDone := collectStreamLines(
+		stderrPipe, "stderr", onLog,
+	)
+	content, parseErr := parseStreamJSON(stdoutPipe, onLog)
 
 	// Drain remaining stdout so cmd.Wait doesn't block.
 	if parseErr != nil {
@@ -337,19 +451,24 @@ func generateGemini(
 	}
 
 	if waitErr := cmd.Wait(); waitErr != nil {
+		stderrText := <-stderrDone
 		if parseErr != nil {
 			return Result{}, fmt.Errorf(
 				"gemini failed: %w (parse: %v)\nstderr: %s",
-				waitErr, parseErr, stderr.String(),
+				waitErr, parseErr, stderrText,
 			)
 		}
 		return Result{}, fmt.Errorf(
 			"gemini failed: %w\nstderr: %s",
-			waitErr, stderr.String(),
+			waitErr, stderrText,
 		)
 	}
+	stderrText := <-stderrDone
 	if parseErr != nil {
-		return Result{}, parseErr
+		return Result{}, fmt.Errorf(
+			"parse gemini stream: %w\nstderr: %s",
+			parseErr, stderrText,
+		)
 	}
 
 	return Result{
@@ -377,7 +496,9 @@ type streamMessage struct {
 // parseStreamJSON reads stream-json JSONL and extracts the
 // result text. Prefers type=result, falls back to collecting
 // assistant messages.
-func parseStreamJSON(r io.Reader) (string, error) {
+func parseStreamJSON(
+	r io.Reader, onLog LogFunc,
+) (string, error) {
 	br := bufio.NewReader(r)
 	var lastResult string
 	var assistantMsgs []string
@@ -389,6 +510,7 @@ func parseStreamJSON(r io.Reader) (string, error) {
 		}
 
 		trimmed := strings.TrimSpace(line)
+		emitLog(onLog, "stdout", trimmed)
 		if trimmed != "" {
 			var msg streamMessage
 			if json.Unmarshal(
