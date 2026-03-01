@@ -8,7 +8,7 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,7 @@ const PREFERRED_PORT: u16 = 8080;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(125);
 const LOGIN_SHELL_ENV_TIMEOUT: Duration = Duration::from_secs(3);
+const LOGIN_SHELL_READER_TIMEOUT: Duration = Duration::from_millis(300);
 
 type DynError = Box<dyn Error>;
 type CommandRx = Receiver<CommandEvent>;
@@ -186,9 +187,10 @@ fn run_login_shell_env(shell: &str, timeout: Duration) -> Option<Vec<u8>> {
         .spawn()
         .ok()?;
     let mut stdout = child.stdout.take()?;
-    let reader = thread::spawn(move || {
+    let (tx, rx) = mpsc::sync_channel(1);
+    thread::spawn(move || {
         let mut out = Vec::new();
-        stdout.read_to_end(&mut out).ok().map(|_| out)
+        let _ = tx.send(stdout.read_to_end(&mut out).ok().map(|_| out));
     });
 
     let deadline = Instant::now() + timeout;
@@ -201,7 +203,7 @@ fn run_login_shell_env(shell: &str, timeout: Duration) -> Option<Vec<u8>> {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    let _ = reader.join();
+                    let _ = rx.recv_timeout(LOGIN_SHELL_READER_TIMEOUT);
                     return None;
                 }
                 thread::sleep(Duration::from_millis(25));
@@ -209,11 +211,11 @@ fn run_login_shell_env(shell: &str, timeout: Duration) -> Option<Vec<u8>> {
         }
     };
     if !status.success() {
-        let _ = reader.join();
+        let _ = rx.recv_timeout(LOGIN_SHELL_READER_TIMEOUT);
         return None;
     }
 
-    reader.join().ok().flatten()
+    rx.recv_timeout(LOGIN_SHELL_READER_TIMEOUT).ok().flatten()
 }
 
 fn parse_nul_env(content: &[u8]) -> Vec<(OsString, OsString)> {
@@ -622,6 +624,39 @@ mod tests {
             output.len() >= 262_144,
             "expected at least 262144 bytes, got {}",
             output.len()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_login_shell_env_timeout_returns_when_stdout_fd_stays_open() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("valid clock")
+            .as_nanos();
+        let script_path = std::env::temp_dir().join(format!(
+            "agentsview-login-shell-timeout-{stamp}-{}.sh",
+            std::process::id()
+        ));
+        fs::write(&script_path, "#!/bin/sh\n(sleep 2) &\nsleep 10\n").expect("write shell script");
+        let mut perms = fs::metadata(&script_path)
+            .expect("read shell script metadata")
+            .permissions();
+        perms.set_mode(0o700);
+        fs::set_permissions(&script_path, perms).expect("set executable permissions");
+
+        let started = Instant::now();
+        let output = run_login_shell_env(
+            script_path.to_str().expect("script path utf-8"),
+            Duration::from_millis(120),
+        );
+        let elapsed = started.elapsed();
+        let _ = fs::remove_file(&script_path);
+
+        assert!(output.is_none(), "timeout path should return None");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "timeout path took too long: {elapsed:?}"
         );
     }
 }
