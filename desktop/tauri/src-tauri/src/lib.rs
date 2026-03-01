@@ -1,7 +1,11 @@
+use std::collections::BTreeMap;
 use std::error::Error;
+use std::ffi::OsString;
+use std::fs;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -51,10 +55,12 @@ fn launch_backend(app: &mut App) -> Result<(), DynError> {
 
 fn spawn_sidecar(app: &App, port: u16) -> Result<(CommandRx, CommandChild), DynError> {
     let port_arg = port.to_string();
+    let mut command = app.shell().sidecar("agentsview")?;
+    for (key, value) in sidecar_env() {
+        command = command.env(key, value);
+    }
 
-    Ok(app
-        .shell()
-        .sidecar("agentsview")?
+    Ok(command
         .args([
             "serve",
             "-no-browser",
@@ -64,6 +70,97 @@ fn spawn_sidecar(app: &App, port: u16) -> Result<(CommandRx, CommandChild), DynE
             port_arg.as_str(),
         ])
         .spawn()?)
+}
+
+// sidecar_env returns the environment passed to the backend
+// sidecar process. It merges the app environment with
+// login-shell variables so desktop launches inherit zshrc/bash
+// exports. An optional ~/.agentsview/desktop.env file can
+// override specific keys as an escape hatch.
+fn sidecar_env() -> Vec<(OsString, OsString)> {
+    let mut merged: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
+
+    if std::env::var_os("AGENTSVIEW_DESKTOP_SKIP_LOGIN_SHELL_ENV").is_none() {
+        if let Some(login_shell_env) = read_login_shell_env() {
+            for (k, v) in login_shell_env {
+                merged.insert(k, v);
+            }
+        }
+    }
+
+    for (k, v) in read_desktop_env_file() {
+        merged.insert(k, v);
+    }
+
+    if let Some(path) = std::env::var_os("AGENTSVIEW_DESKTOP_PATH") {
+        merged.insert(OsString::from("PATH"), path);
+    }
+
+    merged.into_iter().collect()
+}
+
+// read_login_shell_env invokes the user's login shell and
+// parses NUL-delimited env output (`env -0`).
+fn read_login_shell_env() -> Option<Vec<(OsString, OsString)>> {
+    let default_shell = if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/sh"
+    };
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| default_shell.to_string());
+
+    let output = std::process::Command::new(shell)
+        .args(["-lic", "env -0"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let content = String::from_utf8(output.stdout).ok()?;
+    let mut vars = Vec::new();
+    for entry in content.split('\0') {
+        if entry.is_empty() {
+            continue;
+        }
+        if let Some((k, v)) = entry.split_once('=') {
+            vars.push((OsString::from(k), OsString::from(v)));
+        }
+    }
+    Some(vars)
+}
+
+// read_desktop_env_file parses ~/.agentsview/desktop.env as
+// KEY=VALUE lines. This provides a manual override path before
+// desktop settings UI exists.
+fn read_desktop_env_file() -> Vec<(OsString, OsString)> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let path = PathBuf::from(home).join(".agentsview").join("desktop.env");
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+
+    let mut vars = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        let key = k.trim();
+        if key.is_empty() {
+            continue;
+        }
+        vars.push((OsString::from(key), OsString::from(v.trim())));
+    }
+    vars
 }
 
 fn save_sidecar(app: &App, child: CommandChild) -> Result<(), DynError> {

@@ -136,6 +136,8 @@ Friendly output copies are placed in:
 - `dist/desktop/macos/AgentsView.app`
 - `dist/desktop/windows/*.exe`
 
+Desktop env escape hatch: `~/.agentsview/desktop.env` (for PATH/API keys overrides).
+
 ### Project Structure
 
 ```
