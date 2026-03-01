@@ -44,7 +44,7 @@
 
   /** For Task tool calls, extract key metadata fields */
   let taskMeta = $derived.by(() => {
-    if (toolCall?.tool_name !== "Task" || !inputParams)
+    if (!isTask || !inputParams)
       return null;
     const meta: { label: string; value: string }[] = [];
     if (inputParams.subagent_type) {
