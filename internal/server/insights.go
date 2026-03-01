@@ -178,10 +178,10 @@ func (s *Server) handleGenerateInsight(
 	}
 
 	var streamMu sync.Mutex
-	sendJSON := func(event string, v any) {
+	sendJSON := func(event string, v any) bool {
 		streamMu.Lock()
 		defer streamMu.Unlock()
-		stream.SendJSON(event, v)
+		return stream.SendJSON(event, v)
 	}
 
 	sendJSON("status", map[string]string{
@@ -213,10 +213,26 @@ func (s *Server) handleGenerateInsight(
 	const maxBufferedLogEvents = 256
 	logCh := make(chan insight.LogEvent, maxBufferedLogEvents)
 	logDone := make(chan struct{})
+	logStop := make(chan struct{})
+	var logStopOnce sync.Once
+	stopLogSender := func() {
+		logStopOnce.Do(func() { close(logStop) })
+	}
 	go func() {
 		defer close(logDone)
-		for ev := range logCh {
-			sendJSON("log", ev)
+		for {
+			select {
+			case <-logStop:
+				return
+			case ev, ok := <-logCh:
+				if !ok {
+					return
+				}
+				if !sendJSON("log", ev) {
+					stopLogSender()
+					return
+				}
+			}
 		}
 	}()
 	var (
@@ -251,6 +267,10 @@ func (s *Server) handleGenerateInsight(
 				"insight log stream drain timed out after %s",
 				logDrainTimeout,
 			)
+			// Ensure no further log events are written after terminal
+			// events by stopping the sender and waiting for exit.
+			stopLogSender()
+			<-logDone
 			return dropped, false
 		}
 	}
@@ -259,7 +279,10 @@ func (s *Server) handleGenerateInsight(
 		genCtx, req.Agent, prompt,
 		enqueueLog,
 	)
-	dropped, _ := finishLogStream()
+	dropped, drained := finishLogStream()
+	if !drained {
+		log.Printf("insight log stream did not fully drain before completion")
+	}
 	if dropped > 0 {
 		sendJSON("log", insight.LogEvent{
 			Stream: "stderr",

@@ -235,6 +235,24 @@ func (f *slowFlushRecorder) Flush() {
 	f.ResponseRecorder.Flush()
 }
 
+type slowLogRecorder struct {
+	*httptest.ResponseRecorder
+	delay time.Duration
+}
+
+func (f *slowLogRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		time.Sleep(f.delay)
+	}
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *slowLogRecorder) Flush() {
+	f.ResponseRecorder.Flush()
+}
+
 func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
 	stubGen := func(
 		_ context.Context, _ string, _ string, onLog insight.LogFunc,
@@ -308,6 +326,76 @@ func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
 	}
 	if !foundDone {
 		t.Fatalf("expected done event")
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutStopsSender(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		for i := range 10 {
+			onLog(insight.LogEvent{
+				Stream: "stdout",
+				Line:   fmt.Sprintf("slow-line-%d", i),
+			})
+		}
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := &slowLogRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		delay:            2500 * time.Millisecond,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(12 * time.Second):
+		t.Fatalf("timed out waiting for generate handler completion")
+	}
+
+	// If the timed-out log sender is still active after handler
+	// return, the response body will continue changing.
+	initialBody := w.Body.String()
+	time.Sleep(3 * time.Second)
+	if w.Body.String() != initialBody {
+		t.Fatalf("response body changed after handler completion, log sender still active")
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(initialBody)
+	doneIdx := -1
+	for i, ev := range events {
+		if ev.Event == "done" {
+			doneIdx = i
+			break
+		}
+	}
+	if doneIdx == -1 {
+		t.Fatalf("expected done event, got %d events", len(events))
+	}
+	for _, ev := range events[doneIdx+1:] {
+		if ev.Event == "log" {
+			t.Fatalf("found log event after done: %+v", ev)
+		}
 	}
 }
 

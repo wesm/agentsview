@@ -185,30 +185,35 @@ fn run_login_shell_env(shell: &str, timeout: Duration) -> Option<Vec<u8>> {
         .stdout(Stdio::piped())
         .spawn()
         .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = thread::spawn(move || {
+        let mut out = Vec::new();
+        stdout.read_to_end(&mut out).ok().map(|_| out)
+    });
 
     let deadline = Instant::now() + timeout;
-    loop {
+    let status = loop {
         match child.try_wait().ok()? {
             Some(status) => {
-                if !status.success() {
-                    return None;
-                }
-                break;
+                break status;
             }
             None => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = reader.join();
                     return None;
                 }
                 thread::sleep(Duration::from_millis(25));
             }
         }
+    };
+    if !status.success() {
+        let _ = reader.join();
+        return None;
     }
 
-    let mut out = Vec::new();
-    child.stdout.take()?.read_to_end(&mut out).ok()?;
-    Some(out)
+    reader.join().ok().flatten()
 }
 
 fn parse_nul_env(content: &[u8]) -> Vec<(OsString, OsString)> {
@@ -373,7 +378,7 @@ fn redirect_when_ready(window: WebviewWindow, port: u16) {
 }
 
 fn parse_listening_port(line: &str) -> Option<u16> {
-    let marker = format!("http://{HOST}:");
+    let marker = format!("listening at http://{HOST}:");
     let idx = line.find(marker.as_str())?;
     let after = &line[(idx + marker.len())..];
     let digits: String = after.chars().take_while(|ch| ch.is_ascii_digit()).collect();
@@ -462,12 +467,22 @@ mod tests {
     use std::collections::HashMap;
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parse_listening_port_extracts_backend_port() {
         let line = "agentsview dev listening at http://127.0.0.1:18080 (started in 1.2s)";
         assert_eq!(parse_listening_port(line), Some(18080));
         assert_eq!(parse_listening_port("unrelated line"), None);
+    }
+
+    #[test]
+    fn parse_listening_port_ignores_non_listening_urls() {
+        let line = "probe successful for http://127.0.0.1:19090/health";
+        assert_eq!(parse_listening_port(line), None);
     }
 
     #[test]
@@ -575,5 +590,38 @@ mod tests {
                 .expect("BROKEN key present");
             assert_eq!(broken.as_os_str().as_bytes(), b"\xFF\xFE");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_login_shell_env_handles_large_stdout() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("valid clock")
+            .as_nanos();
+        let script_path = std::env::temp_dir().join(format!(
+            "agentsview-login-shell-{stamp}-{}.sh",
+            std::process::id()
+        ));
+        fs::write(&script_path, "#!/bin/sh\nhead -c 262144 /dev/zero\n")
+            .expect("write shell script");
+        let mut perms = fs::metadata(&script_path)
+            .expect("read shell script metadata")
+            .permissions();
+        perms.set_mode(0o700);
+        fs::set_permissions(&script_path, perms).expect("set executable permissions");
+
+        let output = run_login_shell_env(
+            script_path.to_str().expect("script path utf-8"),
+            Duration::from_secs(2),
+        );
+        let _ = fs::remove_file(&script_path);
+
+        let output = output.expect("expected shell output");
+        assert!(
+            output.len() >= 262_144,
+            "expected at least 262144 bytes, got {}",
+            output.len()
+        );
     }
 }
