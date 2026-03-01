@@ -31,6 +31,7 @@ type CommandRx = Receiver<CommandEvent>;
 #[derive(Default)]
 struct SidecarState {
     child: Mutex<Option<CommandChild>>,
+    backend_port: Mutex<Option<u16>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -81,7 +82,14 @@ fn spawn_sidecar(app: &App) -> Result<(CommandRx, CommandChild), DynError> {
 fn init_navigation_guard_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     PluginBuilder::new("navigation-guard")
         .on_navigation(|webview, url| {
-            if is_allowed_navigation_url(url) {
+            let backend_port = webview
+                .app_handle()
+                .state::<SidecarState>()
+                .backend_port
+                .lock()
+                .ok()
+                .and_then(|guard| *guard);
+            if is_allowed_navigation_url(url, backend_port) {
                 return true;
             }
             if let Err(err) = webview
@@ -96,11 +104,17 @@ fn init_navigation_guard_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlug
         .build()
 }
 
-fn is_allowed_navigation_url(url: &Url) -> bool {
+fn is_allowed_navigation_url(url: &Url, backend_port: Option<u16>) -> bool {
     if url.scheme() == "tauri" && url.host_str() == Some("localhost") {
         return true;
     }
-    url.scheme() == "http" && url.host_str() == Some(HOST)
+    if url.scheme() != "http" || url.host_str() != Some(HOST) {
+        return false;
+    }
+    matches!(
+        (url.port(), backend_port),
+        (Some(navigated_port), Some(sidecar_port)) if navigated_port == sidecar_port
+    )
 }
 
 // sidecar_env returns the environment passed to the backend
@@ -353,6 +367,13 @@ fn save_sidecar(app: &App, child: CommandChild) -> Result<(), DynError> {
     Ok(())
 }
 
+fn save_sidecar_port(app: &AppHandle, port: u16) {
+    let state = app.state::<SidecarState>();
+    if let Ok(mut guard) = state.backend_port.lock() {
+        *guard = Some(port);
+    };
+}
+
 fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
     let startup_handled = Arc::new(AtomicBool::new(false));
     let timeout_window = window.clone();
@@ -378,6 +399,7 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                             &mut stdout_buffer,
                             chunk.as_ref(),
                         ) {
+                            save_sidecar_port(&window.app_handle(), port);
                             startup_handled.store(true, Ordering::SeqCst);
                             redirect_when_ready(window.clone(), port);
                         }
@@ -471,6 +493,9 @@ fn stop_backend(app: &AppHandle) {
             eprintln!("[agentsview] failed to stop sidecar: {err}");
         }
     }
+    if let Ok(mut port_guard) = state.backend_port.lock() {
+        *port_guard = None;
+    };
 }
 
 fn wait_for_server(port: u16, timeout: Duration) -> bool {
@@ -576,17 +601,19 @@ mod tests {
     #[test]
     fn is_allowed_navigation_url_allows_local_only() {
         let tauri_url = Url::parse("tauri://localhost/index.html").expect("valid tauri url");
-        assert!(is_allowed_navigation_url(&tauri_url));
+        assert!(is_allowed_navigation_url(&tauri_url, None));
 
         let local_backend = Url::parse("http://127.0.0.1:18080/").expect("valid localhost url");
-        assert!(is_allowed_navigation_url(&local_backend));
+        assert!(is_allowed_navigation_url(&local_backend, Some(18080)));
+        assert!(!is_allowed_navigation_url(&local_backend, Some(19090)));
+        assert!(!is_allowed_navigation_url(&local_backend, None));
 
         let remote = Url::parse("https://example.com/").expect("valid remote url");
-        assert!(!is_allowed_navigation_url(&remote));
+        assert!(!is_allowed_navigation_url(&remote, Some(18080)));
 
         let localhost_name =
             Url::parse("http://localhost:18080/").expect("valid localhost-name url");
-        assert!(!is_allowed_navigation_url(&localhost_name));
+        assert!(!is_allowed_navigation_url(&localhost_name, Some(18080)));
     }
 
     #[test]
