@@ -9,13 +9,14 @@ import (
 type AgentType string
 
 const (
-	AgentClaude   AgentType = "claude"
-	AgentCodex    AgentType = "codex"
-	AgentCopilot  AgentType = "copilot"
-	AgentGemini   AgentType = "gemini"
-	AgentOpenCode AgentType = "opencode"
-	AgentCursor   AgentType = "cursor"
-	AgentAmp      AgentType = "amp"
+	AgentClaude        AgentType = "claude"
+	AgentCodex         AgentType = "codex"
+	AgentCopilot       AgentType = "copilot"
+	AgentGemini        AgentType = "gemini"
+	AgentOpenCode      AgentType = "opencode"
+	AgentCursor        AgentType = "cursor"
+	AgentAmp           AgentType = "amp"
+	AgentVSCodeCopilot AgentType = "vscode-copilot"
 )
 
 // AgentDef describes a supported coding agent's filesystem
@@ -117,6 +118,25 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverAmpSessions,
 		FindSourceFunc: FindAmpSourceFile,
+	},
+	{
+		Type:        AgentVSCodeCopilot,
+		DisplayName: "VSCode Copilot",
+		EnvVar:      "VSCODE_COPILOT_DIR",
+		ConfigKey:   "vscode_copilot_dirs",
+		DefaultDirs: []string{
+			// macOS
+			"Library/Application Support/Code/User",
+			"Library/Application Support/Code - Insiders/User",
+			// Linux
+			".config/Code/User",
+			".config/Code - Insiders/User",
+		},
+		IDPrefix:       "vscode-copilot:",
+		WatchSubdir:    "workspaceStorage",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverVSCodeCopilotSessions,
+		FindSourceFunc: FindVSCodeCopilotSourceFile,
 	},
 }
 

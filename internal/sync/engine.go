@@ -368,6 +368,49 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// VSCode Copilot: <vscodeUserDir>/workspaceStorage/<hash>/chatSessions/<uuid>.{json,jsonl}
+	//            or: <vscodeUserDir>/globalStorage/emptyWindowChatSessions/<uuid>.{json,jsonl}
+	for _, vscDir := range e.agentDirs[parser.AgentVSCodeCopilot] {
+		if vscDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(vscDir, path); ok {
+			parts := strings.Split(rel, sep)
+			// workspaceStorage/<hash>/chatSessions/<uuid>.{json,jsonl}
+			if len(parts) == 4 &&
+				parts[0] == "workspaceStorage" &&
+				parts[2] == "chatSessions" &&
+				(strings.HasSuffix(parts[3], ".json") ||
+					strings.HasSuffix(parts[3], ".jsonl")) {
+				hashDir := filepath.Join(
+					vscDir, "workspaceStorage", parts[1],
+				)
+				project := parser.ReadVSCodeWorkspaceManifest(hashDir)
+				if project == "" {
+					project = "unknown"
+				}
+				return parser.DiscoveredFile{
+					Path:    path,
+					Project: project,
+					Agent:   parser.AgentVSCodeCopilot,
+				}, true
+			}
+			// globalStorage/emptyWindowChatSessions/<uuid>.{json,jsonl}
+			// globalStorage/transferredChatSessions/<uuid>.{json,jsonl}
+			if len(parts) == 3 &&
+				parts[0] == "globalStorage" &&
+				(parts[1] == "emptyWindowChatSessions" || parts[1] == "transferredChatSessions") &&
+				(strings.HasSuffix(parts[2], ".json") ||
+					strings.HasSuffix(parts[2], ".jsonl")) {
+				return parser.DiscoveredFile{
+					Path:    path,
+					Project: "empty-window",
+					Agent:   parser.AgentVSCodeCopilot,
+				}, true
+			}
+		}
+	}
+
 	return parser.DiscoveredFile{}, false
 }
 
@@ -589,7 +632,7 @@ func (e *Engine) syncAllLocked(
 
 	if verbose {
 		log.Printf(
-			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp) in %s",
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp, %d vscode-copilot) in %s",
 			len(all),
 			counts[parser.AgentClaude],
 			counts[parser.AgentCodex],
@@ -597,6 +640,7 @@ func (e *Engine) syncAllLocked(
 			counts[parser.AgentGemini],
 			counts[parser.AgentCursor],
 			counts[parser.AgentAmp],
+			counts[parser.AgentVSCodeCopilot],
 			time.Since(t0).Round(time.Millisecond),
 		)
 	}
@@ -881,6 +925,8 @@ func (e *Engine) processFile(
 		res = e.processCursor(file, info)
 	case parser.AgentAmp:
 		res = e.processAmp(file, info)
+	case parser.AgentVSCodeCopilot:
+		res = e.processVSCodeCopilot(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -1108,6 +1154,35 @@ func (e *Engine) processAmp(
 
 	sess, msgs, err := parser.ParseAmpSession(
 		file.Path, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
+}
+
+func (e *Engine) processVSCodeCopilot(
+	file parser.DiscoveredFile, info os.FileInfo,
+) processResult {
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseVSCodeCopilotSession(
+		file.Path, file.Project, e.machine,
 	)
 	if err != nil {
 		return processResult{err: err}

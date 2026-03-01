@@ -27,7 +27,7 @@ const THINKING_LEGACY_RE =
   /\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n|$)/g;
 
 const TOOL_NAMES =
-  "Tool|Read|Write|Edit|Bash|Glob|Grep|TaskCreate|TaskUpdate|TaskGet|TaskList|Task|Skill|" +
+  "Tool|Read|Write|Edit|Bash|Glob|Grep|Other|TaskCreate|TaskUpdate|TaskGet|TaskList|Task|Skill|" +
   "SendMessage|Question|Todo List|Entering Plan Mode|" +
   "Exiting Plan Mode|exec_command|shell_command|" +
   "write_stdin|apply_patch|shell|parallel|view_image|" +
@@ -365,7 +365,7 @@ export function enrichSegments(
               const next = segments[i + 1]!;
               if (next.type !== "text") break;
               if (!next.content.trim() ||
-                  fullCmd.includes(next.content.trim())) {
+                fullCmd.includes(next.content.trim())) {
                 i++;
               } else {
                 break;

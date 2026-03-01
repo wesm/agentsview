@@ -2,7 +2,7 @@
 
 A local web application for browsing, searching, and analyzing
 AI agent coding sessions. Supports Claude Code, Codex,
-Copilot CLI, Gemini CLI, OpenCode, and Amp. A next-generation rewrite of
+Copilot CLI, Gemini CLI, OpenCode, Amp, and VSCode Copilot. A next-generation rewrite of
 [agent-session-viewer](https://github.com/wesm/agent-session-viewer)
 in Go.
 
@@ -47,7 +47,7 @@ patterns over time.
 - **Full-text search** across all message content, instantly
 - **Analytics dashboard** with activity heatmaps, tool usage,
   velocity metrics, and project breakdowns
-- **Multi-agent support** for Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, and Amp
+- **Multi-agent support** for Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Amp, and VSCode Copilot
 - **Live updates** via SSE as active sessions receive new messages
 - **Keyboard-first** navigation (vim-style `j`/`k`/`[`/`]`)
 - **Export and publish** sessions as HTML or to GitHub Gist
@@ -63,7 +63,7 @@ agentsview -no-browser  # headless mode
 ```
 
 On startup, agentsview discovers sessions from Claude Code, Codex,
-Copilot CLI, Gemini CLI, OpenCode, and Amp, syncs them into a local SQLite database
+Copilot CLI, Gemini CLI, OpenCode, Amp, and VSCode Copilot, syncs them into a local SQLite database
 with FTS5 full-text search, and opens a web UI at
 `http://127.0.0.1:8080`.
 
@@ -144,7 +144,7 @@ Desktop env escape hatch: `~/.agentsview/desktop.env` (for PATH/API keys overrid
 cmd/agentsview/     CLI entrypoint
 internal/config/    Configuration loading
 internal/db/        SQLite operations (sessions, search, analytics)
-internal/parser/    Session parsers (Claude, Codex, Copilot, Gemini, OpenCode, Amp)
+internal/parser/    Session parsers (Claude, Codex, Copilot, Gemini, OpenCode, Amp, VSCode Copilot)
 internal/server/    HTTP handlers, SSE, middleware
 internal/sync/      Sync engine, file watcher, discovery
 frontend/           Svelte 5 SPA (Vite, TypeScript)
@@ -160,9 +160,10 @@ frontend/           Svelte 5 SPA (Vite, TypeScript)
 | Gemini CLI | `~/.gemini/` |
 | OpenCode | `~/.local/share/opencode/` |
 | Amp | `~/.local/share/amp/threads/` |
+| VSCode Copilot | `~/Library/Application Support/Code/User/` (macOS) |
 
 Override with `CLAUDE_PROJECTS_DIR`, `CODEX_SESSIONS_DIR`,
-`COPILOT_DIR`, `GEMINI_DIR`, `OPENCODE_DIR`, or `AMP_DIR` environment variables.
+`COPILOT_DIR`, `GEMINI_DIR`, `OPENCODE_DIR`, `AMP_DIR`, or `VSCODE_COPILOT_DIR` environment variables.
 
 ## Acknowledgements
 
