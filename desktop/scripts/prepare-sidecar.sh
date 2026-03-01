@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TAURI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$TAURI_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$TAURI_DIR/.." && pwd)"
 
 detect_host_triple() {
   if ! command -v rustc >/dev/null 2>&1; then

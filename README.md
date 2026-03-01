@@ -120,7 +120,7 @@ make e2e            # Playwright E2E tests
 
 ## Desktop Wrapper (Experimental)
 
-A Tauri desktop wrapper is available under `desktop/tauri/`.
+A Tauri desktop wrapper is available under `desktop/`.
 It launches the existing `agentsview` Go binary as a local sidecar and
 loads `http://127.0.0.1:<port>` in a native webview.
 

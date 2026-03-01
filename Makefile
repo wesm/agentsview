@@ -61,34 +61,34 @@ dev: ensure-embed-dir
 
 # Run the Tauri desktop wrapper in development mode
 desktop-dev:
-	cd desktop/tauri && npm install && npm run tauri:dev
+	cd desktop && npm install && npm run tauri:dev
 
 # Build desktop app bundles via Tauri
 desktop-build:
-	cd desktop/tauri && npm install && npm run tauri:build
+	cd desktop && npm install && npm run tauri:build
 
 # Build only the macOS .app bundle (skip DMG packaging)
 desktop-macos-app:
-	cd desktop/tauri && npm install && npm run tauri:build:macos-app
+	cd desktop && npm install && npm run tauri:build:macos-app
 	mkdir -p $(DESKTOP_DIST_DIR)/macos
 	rm -rf $(DESKTOP_DIST_DIR)/macos/AgentsView.app
-	cp -R desktop/tauri/src-tauri/target/release/bundle/macos/AgentsView.app \
+	cp -R desktop/src-tauri/target/release/bundle/macos/AgentsView.app \
 		$(DESKTOP_DIST_DIR)/macos/AgentsView.app
 	@echo "macOS app bundle copied to $(DESKTOP_DIST_DIR)/macos/AgentsView.app"
 
 # Build Windows NSIS installer bundle (.exe)
 # Run on Windows runner/host.
 desktop-windows-installer:
-	cd desktop/tauri && npm install && npm run tauri:build:windows
+	cd desktop && npm install && npm run tauri:build:windows
 	mkdir -p $(DESKTOP_DIST_DIR)/windows
 	rm -f $(DESKTOP_DIST_DIR)/windows/*.exe
-	@exe_count=$$(find desktop/tauri/src-tauri/target/release/bundle/nsis \
+	@exe_count=$$(find desktop/src-tauri/target/release/bundle/nsis \
 		-maxdepth 1 -type f -name '*.exe' | wc -l | tr -d ' '); \
 	if [ "$$exe_count" -eq 0 ]; then \
 		echo "error: no Windows installer (.exe) found in bundle output" >&2; \
 		exit 1; \
 	fi; \
-	find desktop/tauri/src-tauri/target/release/bundle/nsis \
+	find desktop/src-tauri/target/release/bundle/nsis \
 		-maxdepth 1 -type f -name '*.exe' \
 		-exec cp {} $(DESKTOP_DIST_DIR)/windows/ \;; \
 	echo "Copied $$exe_count Windows installer(s) to $(DESKTOP_DIST_DIR)/windows/"

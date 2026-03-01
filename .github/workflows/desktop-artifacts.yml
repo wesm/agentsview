@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/desktop-artifacts.yml'
-      - 'desktop/tauri/**'
+      - 'desktop/**'
       - 'frontend/**'
       - 'cmd/**'
       - 'internal/**'
@@ -17,7 +17,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/desktop-artifacts.yml'
-      - 'desktop/tauri/**'
+      - 'desktop/**'
       - 'frontend/**'
       - 'cmd/**'
       - 'internal/**'
@@ -70,19 +70,19 @@ jobs:
 
       - name: Install desktop dependencies
         run: npm ci
-        working-directory: desktop/tauri
+        working-directory: desktop
 
       - name: Desktop smoke tests
         shell: bash
         run: |
-          bash desktop/tauri/scripts/test-prepare-sidecar.sh
-          bash desktop/tauri/scripts/test-startup-ui.sh
-          cargo test --manifest-path desktop/tauri/src-tauri/Cargo.toml --lib
+          bash desktop/scripts/test-prepare-sidecar.sh
+          bash desktop/scripts/test-startup-ui.sh
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
 
       - name: Build desktop bundle
         shell: bash
         run: |
-          cd desktop/tauri
+          cd desktop
           npm run prepare-sidecar
           npx tauri build --bundles "${{ matrix.bundle }}"
 
@@ -99,7 +99,7 @@ jobs:
           if [[ "$target_triple" == *"windows"* ]]; then
             ext=".exe"
           fi
-          sidecar="desktop/tauri/src-tauri/binaries/agentsview-${target_triple}${ext}"
+          sidecar="desktop/src-tauri/binaries/agentsview-${target_triple}${ext}"
           if [ ! -f "$sidecar" ]; then
             echo "missing sidecar binary: $sidecar" >&2
             exit 1
@@ -118,5 +118,5 @@ jobs:
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: agentsview-desktop-${{ matrix.platform }}
-          path: desktop/tauri/src-tauri/target/release/bundle/${{ matrix.bundle_dir }}/
+          path: desktop/src-tauri/target/release/bundle/${{ matrix.bundle_dir }}/
           if-no-files-found: error
