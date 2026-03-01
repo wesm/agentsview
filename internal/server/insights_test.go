@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -329,7 +330,7 @@ func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
 	}
 }
 
-func TestGenerateInsight_LogDrainTimeoutStopsSender(t *testing.T) {
+func TestGenerateInsight_LogDrainTimeoutReturnsWithoutHang(t *testing.T) {
 	stubGen := func(
 		_ context.Context, _ string, _ string, onLog insight.LogFunc,
 	) (insight.Result, error) {
@@ -357,9 +358,10 @@ func TestGenerateInsight_LogDrainTimeoutStopsSender(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := &slowLogRecorder{
 		ResponseRecorder: httptest.NewRecorder(),
-		delay:            2500 * time.Millisecond,
+		delay:            5 * time.Second,
 	}
 
+	started := time.Now()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -371,31 +373,106 @@ func TestGenerateInsight_LogDrainTimeoutStopsSender(t *testing.T) {
 	case <-time.After(12 * time.Second):
 		t.Fatalf("timed out waiting for generate handler completion")
 	}
-
-	// If the timed-out log sender is still active after handler
-	// return, the response body will continue changing.
-	initialBody := w.Body.String()
-	time.Sleep(3 * time.Second)
-	if w.Body.String() != initialBody {
-		t.Fatalf("response body changed after handler completion, log sender still active")
+	if elapsed := time.Since(started); elapsed > 4*time.Second {
+		t.Fatalf("handler should return promptly after timeout, took %s", elapsed)
 	}
 
 	assertStatus(t, w.ResponseRecorder, http.StatusOK)
-	events := parseSSE(initialBody)
-	doneIdx := -1
-	for i, ev := range events {
+	events := parseSSE(w.Body.String())
+	for _, ev := range events {
 		if ev.Event == "done" {
-			doneIdx = i
-			break
+			t.Fatalf("did not expect done event when timeout path is triggered")
 		}
 	}
-	if doneIdx == -1 {
-		t.Fatalf("expected done event, got %d events", len(events))
-	}
-	for _, ev := range events[doneIdx+1:] {
-		if ev.Event == "log" {
-			t.Fatalf("found log event after done: %+v", ev)
+}
+
+func TestGenerateInsight_LogDrainTimeoutReportsBufferedDrops(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		for i := range 10 {
+			onLog(insight.LogEvent{
+				Stream: "stdout",
+				Line:   fmt.Sprintf("slow-line-%d", i),
+			})
 		}
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := &slowLogRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		delay:            2100 * time.Millisecond,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+		t.Fatalf("timed out waiting for generate handler completion")
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.Body.String())
+	foundTimeoutError := false
+	foundDropSummary := false
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event when timeout path is triggered")
+		}
+		if ev.Event == "error" &&
+			strings.Contains(ev.Data, "timed out before completion") {
+			foundTimeoutError = true
+		}
+		if ev.Event != "log" {
+			continue
+		}
+		var line insight.LogEvent
+		if json.Unmarshal([]byte(ev.Data), &line) != nil {
+			continue
+		}
+		if line.Stream != "stderr" ||
+			!strings.HasPrefix(line.Line, "dropped ") ||
+			!strings.Contains(line.Line, "log stream timeout") {
+			continue
+		}
+		parts := strings.SplitN(line.Line, " ", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		dropped, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		// 10 events were enqueued; with timeout truncation we should
+		// account for buffered entries that were never flushed.
+		if dropped < 9 {
+			t.Fatalf("expected timeout drop summary >=9, got %d (%q)", dropped, line.Line)
+		}
+		foundDropSummary = true
+	}
+	if !foundTimeoutError {
+		t.Fatalf("expected timeout error event, got %d events", len(events))
+	}
+	if !foundDropSummary {
+		t.Fatalf("expected timeout-aware drop summary, got %d events", len(events))
 	}
 }
 

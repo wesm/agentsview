@@ -210,7 +210,11 @@ func (s *Server) handleGenerateInsight(
 	)
 	defer cancel()
 
-	const maxBufferedLogEvents = 256
+	const (
+		maxBufferedLogEvents = 256
+		logDrainTimeout      = 2 * time.Second
+		logStopWaitTimeout   = 500 * time.Millisecond
+	)
 	logCh := make(chan insight.LogEvent, maxBufferedLogEvents)
 	logDone := make(chan struct{})
 	logStop := make(chan struct{})
@@ -252,26 +256,34 @@ func (s *Server) handleGenerateInsight(
 			droppedLogs++
 		}
 	}
-	finishLogStream := func() (int, bool) {
-		const logDrainTimeout = 2 * time.Second
+	finishLogStream := func() (dropped int, drained bool, senderStopped bool, timedOut bool) {
 		logStateMu.Lock()
 		logStreamDone = true
 		close(logCh)
-		dropped := droppedLogs
+		dropped = droppedLogs
 		logStateMu.Unlock()
 		select {
 		case <-logDone:
-			return dropped, true
+			return dropped, true, true, false
 		case <-time.After(logDrainTimeout):
 			log.Printf(
 				"insight log stream drain timed out after %s",
 				logDrainTimeout,
 			)
-			// Ensure no further log events are written after terminal
-			// events by stopping the sender and waiting for exit.
+			// Count remaining buffered events as dropped since they will
+			// not be delivered once we abort the stream.
+			dropped += len(logCh)
 			stopLogSender()
-			<-logDone
-			return dropped, false
+			select {
+			case <-logDone:
+				return dropped, false, true, true
+			case <-time.After(logStopWaitTimeout):
+				log.Printf(
+					"insight log sender stop timed out after %s",
+					logStopWaitTimeout,
+				)
+				return dropped, false, false, true
+			}
 		}
 	}
 
@@ -279,17 +291,29 @@ func (s *Server) handleGenerateInsight(
 		genCtx, req.Agent, prompt,
 		enqueueLog,
 	)
-	dropped, drained := finishLogStream()
-	if !drained {
-		log.Printf("insight log stream did not fully drain before completion")
+	dropped, drained, senderStopped, timedOut := finishLogStream()
+	if !senderStopped {
+		log.Printf("insight log stream sender did not stop; aborting terminal SSE events")
+		return
 	}
 	if dropped > 0 {
+		suffix := "due to slow client"
+		if timedOut {
+			suffix = "due to slow client and log stream timeout"
+		}
 		sendJSON("log", insight.LogEvent{
 			Stream: "stderr",
 			Line: fmt.Sprintf(
-				"dropped %d log line(s) due to slow client", dropped,
+				"dropped %d log line(s) %s", dropped, suffix,
 			),
 		})
+	}
+	if timedOut || !drained {
+		log.Printf("insight log stream did not fully drain before completion")
+		sendJSON("error", map[string]string{
+			"message": "insight log stream timed out before completion",
+		})
+		return
 	}
 	if err != nil {
 		log.Printf("insight generate error: %v", err)
