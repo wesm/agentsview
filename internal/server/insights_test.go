@@ -2,9 +2,17 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/insight"
@@ -155,6 +163,597 @@ func TestGenerateInsight_DefaultAgent(t *testing.T) {
 		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15"}`)
 	assertStatus(t, w, http.StatusOK)
 	assertBodyContains(t, w, "event: error")
+	assertBodyContains(t, w, "claude generation failed")
+}
+
+func TestGenerateInsight_StreamsLogs(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		onLog(insight.LogEvent{
+			Stream: "stdout",
+			Line:   `{"type":"system","status":"ready"}`,
+		})
+		onLog(insight.LogEvent{
+			Stream: "stderr",
+			Line:   "rate limit warning",
+		})
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+			Model:   "test-model",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	w := te.post(t, "/api/v1/insights/generate",
+		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`)
+	assertStatus(t, w, http.StatusOK)
+
+	events := parseSSE(w.Body.String())
+	if len(events) < 4 {
+		t.Fatalf("expected >=4 SSE events, got %d: %s", len(events), w.Body.String())
+	}
+	if events[0].Event != "status" {
+		t.Fatalf("first event = %q, want status", events[0].Event)
+	}
+	if events[1].Event != "log" || events[2].Event != "log" {
+		t.Fatalf("expected two log events, got: %#v", events)
+	}
+	if events[len(events)-1].Event != "done" {
+		t.Fatalf("last event = %q, want done", events[len(events)-1].Event)
+	}
+
+	var log1 insight.LogEvent
+	if err := json.Unmarshal([]byte(events[1].Data), &log1); err != nil {
+		t.Fatalf("unmarshal first log event: %v", err)
+	}
+	if log1.Stream != "stdout" {
+		t.Fatalf("first log stream = %q, want stdout", log1.Stream)
+	}
+
+	var log2 insight.LogEvent
+	if err := json.Unmarshal([]byte(events[2].Data), &log2); err != nil {
+		t.Fatalf("unmarshal second log event: %v", err)
+	}
+	if log2.Stream != "stderr" {
+		t.Fatalf("second log stream = %q, want stderr", log2.Stream)
+	}
+}
+
+type slowFlushRecorder struct {
+	*httptest.ResponseRecorder
+	delay time.Duration
+	mu    sync.Mutex
+}
+
+func (f *slowFlushRecorder) Write(
+	b []byte,
+) (int, error) {
+	time.Sleep(f.delay)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *slowFlushRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResponseRecorder.Flush()
+}
+
+func (f *slowFlushRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
+}
+
+type slowLogRecorder struct {
+	*httptest.ResponseRecorder
+	delay time.Duration
+	mu    sync.Mutex
+}
+
+func (f *slowLogRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		time.Sleep(f.delay)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *slowLogRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResponseRecorder.Flush()
+}
+
+func (f *slowLogRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
+}
+
+type blockingLogRecorder struct {
+	*httptest.ResponseRecorder
+	release <-chan struct{}
+	mu      sync.Mutex
+}
+
+func (f *blockingLogRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		<-f.release
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *blockingLogRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResponseRecorder.Flush()
+}
+
+func (f *blockingLogRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
+}
+
+type firstLogDelayRecorder struct {
+	*httptest.ResponseRecorder
+	delay time.Duration
+	once  sync.Once
+	mu    sync.Mutex
+}
+
+func (f *firstLogDelayRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		f.once.Do(func() {
+			time.Sleep(f.delay)
+		})
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *firstLogDelayRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResponseRecorder.Flush()
+}
+
+func (f *firstLogDelayRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
+}
+
+type deadlineAwareBlockingLogRecorder struct {
+	*httptest.ResponseRecorder
+	handlerReturned     <-chan struct{}
+	postReturnWrites    atomic.Int32
+	postReturnAttempted chan struct{}
+	deadlineUpdates     chan struct{}
+	mu                  sync.Mutex
+	writeDeadline       time.Time
+}
+
+func newDeadlineAwareBlockingLogRecorder(
+	handlerReturned <-chan struct{},
+) *deadlineAwareBlockingLogRecorder {
+	return &deadlineAwareBlockingLogRecorder{
+		ResponseRecorder:    httptest.NewRecorder(),
+		handlerReturned:     handlerReturned,
+		postReturnAttempted: make(chan struct{}, 1),
+		deadlineUpdates:     make(chan struct{}, 1),
+	}
+}
+
+func (f *deadlineAwareBlockingLogRecorder) SetWriteDeadline(t time.Time) error {
+	f.mu.Lock()
+	f.writeDeadline = t
+	f.mu.Unlock()
+	select {
+	case f.deadlineUpdates <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (f *deadlineAwareBlockingLogRecorder) Write(
+	b []byte,
+) (int, error) {
+	if f.handlerReturned != nil {
+		select {
+		case <-f.handlerReturned:
+			f.postReturnWrites.Add(1)
+			select {
+			case f.postReturnAttempted <- struct{}{}:
+			default:
+			}
+		default:
+		}
+	}
+
+	if strings.HasPrefix(string(b), "event: log\n") {
+		for {
+			f.mu.Lock()
+			deadline := f.writeDeadline
+			f.mu.Unlock()
+			if !deadline.IsZero() && !deadline.After(time.Now()) {
+				return 0, os.ErrDeadlineExceeded
+			}
+			<-f.deadlineUpdates
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *deadlineAwareBlockingLogRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResponseRecorder.Flush()
+}
+
+func (f *deadlineAwareBlockingLogRecorder) PostReturnWrites() int32 {
+	return f.postReturnWrites.Load()
+}
+
+func (f *deadlineAwareBlockingLogRecorder) PostReturnAttempted() <-chan struct{} {
+	return f.postReturnAttempted
+}
+
+func (f *deadlineAwareBlockingLogRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
+}
+
+func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		for i := range 5000 {
+			onLog(insight.LogEvent{
+				Stream: "stdout",
+				Line:   fmt.Sprintf("line-%d", i),
+			})
+		}
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := &slowFlushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		delay:            4 * time.Millisecond,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+		t.Fatalf("timed out waiting for generate handler")
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.BodyString())
+
+	foundDone := false
+	foundDropSummary := false
+	for _, ev := range events {
+		if ev.Event == "done" {
+			foundDone = true
+		}
+		if ev.Event != "log" {
+			continue
+		}
+		var line insight.LogEvent
+		if json.Unmarshal([]byte(ev.Data), &line) != nil {
+			continue
+		}
+		if line.Stream == "stderr" &&
+			strings.Contains(line.Line, "dropped ") &&
+			strings.Contains(line.Line, "slow client") {
+			foundDropSummary = true
+		}
+	}
+	if !foundDropSummary {
+		t.Fatalf(
+			"expected dropped-log summary event, got %d events",
+			len(events),
+		)
+	}
+	if !foundDone {
+		t.Fatalf("expected done event")
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutReturnsWithoutHang(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		for i := range 10 {
+			onLog(insight.LogEvent{
+				Stream: "stdout",
+				Line:   fmt.Sprintf("slow-line-%d", i),
+			})
+		}
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := &slowLogRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		delay:            5 * time.Second,
+	}
+
+	started := time.Now()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(12 * time.Second):
+		t.Fatalf("timed out waiting for generate handler completion")
+	}
+	if elapsed := time.Since(started); elapsed > 7*time.Second {
+		t.Fatalf("handler should return within bounded timeout handling, took %s", elapsed)
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.BodyString())
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event when timeout path is triggered")
+		}
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutReportsBufferedDrops(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		for i := range 10 {
+			onLog(insight.LogEvent{
+				Stream: "stdout",
+				Line:   fmt.Sprintf("slow-line-%d", i),
+			})
+		}
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := &firstLogDelayRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		delay:            2200 * time.Millisecond,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for generate handler completion")
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.BodyString())
+	foundTimeoutError := false
+	foundDropSummary := false
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event when timeout path is triggered")
+		}
+		if ev.Event == "error" &&
+			strings.Contains(ev.Data, "timed out before completion") {
+			foundTimeoutError = true
+		}
+		if ev.Event != "log" {
+			continue
+		}
+		var line insight.LogEvent
+		if json.Unmarshal([]byte(ev.Data), &line) != nil {
+			continue
+		}
+		if line.Stream != "stderr" ||
+			!strings.HasPrefix(line.Line, "dropped ") ||
+			!strings.Contains(line.Line, "log stream timeout") {
+			continue
+		}
+		parts := strings.SplitN(line.Line, " ", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		dropped, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		// 10 events were enqueued; timeout truncation should account
+		// for most buffered entries that were never flushed.
+		if dropped < 8 {
+			t.Fatalf("expected timeout drop summary >=8, got %d (%q)", dropped, line.Line)
+		}
+		foundDropSummary = true
+	}
+	if !foundTimeoutError {
+		t.Fatalf("expected timeout error event, got %d events", len(events))
+	}
+	if !foundDropSummary {
+		t.Fatalf("expected timeout-aware drop summary, got %d events", len(events))
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutBoundedWhenWriterStuck(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		onLog(insight.LogEvent{Stream: "stdout", Line: "stuck-line"})
+		return insight.Result{Content: "# Insight", Agent: "claude"}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	release := make(chan struct{})
+	w := &blockingLogRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		release:          release,
+	}
+
+	started := time.Now()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(7 * time.Second):
+		t.Fatalf("timed out waiting for bounded timeout behavior")
+	}
+	elapsed := time.Since(started)
+	if elapsed > 6*time.Second {
+		t.Fatalf("handler returned too slowly for stuck writer path: %s", elapsed)
+	}
+	close(release)
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.BodyString())
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event on stuck writer timeout path")
+		}
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutForceUnblocksAndNoPostReturnWrites(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		onLog(insight.LogEvent{Stream: "stdout", Line: "force-unblock-line"})
+		return insight.Result{Content: "# Insight", Agent: "claude"}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	handlerReturned := make(chan struct{})
+	w := newDeadlineAwareBlockingLogRecorder(handlerReturned)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+		close(handlerReturned)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+		t.Fatalf("timed out waiting for forced-unblock completion")
+	}
+
+	select {
+	case <-w.PostReturnAttempted():
+		t.Fatalf("expected no writes after handler return")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if got := w.PostReturnWrites(); got != 0 {
+		t.Fatalf("expected no writes after handler return, got %d", got)
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.BodyString())
+	foundTimeoutError := false
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event on forced-unblock timeout path")
+		}
+		if ev.Event == "error" &&
+			strings.Contains(ev.Data, "timed out before completion") {
+			foundTimeoutError = true
+		}
+	}
+	if !foundTimeoutError {
+		t.Fatalf("expected timeout error event")
+	}
 }
 
 func TestDeleteInsight_Found(t *testing.T) {

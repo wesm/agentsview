@@ -112,10 +112,31 @@ Full documentation is available at
 ```bash
 make dev            # run Go server in dev mode
 make frontend-dev   # run Vite dev server (use alongside make dev)
+make desktop-dev    # run Tauri desktop wrapper (experimental)
 make test           # Go tests (CGO_ENABLED=1 -tags fts5)
 make lint           # golangci-lint
 make e2e            # Playwright E2E tests
 ```
+
+## Desktop Wrapper (Experimental)
+
+A Tauri desktop wrapper is available under `desktop/`.
+It launches the existing `agentsview` Go binary as a local sidecar and
+loads `http://127.0.0.1:<port>` in a native webview.
+
+```bash
+make desktop-dev    # run desktop app in dev mode
+make desktop-build  # build desktop bundles (.app/.exe/etc.)
+make desktop-macos-app       # build macOS .app only
+make desktop-windows-installer  # build Windows installer (.exe)
+```
+
+Friendly output copies are placed in:
+
+- `dist/desktop/macos/AgentsView.app`
+- `dist/desktop/windows/*.exe`
+
+Desktop env escape hatch: `~/.agentsview/desktop.env` (for PATH/API keys overrides).
 
 ### Project Structure
 

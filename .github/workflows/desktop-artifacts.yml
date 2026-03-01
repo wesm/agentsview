@@ -1,0 +1,104 @@
+name: Desktop Artifacts
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Desktop Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-15
+            bundle: app
+            bundle_dir: macos
+          - platform: windows
+            os: windows-latest
+            bundle: nsis
+            bundle_dir: nsis
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417  # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238  # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Setup MinGW (Windows)
+        if: matrix.platform == 'windows'
+        uses: msys2/setup-msys2@4f806de0a5a7294ffabaff804b38a9b435a73bda  # v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+          path-type: inherit
+
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: desktop
+
+      - name: Desktop smoke tests
+        shell: bash
+        run: |
+          bash desktop/scripts/test-prepare-sidecar.sh
+          bash desktop/scripts/test-startup-ui.sh
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+
+      - name: Build desktop bundle
+        shell: bash
+        run: |
+          cd desktop
+          npm run prepare-sidecar
+          npx tauri build --bundles "${{ matrix.bundle }}"
+
+      - name: Smoke check sidecar metadata
+        shell: bash
+        run: |
+          target_triple="${TAURI_ENV_TARGET_TRIPLE:-${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host: /{print $2}')}}"
+          if [ -z "$target_triple" ]; then
+            echo "target triple is empty" >&2
+            exit 1
+          fi
+
+          ext=""
+          if [[ "$target_triple" == *"windows"* ]]; then
+            ext=".exe"
+          fi
+          sidecar="desktop/src-tauri/binaries/agentsview-${target_triple}${ext}"
+          if [ ! -f "$sidecar" ]; then
+            echo "missing sidecar binary: $sidecar" >&2
+            exit 1
+          fi
+
+          "$sidecar" version > sidecar-version.txt
+          if grep -q "agentsview dev" sidecar-version.txt; then
+            echo "sidecar version should not be dev: $(cat sidecar-version.txt)" >&2
+            exit 1
+          fi
+          if grep -q "commit unknown" sidecar-version.txt; then
+            echo "sidecar metadata missing commit: $(cat sidecar-version.txt)" >&2
+            exit 1
+          fi
+          if grep -Eq "built[[:space:]]*\)$" sidecar-version.txt; then
+            echo "sidecar metadata missing build date: $(cat sidecar-version.txt)" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: agentsview-desktop-${{ matrix.platform }}
+          path: desktop/src-tauri/target/release/bundle/${{ matrix.bundle_dir }}/
+          if-no-files-found: error

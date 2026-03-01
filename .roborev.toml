@@ -81,6 +81,25 @@ Key assumptions reviewers MUST account for:
     a counter, the counter is NOT incremented for zero-result cases.
     Read the code carefully before reporting logic errors.
 
+14. DESKTOP (TAURI) THREAT MODEL: The desktop app is a local wrapper
+    around the same localhost backend. Security reviews should focus on:
+    - Preventing remote content/navigation by default.
+    - Tight CSP and explicit local-only connect targets.
+    - Avoiding leakage of raw subprocess/internal errors to the UI.
+    - Ensuring startup/streaming logic does not create unsafe
+      concurrency on response writers or unbounded goroutine hangs.
+    Do not assume an internet-exposed embedded browser threat model.
+
+15. DESKTOP READINESS/LOG PARSING: Sidecar stdout/stderr can arrive in
+    partial chunks. Reviews should prefer buffered line-safe parsing and
+    deterministic shutdown behavior. Flag code that assumes each chunk is
+    a complete line when readiness or control-flow depends on it.
+
+16. DESKTOP CSP EXPECTATION: Flag desktop security regressions when
+    `tauri.conf.json` disables CSP (`csp: null`) or weakens it without
+    clear justification. For this project, a restrictive local-only CSP
+    is expected.
+
 Do NOT flag issues that only apply to public-facing, multi-tenant,
 or network-exposed services. Focus on bugs, logic errors, data
 corruption risks, and code quality issues.

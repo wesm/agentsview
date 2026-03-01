@@ -414,6 +414,71 @@ describe("generateInsight SSE parsing", () => {
     );
   });
 
+  it("dispatches log events", async () => {
+    const insight = {
+      id: 2,
+      type: "daily_activity",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
+      content: "# Report",
+    };
+    mockStream([
+      `event: log\ndata: {"stream":"stdout","line":"{\\"type\\":\\"system\\"}"}\n\n`,
+      `event: log\ndata: {"stream":"stderr","line":"rate limited"}\n\n`,
+      `event: done\ndata: ${JSON.stringify(insight)}\n\n`,
+    ]);
+
+    const { generateInsight } = await import("./client.js");
+    const logs: { stream: string; line: string }[] = [];
+    const handle = generateInsight(
+      {
+        type: "daily_activity",
+        date_from: "2025-01-15",
+        date_to: "2025-01-15",
+      },
+      undefined,
+      (event) => logs.push(event),
+    );
+    activeHandles.push(handle);
+
+    await handle.done;
+    expect(logs).toEqual([
+      { stream: "stdout", line: "{\"type\":\"system\"}" },
+      { stream: "stderr", line: "rate limited" },
+    ]);
+  });
+
+  it("does not replay already processed SSE frames across chunks", async () => {
+    const insight = {
+      id: 3,
+      type: "daily_activity",
+      date_from: "2025-01-15",
+      date_to: "2025-01-15",
+      content: "# Report",
+    };
+    mockStream([
+      `event: log\ndata: {"stream":"stdout","line":"first"}\n\n`,
+      `event: log\ndata: {"stream":"stdout","line":"second"}\n\n`,
+      `event: done\ndata: ${JSON.stringify(insight)}\n\n`,
+    ]);
+
+    const { generateInsight } = await import("./client.js");
+    const logs: string[] = [];
+    const handle = generateInsight(
+      {
+        type: "daily_activity",
+        date_from: "2025-01-15",
+        date_to: "2025-01-15",
+      },
+      undefined,
+      (event) => logs.push(event.line),
+    );
+    activeHandles.push(handle);
+
+    await handle.done;
+    expect(logs).toEqual(["first", "second"]);
+  });
+
   it("rejects for non-ok response", async () => {
     vi.stubGlobal(
       "fetch",

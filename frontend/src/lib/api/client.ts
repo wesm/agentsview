@@ -448,9 +448,15 @@ export interface GenerateInsightHandle {
   done: Promise<Insight>;
 }
 
+export interface InsightLogEvent {
+  stream: "stdout" | "stderr";
+  line: string;
+}
+
 export function generateInsight(
   req: GenerateInsightRequest,
   onStatus?: (phase: string) => void,
+  onLog?: (event: InsightLogEvent) => void,
 ): GenerateInsightHandle {
   const controller = new AbortController();
 
@@ -477,21 +483,20 @@ export function generateInsight(
       buf += decoder.decode(value, { stream: true });
       buf = buf.replaceAll("\r\n", "\n");
 
-      const parsed = processInsightFrames(buf, onStatus);
-      if (parsed) {
-        result = parsed;
+      const parsed = processInsightFrames(buf, onStatus, onLog);
+      buf = parsed.remaining;
+      if (parsed.result) {
+        result = parsed.result;
         reader.cancel();
         break;
       }
-      const last = buf.lastIndexOf("\n\n");
-      if (last !== -1) buf = buf.slice(last + 2);
     }
 
     // Flush any remaining multibyte bytes from decoder
     buf += decoder.decode();
 
     if (!result && buf.trim()) {
-      result = processInsightFrame(buf, onStatus);
+      result = processInsightFrame(buf, onStatus, onLog);
     }
 
     if (!result) {
@@ -507,21 +512,25 @@ export function generateInsight(
 function processInsightFrames(
   buf: string,
   onStatus?: (phase: string) => void,
-): Insight | undefined {
+  onLog?: (event: InsightLogEvent) => void,
+): { result?: Insight; remaining: string } {
   let idx: number;
   let start = 0;
   while ((idx = buf.indexOf("\n\n", start)) !== -1) {
     const frame = buf.slice(start, idx);
     start = idx + 2;
-    const result = processInsightFrame(frame, onStatus);
-    if (result) return result;
+    const result = processInsightFrame(frame, onStatus, onLog);
+    if (result) {
+      return { result, remaining: buf.slice(start) };
+    }
   }
-  return undefined;
+  return { remaining: buf.slice(start) };
 }
 
 function processInsightFrame(
   frame: string,
   onStatus?: (phase: string) => void,
+  onLog?: (event: InsightLogEvent) => void,
 ): Insight | undefined {
   let event = "";
   const dataLines: string[] = [];
@@ -540,6 +549,9 @@ function processInsightFrame(
   if (event === "status") {
     const parsed = JSON.parse(data) as { phase: string };
     onStatus?.(parsed.phase);
+  } else if (event === "log") {
+    const parsed = JSON.parse(data) as InsightLogEvent;
+    onLog?.(parsed);
   } else if (event === "done") {
     return JSON.parse(data) as Insight;
   } else if (event === "error") {

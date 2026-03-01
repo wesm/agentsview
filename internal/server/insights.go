@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wesm/agentsview/internal/db"
@@ -129,6 +130,10 @@ type generateInsightRequest struct {
 	Agent    string `json:"agent"`
 }
 
+func insightGenerateClientMessage(agent string) string {
+	return fmt.Sprintf("%s generation failed", agent)
+}
+
 func (s *Server) handleGenerateInsight(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -176,7 +181,14 @@ func (s *Server) handleGenerateInsight(
 		return
 	}
 
-	stream.SendJSON("status", map[string]string{
+	var streamMu sync.Mutex
+	sendJSON := func(event string, v any) bool {
+		streamMu.Lock()
+		defer streamMu.Unlock()
+		return stream.SendJSON(event, v)
+	}
+
+	sendJSON("status", map[string]string{
 		"phase": "generating",
 	})
 
@@ -191,7 +203,7 @@ func (s *Server) handleGenerateInsight(
 	)
 	if err != nil {
 		log.Printf("insight prompt error: %v", err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "failed to build prompt",
 		})
 		return
@@ -202,21 +214,138 @@ func (s *Server) handleGenerateInsight(
 	)
 	defer cancel()
 
-	result, err := s.generateFunc(
-		genCtx, req.Agent, prompt,
+	const (
+		maxBufferedLogEvents = 256
+		logDrainTimeout      = 2 * time.Second
+		logStopWaitTimeout   = 500 * time.Millisecond
 	)
+	logCh := make(chan insight.LogEvent, maxBufferedLogEvents)
+	logDone := make(chan struct{})
+	logStop := make(chan struct{})
+	var logStopOnce sync.Once
+	stopLogSender := func() {
+		logStopOnce.Do(func() { close(logStop) })
+	}
+	go func() {
+		defer close(logDone)
+		for {
+			select {
+			case <-logStop:
+				return
+			default:
+			}
+			select {
+			case <-logStop:
+				return
+			case ev, ok := <-logCh:
+				if !ok {
+					return
+				}
+				if !sendJSON("log", ev) {
+					stopLogSender()
+					return
+				}
+			}
+		}
+	}()
+	var (
+		logStateMu    sync.Mutex
+		logStreamDone bool
+		droppedLogs   int
+	)
+	enqueueLog := func(ev insight.LogEvent) {
+		logStateMu.Lock()
+		defer logStateMu.Unlock()
+		if logStreamDone {
+			return
+		}
+		select {
+		case logCh <- ev:
+		default:
+			droppedLogs++
+		}
+	}
+	finishLogStream := func() (dropped int, drained bool, senderStopped bool, timedOut bool) {
+		logStateMu.Lock()
+		logStreamDone = true
+		close(logCh)
+		dropped = droppedLogs
+		logStateMu.Unlock()
+		select {
+		case <-logDone:
+			return dropped, true, true, false
+		case <-time.After(logDrainTimeout):
+			log.Printf(
+				"insight log stream drain timed out after %s",
+				logDrainTimeout,
+			)
+			// Count remaining buffered events as dropped since they will
+			// not be delivered once we abort the stream.
+			dropped += len(logCh)
+			stopLogSender()
+			select {
+			case <-logDone:
+				return dropped, false, true, true
+			case <-time.After(logStopWaitTimeout):
+				log.Printf(
+					"insight log sender stop timed out after %s",
+					logStopWaitTimeout,
+				)
+				// Try to force-unblock any in-flight writer and wait one
+				// more bounded interval for sender shutdown.
+				stream.ForceWriteDeadlineNow()
+				select {
+				case <-logDone:
+					return dropped, false, true, true
+				case <-time.After(logStopWaitTimeout):
+					log.Printf(
+						"insight log sender did not stop after forced deadline",
+					)
+					return dropped, false, false, true
+				}
+			}
+		}
+	}
+
+	result, err := s.generateStreamFunc(
+		genCtx, req.Agent, prompt,
+		enqueueLog,
+	)
+	dropped, drained, senderStopped, timedOut := finishLogStream()
+	if !senderStopped {
+		stream.ForceWriteDeadlineNow()
+		log.Printf("insight log stream sender did not stop; aborting terminal SSE events")
+		return
+	}
+	if dropped > 0 {
+		suffix := "due to slow client"
+		if timedOut {
+			suffix = "due to slow client and log stream timeout"
+		}
+		sendJSON("log", insight.LogEvent{
+			Stream: "stderr",
+			Line: fmt.Sprintf(
+				"dropped %d log line(s) %s", dropped, suffix,
+			),
+		})
+	}
+	if timedOut || !drained {
+		log.Printf("insight log stream did not fully drain before completion")
+		sendJSON("error", map[string]string{
+			"message": "insight log stream timed out before completion",
+		})
+		return
+	}
 	if err != nil {
 		log.Printf("insight generate error: %v", err)
-		stream.SendJSON("error", map[string]string{
-			"message": fmt.Sprintf(
-				"%s generation failed", req.Agent,
-			),
+		sendJSON("error", map[string]string{
+			"message": insightGenerateClientMessage(req.Agent),
 		})
 		return
 	}
 
 	if strings.TrimSpace(result.Content) == "" {
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "agent returned empty content",
 		})
 		return
@@ -247,7 +376,7 @@ func (s *Server) handleGenerateInsight(
 	})
 	if err != nil {
 		log.Printf("insight insert error: %v", err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "failed to save insight",
 		})
 		return
@@ -257,11 +386,11 @@ func (s *Server) handleGenerateInsight(
 	if err != nil || saved == nil {
 		log.Printf("insight get error: id=%d err=%v",
 			id, err)
-		stream.SendJSON("error", map[string]string{
+		sendJSON("error", map[string]string{
 			"message": "failed to retrieve saved insight",
 		})
 		return
 	}
 
-	stream.SendJSON("done", saved)
+	sendJSON("done", saved)
 }

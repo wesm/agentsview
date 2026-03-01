@@ -63,7 +63,7 @@ Second`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseCodexStream(strings.NewReader(tt.input))
+			result, err := parseCodexStream(strings.NewReader(tt.input), nil)
 			if tt.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
@@ -127,7 +127,7 @@ Part 2`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseStreamJSON(strings.NewReader(tt.input))
+			result, err := parseStreamJSON(strings.NewReader(tt.input), nil)
 			if tt.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
@@ -141,6 +141,36 @@ Part 2`,
 				t.Errorf("got %q, want %q", result, tt.want)
 			}
 		})
+	}
+}
+
+func TestCollectStreamLines_LargeLine(t *testing.T) {
+	longLine := strings.Repeat("x", 3*1024*1024)
+	input := longLine + "\nsmall-line\n"
+	var got []LogEvent
+
+	done := collectStreamLines(
+		strings.NewReader(input), "stderr",
+		func(ev LogEvent) {
+			got = append(got, ev)
+		},
+	)
+	text := <-done
+
+	if len(got) != 2 {
+		t.Fatalf("got %d log events, want 2", len(got))
+	}
+	if got[0].Stream != "stderr" || len(got[0].Line) != len(longLine) {
+		t.Fatalf(
+			"first event mismatch: stream=%q len=%d",
+			got[0].Stream, len(got[0].Line),
+		)
+	}
+	if got[1].Line != "small-line" {
+		t.Fatalf("second line = %q, want %q", got[1].Line, "small-line")
+	}
+	if !strings.Contains(text, "small-line") {
+		t.Fatalf("joined text missing expected line: %q", text)
 	}
 }
 
@@ -351,7 +381,7 @@ func TestGenerateClaude_SalvageOnNonZeroExit(t *testing.T) {
 				t, tt.stdout, tt.exitCode,
 			)
 			result, err := generateClaude(
-				context.Background(), bin, "test",
+				context.Background(), bin, "test", nil,
 			)
 
 			if tt.wantErr {
@@ -400,7 +430,7 @@ func TestGenerateGemini_ModelFlag(t *testing.T) {
 	bin, argsFile := fakeGeminiBin(t, streamJSON, 0)
 
 	result, err := generateGemini(
-		context.Background(), bin, "test prompt",
+		context.Background(), bin, "test prompt", nil,
 	)
 	if err != nil {
 		t.Fatalf("generateGemini: %v", err)
@@ -453,7 +483,7 @@ func TestGenerateClaude_CancelledContext(t *testing.T) {
 	)
 	cancel()
 
-	_, err := generateClaude(ctx, bin, "test")
+	_, err := generateClaude(ctx, bin, "test", nil)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -470,12 +500,49 @@ func TestGenerateClaude_SuccessNotDiscarded(t *testing.T) {
 		t, `{"result":"OK","model":"m1"}`, 0,
 	)
 	result, err := generateClaude(
-		context.Background(), bin, "test",
+		context.Background(), bin, "test", nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result.Content != "OK" {
 		t.Errorf("content = %q, want OK", result.Content)
+	}
+}
+
+func TestGenerateClaude_TruncatesLargeStdoutLogEvent(t *testing.T) {
+	largeResult := strings.Repeat("x", claudeStdoutLogMaxBytes*2)
+	stdout := fmt.Sprintf(`{"result":%q,"model":"m1"}`, largeResult)
+	bin := fakeClaudeBin(t, stdout, 0)
+
+	var logs []LogEvent
+	result, err := generateClaude(
+		context.Background(),
+		bin,
+		"test",
+		func(ev LogEvent) { logs = append(logs, ev) },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Content != largeResult {
+		t.Fatalf("result content was truncated unexpectedly")
+	}
+
+	var stdoutLog string
+	for _, ev := range logs {
+		if ev.Stream == "stdout" {
+			stdoutLog = ev.Line
+			break
+		}
+	}
+	if stdoutLog == "" {
+		t.Fatalf("expected stdout log event")
+	}
+	if !strings.Contains(stdoutLog, "[truncated ") {
+		t.Fatalf("expected truncation marker in stdout log, got %q", stdoutLog)
+	}
+	if len(stdoutLog) >= len(stdout) {
+		t.Fatalf("expected truncated stdout log to be smaller than raw payload")
 	}
 }
