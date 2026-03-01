@@ -383,6 +383,11 @@ fn set_sidecar_port(state: &SidecarState, port: Option<u16>) {
     }
 }
 
+fn handle_sidecar_terminated(state: &SidecarState, startup_handled: &AtomicBool) -> bool {
+    set_sidecar_port(state, None);
+    !startup_handled.swap(true, Ordering::SeqCst)
+}
+
 fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
     let startup_handled = Arc::new(AtomicBool::new(false));
     let timeout_window = window.clone();
@@ -423,8 +428,8 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                         "[agentsview] sidecar terminated (code: {:?}, signal: {:?})",
                         payload.code, payload.signal
                     );
-                    clear_sidecar_port(&window.app_handle());
-                    if !startup_handled.swap(true, Ordering::SeqCst) {
+                    let state = window.app_handle().state::<SidecarState>();
+                    if handle_sidecar_terminated(&state, startup_handled.as_ref()) {
                         let _ = window.eval(
                             "document.getElementById('status').textContent = 'AgentsView backend exited before startup completed.';",
                         );
@@ -503,7 +508,7 @@ fn stop_backend(app: &AppHandle) {
             eprintln!("[agentsview] failed to stop sidecar: {err}");
         }
     }
-    set_sidecar_port(&state, None);
+    clear_sidecar_port(app);
 }
 
 fn wait_for_server(port: u16, timeout: Duration) -> bool {
@@ -642,6 +647,28 @@ mod tests {
             .expect("lock backend_port after clear")
             .to_owned();
         assert_eq!(cleared, None);
+    }
+
+    #[test]
+    fn handle_sidecar_terminated_clears_port_and_marks_startup() {
+        let state = SidecarState::default();
+        set_sidecar_port(&state, Some(18080));
+        let startup_handled = AtomicBool::new(false);
+
+        assert!(handle_sidecar_terminated(&state, &startup_handled));
+        assert_eq!(
+            state
+                .backend_port
+                .lock()
+                .expect("lock backend_port after terminated")
+                .to_owned(),
+            None
+        );
+        assert!(startup_handled.load(Ordering::SeqCst));
+
+        // Termination handling is idempotent for state and should only
+        // report first-time transition once.
+        assert!(!handle_sidecar_terminated(&state, &startup_handled));
     }
 
     #[test]
