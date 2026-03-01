@@ -10,7 +10,7 @@ LDFLAGS := -X main.version=$(VERSION) \
 
 LDFLAGS_RELEASE := $(LDFLAGS) -s -w
 
-.PHONY: build build-release install frontend frontend-dev dev desktop-dev desktop-build test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
+.PHONY: build build-release install frontend frontend-dev dev desktop-dev desktop-build desktop-app test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
 
 # Ensure go:embed has at least one file (no-op if frontend is built)
 ensure-embed-dir:
@@ -65,6 +65,10 @@ desktop-dev:
 # Build desktop app bundles via Tauri
 desktop-build:
 	cd desktop/tauri && npm install && npm run tauri:build
+
+# Build only the macOS .app bundle (skip DMG packaging)
+desktop-app:
+	cd desktop/tauri && npm install && npm run tauri -- build --bundles app
 
 # Run tests
 test: ensure-embed-dir
@@ -149,6 +153,7 @@ help:
 	@echo "  frontend-dev   - Run Vite dev server"
 	@echo "  desktop-dev    - Run Tauri desktop wrapper in dev mode"
 	@echo "  desktop-build  - Build Tauri desktop app bundles"
+	@echo "  desktop-app    - Build macOS .app bundle only"
 	@echo ""
 	@echo "  test           - Run all tests"
 	@echo "  test-short     - Run fast tests only"
