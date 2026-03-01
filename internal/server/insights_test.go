@@ -298,20 +298,22 @@ func (f *firstLogDelayRecorder) Flush() {
 
 type deadlineAwareBlockingLogRecorder struct {
 	*httptest.ResponseRecorder
-	handlerReturned  <-chan struct{}
-	postReturnWrites atomic.Int32
-	deadlineUpdates  chan struct{}
-	mu               sync.Mutex
-	writeDeadline    time.Time
+	handlerReturned     <-chan struct{}
+	postReturnWrites    atomic.Int32
+	postReturnAttempted chan struct{}
+	deadlineUpdates     chan struct{}
+	mu                  sync.Mutex
+	writeDeadline       time.Time
 }
 
 func newDeadlineAwareBlockingLogRecorder(
 	handlerReturned <-chan struct{},
 ) *deadlineAwareBlockingLogRecorder {
 	return &deadlineAwareBlockingLogRecorder{
-		ResponseRecorder: httptest.NewRecorder(),
-		handlerReturned:  handlerReturned,
-		deadlineUpdates:  make(chan struct{}, 1),
+		ResponseRecorder:    httptest.NewRecorder(),
+		handlerReturned:     handlerReturned,
+		postReturnAttempted: make(chan struct{}, 1),
+		deadlineUpdates:     make(chan struct{}, 1),
 	}
 }
 
@@ -329,6 +331,18 @@ func (f *deadlineAwareBlockingLogRecorder) SetWriteDeadline(t time.Time) error {
 func (f *deadlineAwareBlockingLogRecorder) Write(
 	b []byte,
 ) (int, error) {
+	if f.handlerReturned != nil {
+		select {
+		case <-f.handlerReturned:
+			f.postReturnWrites.Add(1)
+			select {
+			case f.postReturnAttempted <- struct{}{}:
+			default:
+			}
+		default:
+		}
+	}
+
 	if strings.HasPrefix(string(b), "event: log\n") {
 		for {
 			f.mu.Lock()
@@ -340,13 +354,6 @@ func (f *deadlineAwareBlockingLogRecorder) Write(
 			<-f.deadlineUpdates
 		}
 	}
-	if f.handlerReturned != nil {
-		select {
-		case <-f.handlerReturned:
-			f.postReturnWrites.Add(1)
-		default:
-		}
-	}
 	return f.ResponseRecorder.Write(b)
 }
 
@@ -356,6 +363,10 @@ func (f *deadlineAwareBlockingLogRecorder) Flush() {
 
 func (f *deadlineAwareBlockingLogRecorder) PostReturnWrites() int32 {
 	return f.postReturnWrites.Load()
+}
+
+func (f *deadlineAwareBlockingLogRecorder) PostReturnAttempted() <-chan struct{} {
+	return f.postReturnAttempted
 }
 
 func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
@@ -665,7 +676,11 @@ func TestGenerateInsight_LogDrainTimeoutForceUnblocksAndNoPostReturnWrites(t *te
 		t.Fatalf("timed out waiting for forced-unblock completion")
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-w.PostReturnAttempted():
+		t.Fatalf("expected no writes after handler return")
+	case <-time.After(300 * time.Millisecond):
+	}
 	if got := w.PostReturnWrites(); got != 0 {
 		t.Fatalf("expected no writes after handler return, got %d", got)
 	}
