@@ -74,6 +74,7 @@ func ParsePiSession(
 		messages     []ParsedMessage
 		firstMessage string
 		ordinal      int
+		userCount    int
 	)
 
 	for {
@@ -113,6 +114,9 @@ func ParsePiSession(
 				}
 				messages = append(messages, *msg)
 				ordinal++
+				if msg.Content != "" {
+					userCount++
+				}
 
 			case "assistant":
 				msg := parsePiAssistantMessage(line, ordinal)
@@ -191,14 +195,6 @@ func ParsePiSession(
 		}
 		if endedAt.IsZero() || m.Timestamp.After(endedAt) {
 			endedAt = m.Timestamp
-		}
-	}
-
-	// Count user messages (those with non-empty content).
-	userCount := 0
-	for _, m := range messages {
-		if m.Role == RoleUser && m.Content != "" {
-			userCount++
 		}
 	}
 

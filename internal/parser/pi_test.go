@@ -222,6 +222,23 @@ func TestParsePiSession_Compaction(t *testing.T) {
 	)
 }
 
+// TestParsePiSession_UserMessageCount verifies that synthetic entries
+// (model_change, compaction) are not counted as user messages.
+func TestParsePiSession_UserMessageCount(t *testing.T) {
+	fixturePath := createTestFile(
+		t, "pi-session.jsonl",
+		loadFixture(t, "pi/session.jsonl"),
+	)
+	sess, _, err := ParsePiSession(fixturePath, "", "local")
+	require.NoError(t, err)
+
+	// The fixture has 2 real user messages plus model_change and compaction
+	// entries that are stored as RoleUser. Only real user messages should be
+	// counted.
+	assert.Equal(t, 2, sess.UserMessageCount,
+		"UserMessageCount must exclude synthetic model_change/compaction entries")
+}
+
 // TestParsePiSession_SilentSkips verifies that the parser silently ignores
 // malformed JSON, thinking_level_change entries, and unknown future entry types
 // without returning an error.
