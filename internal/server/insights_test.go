@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -294,6 +296,68 @@ func (f *firstLogDelayRecorder) Flush() {
 	f.ResponseRecorder.Flush()
 }
 
+type deadlineAwareBlockingLogRecorder struct {
+	*httptest.ResponseRecorder
+	handlerReturned  <-chan struct{}
+	postReturnWrites atomic.Int32
+	deadlineUpdates  chan struct{}
+	mu               sync.Mutex
+	writeDeadline    time.Time
+}
+
+func newDeadlineAwareBlockingLogRecorder(
+	handlerReturned <-chan struct{},
+) *deadlineAwareBlockingLogRecorder {
+	return &deadlineAwareBlockingLogRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		handlerReturned:  handlerReturned,
+		deadlineUpdates:  make(chan struct{}, 1),
+	}
+}
+
+func (f *deadlineAwareBlockingLogRecorder) SetWriteDeadline(t time.Time) error {
+	f.mu.Lock()
+	f.writeDeadline = t
+	f.mu.Unlock()
+	select {
+	case f.deadlineUpdates <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (f *deadlineAwareBlockingLogRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		for {
+			f.mu.Lock()
+			deadline := f.writeDeadline
+			f.mu.Unlock()
+			if !deadline.IsZero() && !deadline.After(time.Now()) {
+				return 0, os.ErrDeadlineExceeded
+			}
+			<-f.deadlineUpdates
+		}
+	}
+	if f.handlerReturned != nil {
+		select {
+		case <-f.handlerReturned:
+			f.postReturnWrites.Add(1)
+		default:
+		}
+	}
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *deadlineAwareBlockingLogRecorder) Flush() {
+	f.ResponseRecorder.Flush()
+}
+
+func (f *deadlineAwareBlockingLogRecorder) PostReturnWrites() int32 {
+	return f.postReturnWrites.Load()
+}
+
 func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
 	stubGen := func(
 		_ context.Context, _ string, _ string, onLog insight.LogFunc,
@@ -564,6 +628,62 @@ func TestGenerateInsight_LogDrainTimeoutBoundedWhenWriterStuck(t *testing.T) {
 		if ev.Event == "done" {
 			t.Fatalf("did not expect done event on stuck writer timeout path")
 		}
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutForceUnblocksAndNoPostReturnWrites(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		onLog(insight.LogEvent{Stream: "stdout", Line: "force-unblock-line"})
+		return insight.Result{Content: "# Insight", Agent: "claude"}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	handlerReturned := make(chan struct{})
+	w := newDeadlineAwareBlockingLogRecorder(handlerReturned)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+		close(handlerReturned)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+		t.Fatalf("timed out waiting for forced-unblock completion")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := w.PostReturnWrites(); got != 0 {
+		t.Fatalf("expected no writes after handler return, got %d", got)
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.Body.String())
+	foundTimeoutError := false
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event on forced-unblock timeout path")
+		}
+		if ev.Event == "error" &&
+			strings.Contains(ev.Data, "timed out before completion") {
+			foundTimeoutError = true
+		}
+	}
+	if !foundTimeoutError {
+		t.Fatalf("expected timeout error event")
 	}
 }
 

@@ -213,7 +213,7 @@ func (s *Server) handleGenerateInsight(
 	const (
 		maxBufferedLogEvents = 256
 		logDrainTimeout      = 2 * time.Second
-		logStopWaitTimeout   = 2 * time.Second
+		logStopWaitTimeout   = 500 * time.Millisecond
 	)
 	logCh := make(chan insight.LogEvent, maxBufferedLogEvents)
 	logDone := make(chan struct{})
@@ -287,7 +287,18 @@ func (s *Server) handleGenerateInsight(
 					"insight log sender stop timed out after %s",
 					logStopWaitTimeout,
 				)
-				return dropped, false, false, true
+				// Try to force-unblock any in-flight writer and wait one
+				// more bounded interval for sender shutdown.
+				stream.ForceWriteDeadlineNow()
+				select {
+				case <-logDone:
+					return dropped, false, true, true
+				case <-time.After(logStopWaitTimeout):
+					log.Printf(
+						"insight log sender did not stop after forced deadline",
+					)
+					return dropped, false, false, true
+				}
 			}
 		}
 	}
@@ -298,6 +309,7 @@ func (s *Server) handleGenerateInsight(
 	)
 	dropped, drained, senderStopped, timedOut := finishLogStream()
 	if !senderStopped {
+		stream.ForceWriteDeadlineNow()
 		log.Printf("insight log stream sender did not stop; aborting terminal SSE events")
 		return
 	}

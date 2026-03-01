@@ -58,3 +58,11 @@ func (s *SSEStream) SendJSON(event string, v any) bool {
 	}
 	return s.Send(event, string(data))
 }
+
+// ForceWriteDeadlineNow asks the underlying writer (when
+// supported) to expire write deadlines immediately. This is used
+// during shutdown to unblock stalled writes.
+func (s *SSEStream) ForceWriteDeadlineNow() {
+	rc := http.NewResponseController(s.w)
+	_ = rc.SetWriteDeadline(time.Now())
+}
