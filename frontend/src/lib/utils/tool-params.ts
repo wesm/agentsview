@@ -129,17 +129,38 @@ export function generateFallbackContent(
       lines.push("+++ new");
       lines.push(truncate(String(newStr), 500));
     }
-    // Pi: edits[] array with set_line or op-based operations
+    // Pi: edits[] array with set_line, replace_lines, insert_after, or op-based operations
     if (!lines.length && Array.isArray(params.edits)) {
       for (const edit of params.edits as Record<string, unknown>[]) {
         const setLine = edit.set_line as
           | Record<string, unknown>
           | undefined;
+        const replaceLines = edit.replace_lines as
+          | Record<string, unknown>
+          | undefined;
+        const insertAfter = edit.insert_after as
+          | Record<string, unknown>
+          | undefined;
         if (setLine) {
           // {set_line: {anchor, new_text}} format
           if (setLine.anchor) lines.push(`@ ${setLine.anchor}`);
-          if (setLine.new_text != null)
-            lines.push(truncate(String(setLine.new_text), 400));
+          if (setLine.new_text != null) {
+            const text = String(setLine.new_text);
+            lines.push(text ? truncate(text, 400) : "(delete)");
+          }
+        } else if (replaceLines) {
+          // {replace_lines: {start_anchor, end_anchor, new_text}} format
+          const start = replaceLines.start_anchor;
+          const end = replaceLines.end_anchor;
+          if (start && end) lines.push(`@ ${start}..${end}`);
+          else if (start) lines.push(`@ ${start}`);
+          const text = String(replaceLines.new_text ?? "");
+          lines.push(text ? truncate(text, 400) : "(delete)");
+        } else if (insertAfter) {
+          // {insert_after: {anchor, text}} format
+          if (insertAfter.anchor) lines.push(`insert after ${insertAfter.anchor}`);
+          const text = String(insertAfter.text ?? "");
+          lines.push(text ? truncate(text, 400) : "(empty)");
         } else if (Array.isArray(edit.lines)) {
           // {op, pos, end, lines} format — real Pi agent format
           if (edit.op) lines.push(`${edit.op}${edit.pos ? ` @ ${edit.pos}` : ""}`);

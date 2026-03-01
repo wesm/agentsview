@@ -261,6 +261,85 @@ describe("generateFallbackContent", () => {
     expect(result).toBe("@ 12:0\n.foo { color: blue; }");
   });
 
+  it("shows pi edits array with replace_lines", () => {
+    const result = generateFallbackContent("Edit", {
+      path: "src/data/site.ts",
+      edits: [
+        {
+          replace_lines: {
+            start_anchor: "31:b4",
+            end_anchor: "37:f6",
+            new_text: "const updated = true;",
+          },
+        },
+      ],
+    });
+    expect(result).toBe("@ 31:b4..37:f6\nconst updated = true;");
+  });
+
+  it("shows pi edits replace_lines deletion (empty new_text)", () => {
+    const result = generateFallbackContent("Edit", {
+      path: "src/data/site.ts",
+      edits: [
+        {
+          replace_lines: {
+            start_anchor: "31:b4",
+            end_anchor: "37:f6",
+            new_text: "",
+          },
+        },
+      ],
+    });
+    expect(result).toBe("@ 31:b4..37:f6\n(delete)");
+  });
+
+  it("shows pi edits array with insert_after", () => {
+    const result = generateFallbackContent("Edit", {
+      path: "src/styles.css",
+      edits: [
+        {
+          insert_after: {
+            anchor: "248:18",
+            text: ".new-class { color: red; }",
+          },
+        },
+      ],
+    });
+    expect(result).toBe(
+      "insert after 248:18\n.new-class { color: red; }",
+    );
+  });
+
+  it("shows pi edits insert_after with empty text", () => {
+    const result = generateFallbackContent("Edit", {
+      path: "src/styles.css",
+      edits: [
+        {
+          insert_after: {
+            anchor: "248:18",
+            text: "",
+          },
+        },
+      ],
+    });
+    expect(result).toBe("insert after 248:18\n(empty)");
+  });
+
+  it("shows pi edits set_line deletion (empty new_text)", () => {
+    const result = generateFallbackContent("Edit", {
+      path: "src/pages/index.astro",
+      edits: [
+        {
+          set_line: {
+            anchor: "17:0b",
+            new_text: "",
+          },
+        },
+      ],
+    });
+    expect(result).toBe("@ 17:0b\n(delete)");
+  });
+
   it("shows pi edits array with op/tag/content", () => {
     const result = generateFallbackContent("Edit", {
       path: "content.js",
