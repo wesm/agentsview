@@ -226,22 +226,34 @@ func TestGenerateInsight_StreamsLogs(t *testing.T) {
 type slowFlushRecorder struct {
 	*httptest.ResponseRecorder
 	delay time.Duration
+	mu    sync.Mutex
 }
 
 func (f *slowFlushRecorder) Write(
 	b []byte,
 ) (int, error) {
 	time.Sleep(f.delay)
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.ResponseRecorder.Write(b)
 }
 
 func (f *slowFlushRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ResponseRecorder.Flush()
+}
+
+func (f *slowFlushRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
 }
 
 type slowLogRecorder struct {
 	*httptest.ResponseRecorder
 	delay time.Duration
+	mu    sync.Mutex
 }
 
 func (f *slowLogRecorder) Write(
@@ -250,16 +262,27 @@ func (f *slowLogRecorder) Write(
 	if strings.HasPrefix(string(b), "event: log\n") {
 		time.Sleep(f.delay)
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.ResponseRecorder.Write(b)
 }
 
 func (f *slowLogRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ResponseRecorder.Flush()
+}
+
+func (f *slowLogRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
 }
 
 type blockingLogRecorder struct {
 	*httptest.ResponseRecorder
 	release <-chan struct{}
+	mu      sync.Mutex
 }
 
 func (f *blockingLogRecorder) Write(
@@ -268,17 +291,28 @@ func (f *blockingLogRecorder) Write(
 	if strings.HasPrefix(string(b), "event: log\n") {
 		<-f.release
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.ResponseRecorder.Write(b)
 }
 
 func (f *blockingLogRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ResponseRecorder.Flush()
+}
+
+func (f *blockingLogRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
 }
 
 type firstLogDelayRecorder struct {
 	*httptest.ResponseRecorder
 	delay time.Duration
 	once  sync.Once
+	mu    sync.Mutex
 }
 
 func (f *firstLogDelayRecorder) Write(
@@ -289,11 +323,21 @@ func (f *firstLogDelayRecorder) Write(
 			time.Sleep(f.delay)
 		})
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.ResponseRecorder.Write(b)
 }
 
 func (f *firstLogDelayRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ResponseRecorder.Flush()
+}
+
+func (f *firstLogDelayRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
 }
 
 type deadlineAwareBlockingLogRecorder struct {
@@ -354,10 +398,14 @@ func (f *deadlineAwareBlockingLogRecorder) Write(
 			<-f.deadlineUpdates
 		}
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.ResponseRecorder.Write(b)
 }
 
 func (f *deadlineAwareBlockingLogRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ResponseRecorder.Flush()
 }
 
@@ -367,6 +415,12 @@ func (f *deadlineAwareBlockingLogRecorder) PostReturnWrites() int32 {
 
 func (f *deadlineAwareBlockingLogRecorder) PostReturnAttempted() <-chan struct{} {
 	return f.postReturnAttempted
+}
+
+func (f *deadlineAwareBlockingLogRecorder) BodyString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Body.String()
 }
 
 func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
@@ -413,7 +467,7 @@ func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
 	}
 
 	assertStatus(t, w.ResponseRecorder, http.StatusOK)
-	events := parseSSE(w.Body.String())
+	events := parseSSE(w.BodyString())
 
 	foundDone := false
 	foundDropSummary := false
@@ -493,7 +547,7 @@ func TestGenerateInsight_LogDrainTimeoutReturnsWithoutHang(t *testing.T) {
 	}
 
 	assertStatus(t, w.ResponseRecorder, http.StatusOK)
-	events := parseSSE(w.Body.String())
+	events := parseSSE(w.BodyString())
 	for _, ev := range events {
 		if ev.Event == "done" {
 			t.Fatalf("did not expect done event when timeout path is triggered")
@@ -545,7 +599,7 @@ func TestGenerateInsight_LogDrainTimeoutReportsBufferedDrops(t *testing.T) {
 	}
 
 	assertStatus(t, w.ResponseRecorder, http.StatusOK)
-	events := parseSSE(w.Body.String())
+	events := parseSSE(w.BodyString())
 	foundTimeoutError := false
 	foundDropSummary := false
 	for _, ev := range events {
@@ -634,7 +688,7 @@ func TestGenerateInsight_LogDrainTimeoutBoundedWhenWriterStuck(t *testing.T) {
 	close(release)
 
 	assertStatus(t, w.ResponseRecorder, http.StatusOK)
-	events := parseSSE(w.Body.String())
+	events := parseSSE(w.BodyString())
 	for _, ev := range events {
 		if ev.Event == "done" {
 			t.Fatalf("did not expect done event on stuck writer timeout path")
@@ -686,7 +740,7 @@ func TestGenerateInsight_LogDrainTimeoutForceUnblocksAndNoPostReturnWrites(t *te
 	}
 
 	assertStatus(t, w.ResponseRecorder, http.StatusOK)
-	events := parseSSE(w.Body.String())
+	events := parseSSE(w.BodyString())
 	foundTimeoutError := false
 	for _, ev := range events {
 		if ev.Event == "done" {
