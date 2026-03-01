@@ -17,10 +17,6 @@
   let { content, label, toolCall }: Props = $props();
   let collapsed: boolean = $state(true);
 
-  let previewLine = $derived(
-    content.split("\n")[0]?.slice(0, 100) ?? "",
-  );
-
   /** Parsed input parameters from structured tool call data */
   let inputParams = $derived.by(() => {
     if (!toolCall?.input_json) return null;
@@ -29,6 +25,21 @@
     } catch {
       return null;
     }
+  });
+
+  let previewLine = $derived.by(() => {
+    const line = content.split("\n")[0]?.slice(0, 100) ?? "";
+    if (line) return line;
+    // For Edit/Write/Read with no content, show file path as preview
+    const filePath =
+      inputParams?.file_path ?? inputParams?.path ?? inputParams?.filePath;
+    if (filePath) return String(filePath).slice(0, 100);
+    // For glob/search tools, show pattern
+    if (inputParams?.pattern) return String(inputParams.pattern).slice(0, 100);
+    // Last resort: show pi agent intent metadata
+    const intent = inputParams?.agent__intent ?? inputParams?._i;
+    if (intent) return String(intent).slice(0, 100);
+    return "";
   });
 
   /** For Task tool calls, extract key metadata fields */
@@ -85,7 +96,7 @@
   /** Extract metadata tags for common tool types */
   let toolParamMeta = $derived.by(() => {
     if (!inputParams || !toolCall) return null;
-    return extractToolParamMeta(toolCall.tool_name, inputParams);
+    return extractToolParamMeta(toolCall.category || toolCall.tool_name, inputParams);
   });
 
   /** Combined metadata for any tool type */
@@ -101,7 +112,7 @@
   let fallbackContent = $derived.by(() => {
     if (content || !inputParams || !toolCall) return null;
     return generateFallbackContent(
-      toolCall.tool_name,
+      toolCall.category || toolCall.tool_name,
       inputParams,
     );
   });

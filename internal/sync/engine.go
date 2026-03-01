@@ -368,6 +368,27 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// Pi: <piDir>/<encoded-cwd>/<session>.jsonl
+	for _, piDir := range e.agentDirs[parser.AgentPi] {
+		if piDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(piDir, path); ok {
+			parts := strings.Split(rel, sep)
+			if len(parts) != 2 {
+				continue
+			}
+			if !strings.HasSuffix(parts[1], ".jsonl") {
+				continue
+			}
+			return parser.DiscoveredFile{
+				Path:  path,
+				Agent: parser.AgentPi,
+				// Project left empty; parser derives from header cwd.
+			}, true
+		}
+	}
+
 	return parser.DiscoveredFile{}, false
 }
 
@@ -589,7 +610,7 @@ func (e *Engine) syncAllLocked(
 
 	if verbose {
 		log.Printf(
-			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp) in %s",
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp, %d pi) in %s",
 			len(all),
 			counts[parser.AgentClaude],
 			counts[parser.AgentCodex],
@@ -597,6 +618,7 @@ func (e *Engine) syncAllLocked(
 			counts[parser.AgentGemini],
 			counts[parser.AgentCursor],
 			counts[parser.AgentAmp],
+			counts[parser.AgentPi],
 			time.Since(t0).Round(time.Millisecond),
 		)
 	}
@@ -881,6 +903,8 @@ func (e *Engine) processFile(
 		res = e.processCursor(file, info)
 	case parser.AgentAmp:
 		res = e.processAmp(file, info)
+	case parser.AgentPi:
+		res = e.processPi(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -1180,6 +1204,38 @@ func (e *Engine) processCursor(
 		results: []parser.ParseResult{
 			{Session: *sess, Messages: msgs},
 		},
+	}
+}
+
+// processPi parses a pi session file and returns the result
+// for batching. Modeled on processClaude.
+func (e *Engine) processPi(
+	file parser.DiscoveredFile, info os.FileInfo,
+) processResult {
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParsePiSession(
+		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{{
+			Session:  *sess,
+			Messages: msgs,
+		}},
 	}
 }
 

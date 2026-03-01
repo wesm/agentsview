@@ -16,6 +16,7 @@ const (
 	AgentOpenCode AgentType = "opencode"
 	AgentCursor   AgentType = "cursor"
 	AgentAmp      AgentType = "amp"
+	AgentPi       AgentType = "pi"
 )
 
 // AgentDef describes a supported coding agent's filesystem
@@ -117,6 +118,16 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverAmpSessions,
 		FindSourceFunc: FindAmpSourceFile,
+	},
+	{
+		Type:           AgentPi,
+		DisplayName:    "Pi",
+		EnvVar:         "PI_DIR",
+		DefaultDirs:    []string{".pi/agent/sessions"},
+		IDPrefix:       "pi:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverPiSessions,
+		FindSourceFunc: FindPiSourceFile,
 	},
 }
 
