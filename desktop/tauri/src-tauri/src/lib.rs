@@ -102,6 +102,12 @@ fn sidecar_env() -> Vec<(OsString, OsString)> {
 // read_login_shell_env invokes the user's login shell and
 // parses NUL-delimited env output (`env -0`).
 fn read_login_shell_env() -> Option<Vec<(OsString, OsString)>> {
+    if cfg!(target_os = "windows") {
+        // Windows desktop launches generally inherit user/system
+        // env already; shell profile probing is a follow-up hardening task.
+        return None;
+    }
+
     let default_shell = if cfg!(target_os = "macos") {
         "/bin/zsh"
     } else {
@@ -137,10 +143,10 @@ fn read_login_shell_env() -> Option<Vec<(OsString, OsString)>> {
 // KEY=VALUE lines. This provides a manual override path before
 // desktop settings UI exists.
 fn read_desktop_env_file() -> Vec<(OsString, OsString)> {
-    let Some(home) = std::env::var_os("HOME") else {
+    let Some(home) = resolve_home_dir() else {
         return Vec::new();
     };
-    let path = PathBuf::from(home).join(".agentsview").join("desktop.env");
+    let path = home.join(".agentsview").join("desktop.env");
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
     };
@@ -161,6 +167,20 @@ fn read_desktop_env_file() -> Vec<(OsString, OsString)> {
         vars.push((OsString::from(key), OsString::from(v.trim())));
     }
     vars
+}
+
+fn resolve_home_dir() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(home));
+    }
+    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(profile));
+    }
+    let drive = std::env::var_os("HOMEDRIVE").filter(|v| !v.is_empty())?;
+    let path = std::env::var_os("HOMEPATH").filter(|v| !v.is_empty())?;
+    let mut combined = OsString::from(drive);
+    combined.push(path);
+    Some(PathBuf::from(combined))
 }
 
 fn save_sidecar(app: &App, child: CommandChild) -> Result<(), DynError> {

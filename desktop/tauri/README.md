@@ -39,5 +39,6 @@ Optional escape hatch:
 - Add overrides in `~/.agentsview/desktop.env`:
   - Example: `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`
   - Example: `ANTHROPIC_API_KEY=...`
+- On Windows, this file resolves to `%USERPROFILE%\\.agentsview\\desktop.env`.
 - Force a custom PATH with `AGENTSVIEW_DESKTOP_PATH`.
 - Skip login-shell env loading with `AGENTSVIEW_DESKTOP_SKIP_LOGIN_SHELL_ENV=1`.
