@@ -15,6 +15,11 @@ import (
 // for insight generation.
 const geminiInsightModel = "gemini-3.1-pro-preview"
 
+// claudeStdoutLogMaxBytes bounds Claude stdout log payloads sent to
+// SSE/UI so a single large JSON response does not overwhelm the log
+// stream. Full stdout is still parsed for result extraction.
+const claudeStdoutLogMaxBytes = 16 * 1024
+
 // Result holds the output from an AI agent invocation.
 type Result struct {
 	Content string
@@ -157,6 +162,17 @@ func emitLog(onLog LogFunc, stream, line string) {
 	})
 }
 
+func truncateLogLine(line string, maxBytes int) string {
+	if maxBytes <= 0 || len(line) <= maxBytes {
+		return line
+	}
+	omitted := len(line) - maxBytes
+	return fmt.Sprintf(
+		"%s... [truncated %d bytes]",
+		line[:maxBytes], omitted,
+	)
+}
+
 func collectStreamLines(
 	r io.Reader, stream string, onLog LogFunc,
 ) <-chan string {
@@ -233,7 +249,11 @@ func generateClaude(
 		)
 	}
 
-	emitLog(onLog, "stdout", string(stdoutBytes))
+	emitLog(
+		onLog,
+		"stdout",
+		truncateLogLine(string(stdoutBytes), claudeStdoutLogMaxBytes),
+	)
 
 	// Honor context cancellation over salvaging stdout, but
 	// only when the command actually failed. A successful

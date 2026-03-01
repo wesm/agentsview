@@ -509,3 +509,40 @@ func TestGenerateClaude_SuccessNotDiscarded(t *testing.T) {
 		t.Errorf("content = %q, want OK", result.Content)
 	}
 }
+
+func TestGenerateClaude_TruncatesLargeStdoutLogEvent(t *testing.T) {
+	largeResult := strings.Repeat("x", claudeStdoutLogMaxBytes*2)
+	stdout := fmt.Sprintf(`{"result":%q,"model":"m1"}`, largeResult)
+	bin := fakeClaudeBin(t, stdout, 0)
+
+	var logs []LogEvent
+	result, err := generateClaude(
+		context.Background(),
+		bin,
+		"test",
+		func(ev LogEvent) { logs = append(logs, ev) },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Content != largeResult {
+		t.Fatalf("result content was truncated unexpectedly")
+	}
+
+	var stdoutLog string
+	for _, ev := range logs {
+		if ev.Stream == "stdout" {
+			stdoutLog = ev.Line
+			break
+		}
+	}
+	if stdoutLog == "" {
+		t.Fatalf("expected stdout log event")
+	}
+	if !strings.Contains(stdoutLog, "[truncated ") {
+		t.Fatalf("expected truncation marker in stdout log, got %q", stdoutLog)
+	}
+	if len(stdoutLog) >= len(stdout) {
+		t.Fatalf("expected truncated stdout log to be smaller than raw payload")
+	}
+}
