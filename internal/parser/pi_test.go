@@ -38,10 +38,10 @@ func TestParsePiSession_SessionHeader(t *testing.T) {
 	// ExtractProjectFromCwd("/Users/alice/code/my-project") -> "my_project"
 	assert.Equal(t, "my_project", sess.Project, "PRSR-01: project from cwd")
 
-	// branchedFrom basename without extension (PRSR-10)
+	// branchedFrom basename without extension, prefixed (PRSR-10)
 	assert.Equal(
 		t,
-		"2025-01-01T09-00-00-000Z_parent-uuid",
+		"pi:2025-01-01T09-00-00-000Z_parent-uuid",
 		sess.ParentSessionID,
 		"PRSR-10: parent session ID",
 	)
@@ -263,9 +263,9 @@ func TestParsePiSession_BranchedFrom(t *testing.T) {
 	t.Run("parent session ID from branchedFrom", func(t *testing.T) {
 		assert.Equal(
 			t,
-			"2025-01-01T09-00-00-000Z_parent-uuid",
+			"pi:2025-01-01T09-00-00-000Z_parent-uuid",
 			sess.ParentSessionID,
-			"PRSR-10: basename of branchedFrom without .jsonl extension",
+			"PRSR-10: basename of branchedFrom without .jsonl extension, prefixed",
 		)
 	})
 }

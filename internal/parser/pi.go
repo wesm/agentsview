@@ -63,7 +63,7 @@ func ParsePiSession(
 	branchedFrom := gjson.Get(headerLine, "branchedFrom").Str
 	if branchedFrom != "" {
 		base := filepath.Base(branchedFrom)
-		parentSessionID = strings.TrimSuffix(base, filepath.Ext(base))
+		parentSessionID = "pi:" + strings.TrimSuffix(base, filepath.Ext(base))
 	}
 
 	// V1 detection: if header has no id, we may need to derive from filename.
