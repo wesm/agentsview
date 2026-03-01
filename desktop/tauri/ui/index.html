@@ -7,6 +7,17 @@
     <style>
       :root {
         color-scheme: light;
+        --bg-1: #f6fbff;
+        --bg-2: #e8f2ff;
+        --ink-1: #0c1f35;
+        --ink-2: #3c5575;
+        --panel-border: #cadef7;
+        --brand: #2f7cf6;
+        --brand-deep: #1355bf;
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
@@ -14,39 +25,197 @@
         min-height: 100vh;
         display: grid;
         place-items: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: radial-gradient(circle at top, #dcefff, #f7fbff 45%, #ffffff 100%);
-        color: #0f172a;
+        padding: 24px;
+        font-family: "Avenir Next", "Segoe UI Variable", "SF Pro Display", "Segoe UI", sans-serif;
+        color: var(--ink-1);
+        background:
+          radial-gradient(1200px 640px at 8% -5%, #dcecff 0%, transparent 62%),
+          radial-gradient(940px 560px at 100% 110%, #eaf3ff 0%, transparent 58%),
+          linear-gradient(160deg, var(--bg-1), var(--bg-2));
       }
 
-      main {
-        width: min(560px, calc(100vw - 48px));
-        border: 1px solid #c7dff7;
-        border-radius: 12px;
+      .shell {
+        width: min(680px, calc(100vw - 36px));
+        border-radius: 20px;
+        border: 1px solid var(--panel-border);
         background: rgba(255, 255, 255, 0.92);
-        padding: 28px;
-        box-shadow: 0 14px 44px rgba(15, 23, 42, 0.11);
+        backdrop-filter: blur(6px);
+        box-shadow:
+          0 20px 60px rgba(29, 64, 122, 0.18),
+          0 2px 0 rgba(255, 255, 255, 0.75) inset;
+        overflow: hidden;
+      }
+
+      .top-glow {
+        height: 4px;
+        background: linear-gradient(90deg, #81b8ff, #2f7cf6, #81b8ff);
+        background-size: 220% 100%;
+        animation: sweep 2.4s linear infinite;
+      }
+
+      .content {
+        padding: 26px 28px 24px;
+      }
+
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        flex-shrink: 0;
+      }
+
+      .brand-name {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: 0.015em;
+        color: #1c3d66;
+        font-weight: 650;
       }
 
       h1 {
-        margin: 0 0 10px;
-        font-size: 1.4rem;
-      }
-
-      p {
-        margin: 0;
-        line-height: 1.4;
+        margin: 14px 0 8px;
+        font-size: clamp(1.4rem, 2.2vw, 1.75rem);
+        line-height: 1.15;
+        letter-spacing: -0.015em;
       }
 
       #status {
-        color: #334155;
+        margin: 0;
+        color: var(--ink-2);
+        line-height: 1.45;
+        font-size: 0.98rem;
+      }
+
+      .meter {
+        position: relative;
+        margin-top: 18px;
+        height: 8px;
+        border-radius: 999px;
+        background: #dbe9fb;
+        overflow: hidden;
+      }
+
+      .meter::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 42%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #52a2ff, #2f7cf6 45%, #1054bf);
+        animation: loading 1.5s ease-in-out infinite;
+      }
+
+      .stage-list {
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+
+      .stage {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #49678e;
+        font-size: 0.88rem;
+      }
+
+      .stage-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--brand);
+        box-shadow: 0 0 0 0 rgba(47, 124, 246, 0.35);
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+
+      .stage:nth-child(2) .stage-dot {
+        animation-delay: 0.28s;
+      }
+
+      .stage:nth-child(3) .stage-dot {
+        animation-delay: 0.56s;
+      }
+
+      .foot {
+        margin-top: 18px;
+        padding-top: 12px;
+        border-top: 1px solid #deebfb;
+        color: #5f7fa8;
+        font-size: 0.78rem;
+        letter-spacing: 0.02em;
+      }
+
+      @keyframes loading {
+        0% {
+          transform: translateX(-35%);
+          width: 32%;
+        }
+        55% {
+          width: 56%;
+        }
+        100% {
+          transform: translateX(240%);
+          width: 38%;
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(47, 124, 246, 0.25);
+          opacity: 0.9;
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(47, 124, 246, 0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes sweep {
+        from {
+          background-position: 0% 50%;
+        }
+        to {
+          background-position: 220% 50%;
+        }
       }
     </style>
   </head>
   <body>
-    <main>
-      <h1>Starting AgentsView</h1>
-      <p id="status">Launching local backend and waiting for readiness...</p>
+    <main class="shell" role="status" aria-live="polite">
+      <div class="top-glow"></div>
+      <div class="content">
+        <div class="brand-row">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="6" fill="var(--brand)" />
+            <rect x="13" y="10" width="6" height="16" rx="2" fill="#fff" />
+            <rect x="11" y="5" width="10" height="7" rx="2" fill="#fff" />
+            <circle cx="18" cy="8.5" r="2" fill="var(--brand)" />
+            <circle cx="18" cy="8.5" r="1" fill="var(--brand-deep)" />
+          </svg>
+          <p class="brand-name">AgentsView Desktop</p>
+        </div>
+
+        <h1>Preparing your workspace</h1>
+        <p id="status">Starting local backend and loading the interface.</p>
+
+        <div class="meter" aria-hidden="true"></div>
+
+        <ul class="stage-list" aria-hidden="true">
+          <li class="stage"><span class="stage-dot"></span>Launching local service</li>
+          <li class="stage"><span class="stage-dot"></span>Connecting to session database</li>
+          <li class="stage"><span class="stage-dot"></span>Opening app shell</li>
+        </ul>
+
+        <div class="foot">Everything stays local to this machine.</div>
+      </div>
     </main>
   </body>
 </html>
