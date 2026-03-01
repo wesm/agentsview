@@ -20,6 +20,8 @@ The wrapper does not reimplement the web app. Instead, it:
 npm install
 npm run tauri:dev
 npm run tauri:build
+npm run tauri:build:macos-app
+npm run tauri:build:windows
 ```
 
 The `prepare-sidecar` step runs automatically for `tauri:dev` and `tauri:build`.

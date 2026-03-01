@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "prepare-sidecar": "./scripts/prepare-sidecar.sh",
+    "prepare-sidecar": "bash ./scripts/prepare-sidecar.sh",
     "tauri:dev": "npm run prepare-sidecar && tauri dev",
     "tauri:build": "npm run prepare-sidecar && tauri build",
+    "tauri:build:macos-app": "npm run prepare-sidecar && tauri build --bundles app",
+    "tauri:build:windows": "npm run prepare-sidecar && tauri build --bundles nsis",
     "tauri": "tauri"
   },
   "devDependencies": {

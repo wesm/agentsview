@@ -127,6 +127,8 @@ loads `http://127.0.0.1:<port>` in a native webview.
 ```bash
 make desktop-dev    # run desktop app in dev mode
 make desktop-build  # build desktop bundles (.app/.exe/etc.)
+make desktop-macos-app       # build macOS .app only
+make desktop-windows-installer  # build Windows installer (.exe)
 ```
 
 ### Project Structure
