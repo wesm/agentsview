@@ -117,16 +117,17 @@
     );
   });
 
+  let isTask = $derived(
+    toolCall?.tool_name === "Task" ||
+      toolCall?.category === "Task",
+  );
+
   let taskPrompt = $derived(
-    toolCall?.tool_name === "Task"
-      ? inputParams?.prompt ?? null
-      : null,
+    isTask ? inputParams?.prompt ?? null : null,
   );
 
   let subagentSessionId = $derived(
-    toolCall?.tool_name === "Task"
-      ? toolCall?.subagent_session_id ?? null
-      : null,
+    isTask ? toolCall?.subagent_session_id ?? null : null,
   );
 </script>
 
