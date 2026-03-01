@@ -144,6 +144,36 @@ Part 2`,
 	}
 }
 
+func TestCollectStreamLines_LargeLine(t *testing.T) {
+	longLine := strings.Repeat("x", 3*1024*1024)
+	input := longLine + "\nsmall-line\n"
+	var got []LogEvent
+
+	done := collectStreamLines(
+		strings.NewReader(input), "stderr",
+		func(ev LogEvent) {
+			got = append(got, ev)
+		},
+	)
+	text := <-done
+
+	if len(got) != 2 {
+		t.Fatalf("got %d log events, want 2", len(got))
+	}
+	if got[0].Stream != "stderr" || len(got[0].Line) != len(longLine) {
+		t.Fatalf(
+			"first event mismatch: stream=%q len=%d",
+			got[0].Stream, len(got[0].Line),
+		)
+	}
+	if got[1].Line != "small-line" {
+		t.Fatalf("second line = %q, want %q", got[1].Line, "small-line")
+	}
+	if !strings.Contains(text, "small-line") {
+		t.Fatalf("joined text missing expected line: %q", text)
+	}
+}
+
 func TestCleanEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
 	t.Setenv("CLAUDECODE", "1")

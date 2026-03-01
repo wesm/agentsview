@@ -163,22 +163,27 @@ func collectStreamLines(
 	ch := make(chan string, 1)
 	go func() {
 		defer close(ch)
-		sc := bufio.NewScanner(r)
-		// Allow larger JSONL lines than Scanner default.
-		buf := make([]byte, 0, 64*1024)
-		sc.Buffer(buf, 2*1024*1024)
-
+		br := bufio.NewReader(r)
 		var lines []string
-		for sc.Scan() {
-			line := sc.Text()
-			lines = append(lines, line)
-			emitLog(onLog, stream, line)
-		}
-		if err := sc.Err(); err != nil {
+		for {
+			line, err := br.ReadString('\n')
+			trimmed := strings.TrimRight(line, "\r\n")
+			if trimmed != "" {
+				lines = append(lines, trimmed)
+				emitLog(onLog, stream, trimmed)
+			}
+			if err == nil {
+				continue
+			}
+			if err == io.EOF {
+				break
+			}
 			emitLog(
 				onLog, "stderr",
 				fmt.Sprintf("read %s: %v", stream, err),
 			)
+			_, _ = io.Copy(io.Discard, br)
+			break
 		}
 		ch <- strings.Join(lines, "\n")
 	}()

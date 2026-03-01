@@ -210,12 +210,54 @@ func (s *Server) handleGenerateInsight(
 	)
 	defer cancel()
 
+	const maxBufferedLogEvents = 256
+	logCh := make(chan insight.LogEvent, maxBufferedLogEvents)
+	logDone := make(chan struct{})
+	go func() {
+		defer close(logDone)
+		for ev := range logCh {
+			sendJSON("log", ev)
+		}
+	}()
+	var (
+		logStateMu    sync.Mutex
+		logStreamDone bool
+		droppedLogs   int
+	)
+	enqueueLog := func(ev insight.LogEvent) {
+		logStateMu.Lock()
+		defer logStateMu.Unlock()
+		if logStreamDone {
+			return
+		}
+		select {
+		case logCh <- ev:
+		default:
+			droppedLogs++
+		}
+	}
+	finishLogStream := func() int {
+		logStateMu.Lock()
+		logStreamDone = true
+		close(logCh)
+		dropped := droppedLogs
+		logStateMu.Unlock()
+		<-logDone
+		return dropped
+	}
+
 	result, err := s.generateStreamFunc(
 		genCtx, req.Agent, prompt,
-		func(ev insight.LogEvent) {
-			sendJSON("log", ev)
-		},
+		enqueueLog,
 	)
+	if dropped := finishLogStream(); dropped > 0 {
+		sendJSON("log", insight.LogEvent{
+			Stream: "stderr",
+			Line: fmt.Sprintf(
+				"dropped %d log line(s) due to slow client", dropped,
+			),
+		})
+	}
 	if err != nil {
 		log.Printf("insight generate error: %v", err)
 		sendJSON("error", map[string]string{

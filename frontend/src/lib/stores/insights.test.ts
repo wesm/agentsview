@@ -313,6 +313,36 @@ describe("generate (multi-task)", () => {
     expect(insights.tasks).toHaveLength(0);
   });
 
+  it("caps logs to the most recent 200 lines", async () => {
+    let doneResolve!: (s: Insight) => void;
+    vi.mocked(api.generateInsight).mockImplementationOnce(
+      (_req, _onStatus, onLog) => {
+        for (let i = 0; i < 250; i++) {
+          onLog?.({
+            stream: "stdout",
+            line: `line-${i}`,
+          });
+        }
+        return {
+          abort: vi.fn(),
+          done: new Promise<Insight>((resolve) => {
+            doneResolve = resolve;
+          }),
+        };
+      },
+    );
+
+    insights.generate();
+    expect(insights.tasks).toHaveLength(1);
+    expect(insights.tasks[0]!.logs).toHaveLength(200);
+    expect(insights.tasks[0]!.logs[0]!.line).toBe("line-50");
+    expect(insights.tasks[0]!.logs[199]!.line).toBe("line-249");
+
+    doneResolve(makeInsight({ id: 222 }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(insights.tasks).toHaveLength(0);
+  });
+
   it("calls load instead of prepend when filters changed", async () => {
     const newInsight = makeInsight({ id: 20 });
     let resolveDone!: (s: Insight) => void;
