@@ -2,28 +2,6 @@ name: Desktop Artifacts
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/desktop-artifacts.yml'
-      - 'desktop/**'
-      - 'frontend/**'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Makefile'
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/desktop-artifacts.yml'
-      - 'desktop/**'
-      - 'frontend/**'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Makefile'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

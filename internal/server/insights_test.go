@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -254,6 +255,45 @@ func (f *slowLogRecorder) Flush() {
 	f.ResponseRecorder.Flush()
 }
 
+type blockingLogRecorder struct {
+	*httptest.ResponseRecorder
+	release <-chan struct{}
+}
+
+func (f *blockingLogRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		<-f.release
+	}
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *blockingLogRecorder) Flush() {
+	f.ResponseRecorder.Flush()
+}
+
+type firstLogDelayRecorder struct {
+	*httptest.ResponseRecorder
+	delay time.Duration
+	once  sync.Once
+}
+
+func (f *firstLogDelayRecorder) Write(
+	b []byte,
+) (int, error) {
+	if strings.HasPrefix(string(b), "event: log\n") {
+		f.once.Do(func() {
+			time.Sleep(f.delay)
+		})
+	}
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *firstLogDelayRecorder) Flush() {
+	f.ResponseRecorder.Flush()
+}
+
 func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
 	stubGen := func(
 		_ context.Context, _ string, _ string, onLog insight.LogFunc,
@@ -373,7 +413,7 @@ func TestGenerateInsight_LogDrainTimeoutReturnsWithoutHang(t *testing.T) {
 	case <-time.After(12 * time.Second):
 		t.Fatalf("timed out waiting for generate handler completion")
 	}
-	if elapsed := time.Since(started); elapsed > 11*time.Second {
+	if elapsed := time.Since(started); elapsed > 7*time.Second {
 		t.Fatalf("handler should return within bounded timeout handling, took %s", elapsed)
 	}
 
@@ -412,9 +452,9 @@ func TestGenerateInsight_LogDrainTimeoutReportsBufferedDrops(t *testing.T) {
 		),
 	)
 	req.Header.Set("Content-Type", "application/json")
-	w := &slowLogRecorder{
+	w := &firstLogDelayRecorder{
 		ResponseRecorder: httptest.NewRecorder(),
-		delay:            2100 * time.Millisecond,
+		delay:            2200 * time.Millisecond,
 	}
 
 	done := make(chan struct{})
@@ -425,7 +465,7 @@ func TestGenerateInsight_LogDrainTimeoutReportsBufferedDrops(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(8 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatalf("timed out waiting for generate handler completion")
 	}
 
@@ -473,6 +513,57 @@ func TestGenerateInsight_LogDrainTimeoutReportsBufferedDrops(t *testing.T) {
 	}
 	if !foundDropSummary {
 		t.Fatalf("expected timeout-aware drop summary, got %d events", len(events))
+	}
+}
+
+func TestGenerateInsight_LogDrainTimeoutBoundedWhenWriterStuck(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		onLog(insight.LogEvent{Stream: "stdout", Line: "stuck-line"})
+		return insight.Result{Content: "# Insight", Agent: "claude"}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	release := make(chan struct{})
+	w := &blockingLogRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		release:          release,
+	}
+
+	started := time.Now()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(7 * time.Second):
+		t.Fatalf("timed out waiting for bounded timeout behavior")
+	}
+	elapsed := time.Since(started)
+	if elapsed > 6*time.Second {
+		t.Fatalf("handler returned too slowly for stuck writer path: %s", elapsed)
+	}
+	close(release)
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.Body.String())
+	for _, ev := range events {
+		if ev.Event == "done" {
+			t.Fatalf("did not expect done event on stuck writer timeout path")
+		}
 	}
 }
 

@@ -213,7 +213,7 @@ func (s *Server) handleGenerateInsight(
 	const (
 		maxBufferedLogEvents = 256
 		logDrainTimeout      = 2 * time.Second
-		logStopWaitTimeout   = 500 * time.Millisecond
+		logStopWaitTimeout   = 2 * time.Second
 	)
 	logCh := make(chan insight.LogEvent, maxBufferedLogEvents)
 	logDone := make(chan struct{})
@@ -261,7 +261,7 @@ func (s *Server) handleGenerateInsight(
 			droppedLogs++
 		}
 	}
-	finishLogStream := func() (dropped int, drained bool, timedOut bool) {
+	finishLogStream := func() (dropped int, drained bool, senderStopped bool, timedOut bool) {
 		logStateMu.Lock()
 		logStreamDone = true
 		close(logCh)
@@ -269,7 +269,7 @@ func (s *Server) handleGenerateInsight(
 		logStateMu.Unlock()
 		select {
 		case <-logDone:
-			return dropped, true, false
+			return dropped, true, true, false
 		case <-time.After(logDrainTimeout):
 			log.Printf(
 				"insight log stream drain timed out after %s",
@@ -281,17 +281,13 @@ func (s *Server) handleGenerateInsight(
 			stopLogSender()
 			select {
 			case <-logDone:
-				return dropped, false, true
+				return dropped, false, true, true
 			case <-time.After(logStopWaitTimeout):
 				log.Printf(
 					"insight log sender stop timed out after %s",
 					logStopWaitTimeout,
 				)
-				// Do not return while the sender may still be writing:
-				// wait for sender completion so no writes continue after
-				// handler return.
-				<-logDone
-				return dropped, false, true
+				return dropped, false, false, true
 			}
 		}
 	}
@@ -300,7 +296,11 @@ func (s *Server) handleGenerateInsight(
 		genCtx, req.Agent, prompt,
 		enqueueLog,
 	)
-	dropped, drained, timedOut := finishLogStream()
+	dropped, drained, senderStopped, timedOut := finishLogStream()
+	if !senderStopped {
+		log.Printf("insight log stream sender did not stop; aborting terminal SSE events")
+		return
+	}
 	if dropped > 0 {
 		suffix := "due to slow client"
 		if timedOut {
