@@ -14,6 +14,7 @@ func TestAgentByType(t *testing.T) {
 		{AgentOpenCode, true},
 		{AgentCursor, true},
 		{AgentAmp, true},
+		{AgentPi, true},
 		{"unknown", false},
 	}
 	for _, tt := range tests {
@@ -83,6 +84,12 @@ func TestAgentByPrefix(t *testing.T) {
 			true,
 		},
 		{
+			"pi prefix",
+			"pi:pi-session-uuid",
+			AgentPi,
+			true,
+		},
+		{
 			"unknown prefix",
 			"future:sess-id",
 			"",
@@ -123,6 +130,7 @@ func TestRegistryCompleteness(t *testing.T) {
 		AgentOpenCode,
 		AgentCursor,
 		AgentAmp,
+		AgentPi,
 	}
 
 	registered := make(map[AgentType]bool)
@@ -167,6 +175,16 @@ func TestInferRelationshipTypes(t *testing.T) {
 				{Session: ParsedSession{
 					ID:              "child-session",
 					ParentSessionID: "parent",
+				}},
+			},
+			[]RelationshipType{RelContinuation},
+		},
+		{
+			"pi prefixed session with parent gets continuation",
+			[]ParseResult{
+				{Session: ParsedSession{
+					ID:              "pi:branched-session",
+					ParentSessionID: "pi:parent-session",
 				}},
 			},
 			[]RelationshipType{RelContinuation},

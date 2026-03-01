@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   KNOWN_AGENTS,
   agentColor,
+  agentLabel,
 } from "./agents.js";
 
 describe("KNOWN_AGENTS", () => {
@@ -15,6 +16,7 @@ describe("KNOWN_AGENTS", () => {
       "opencode",
       "cursor",
       "amp",
+      "pi",
     ]);
   });
 
@@ -50,10 +52,30 @@ describe("agentColor", () => {
     );
   });
 
+  it("returns correct color for pi", () => {
+    expect(agentColor("pi")).toBe("var(--accent-teal)");
+  });
+
   it("falls back to blue for unknown agents", () => {
     expect(agentColor("unknown")).toBe(
       "var(--accent-blue)",
     );
     expect(agentColor("")).toBe("var(--accent-blue)");
+  });
+});
+
+describe("agentLabel", () => {
+  it("returns label field when present", () => {
+    expect(agentLabel("pi")).toBe("Pi");
+  });
+
+  it("capitalizes first letter for agents without label", () => {
+    expect(agentLabel("claude")).toBe("Claude");
+    expect(agentLabel("gemini")).toBe("Gemini");
+  });
+
+  it("handles unknown agents", () => {
+    expect(agentLabel("unknown")).toBe("Unknown");
+    expect(agentLabel("")).toBe("");
   });
 });

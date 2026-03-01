@@ -39,7 +39,28 @@ const TOOL_ALIASES: Record<string, string> = {
   write_stdin: "Bash",
   shell: "Bash",
   apply_patch: "Edit",
+  // Pi tool names
+  str_replace: "Edit",
+  run_command: "Bash",
+  create_file: "Write",
+  read_file: "Read",
+  // Lowercase pi/OpenCode bare tool names
+  bash: "Bash",
+  read: "Read",
+  write: "Write",
+  edit: "Edit",
+  grep: "Grep",
+  glob: "Glob",
+  find: "Read",
 };
+
+function isBashTool(name: string): boolean {
+  return name === "Bash" || name === "bash" || name === "run_command";
+}
+
+function isReadTool(name: string): boolean {
+  return name === "Read" || name === "read" || name === "read_file";
+}
 
 const TOOL_RE = new RegExp(
   `\\[(${TOOL_NAMES})([^\\]]*)\\]([\\s\\S]*?)(?=\\n\\[|\\n\\n|$)`,
@@ -343,6 +364,11 @@ export function enrichSegments(
 ): ContentSegment[] {
   if (!toolCalls?.length) return segments;
 
+  // Track whether any tool segments came from text-marker parsing
+  // (Claude Code style). If none exist, all tool calls are from
+  // structured JSON (pi/omp style) and we create segments for them.
+  const hasTextBasedTools = segments.some((s) => s.type === "tool");
+
   const result: ContentSegment[] = [];
   let tcIdx = 0;
 
@@ -354,7 +380,7 @@ export function enrichSegments(
       tcIdx++;
       const enriched: ContentSegment = { ...seg, toolCall: tc };
 
-      if (tc.tool_name === "Bash" && tc.input_json) {
+      if (isBashTool(tc.tool_name) && tc.input_json) {
         try {
           const input = JSON.parse(tc.input_json);
           const fullCmd = input.command;
@@ -380,6 +406,49 @@ export function enrichSegments(
       result.push(enriched);
     } else {
       result.push(seg);
+    }
+  }
+
+  // For agents that store tool calls as structured JSON (e.g. pi/omp)
+  // rather than as text markers, the regex pass above finds no "tool"
+  // segments to pair with. Append the full tool_calls list as segments.
+  // Skip this when text-based tool markers were present (Claude Code style)
+  // to avoid appending duplicate/extra entries.
+  if (!hasTextBasedTools) {
+    while (tcIdx < toolCalls.length) {
+      const tc = toolCalls[tcIdx]!;
+      tcIdx++;
+      let content = "";
+      if (isBashTool(tc.tool_name) && tc.input_json) {
+        try {
+          const input = JSON.parse(tc.input_json);
+          const fullCmd = input.command;
+          if (fullCmd) {
+            content = `$ ${fullCmd}`;
+          }
+        } catch {
+          /* leave empty, ToolBlock will use fallbackContent */
+        }
+      } else if (isReadTool(tc.tool_name) && tc.input_json) {
+        try {
+          const input = JSON.parse(tc.input_json);
+          const filePath = input.path ?? input.file_path;
+          if (filePath) {
+            content = String(filePath);
+          } else if (input.pattern) {
+            // Pi "find" tool mapped to Read — show the glob pattern
+            content = String(input.pattern);
+          }
+        } catch {
+          /* leave empty */
+        }
+      }
+      result.push({
+        type: "tool",
+        content,
+        label: TOOL_ALIASES[tc.tool_name] ?? tc.tool_name,
+        toolCall: tc,
+      });
     }
   }
 
