@@ -236,21 +236,31 @@ func (s *Server) handleGenerateInsight(
 			droppedLogs++
 		}
 	}
-	finishLogStream := func() int {
+	finishLogStream := func() (int, bool) {
+		const logDrainTimeout = 2 * time.Second
 		logStateMu.Lock()
 		logStreamDone = true
 		close(logCh)
 		dropped := droppedLogs
 		logStateMu.Unlock()
-		<-logDone
-		return dropped
+		select {
+		case <-logDone:
+			return dropped, true
+		case <-time.After(logDrainTimeout):
+			log.Printf(
+				"insight log stream drain timed out after %s",
+				logDrainTimeout,
+			)
+			return dropped, false
+		}
 	}
 
 	result, err := s.generateStreamFunc(
 		genCtx, req.Agent, prompt,
 		enqueueLog,
 	)
-	if dropped := finishLogStream(); dropped > 0 {
+	dropped, _ := finishLogStream()
+	if dropped > 0 {
 		sendJSON("log", insight.LogEvent{
 			Stream: "stderr",
 			Line: fmt.Sprintf(

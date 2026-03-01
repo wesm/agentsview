@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/insight"
@@ -213,6 +216,98 @@ func TestGenerateInsight_StreamsLogs(t *testing.T) {
 	}
 	if log2.Stream != "stderr" {
 		t.Fatalf("second log stream = %q, want stderr", log2.Stream)
+	}
+}
+
+type slowFlushRecorder struct {
+	*httptest.ResponseRecorder
+	delay time.Duration
+}
+
+func (f *slowFlushRecorder) Write(
+	b []byte,
+) (int, error) {
+	time.Sleep(f.delay)
+	return f.ResponseRecorder.Write(b)
+}
+
+func (f *slowFlushRecorder) Flush() {
+	f.ResponseRecorder.Flush()
+}
+
+func TestGenerateInsight_LogDropSummaryAndCompletion(t *testing.T) {
+	stubGen := func(
+		_ context.Context, _ string, _ string, onLog insight.LogFunc,
+	) (insight.Result, error) {
+		for i := range 5000 {
+			onLog(insight.LogEvent{
+				Stream: "stdout",
+				Line:   fmt.Sprintf("line-%d", i),
+			})
+		}
+		return insight.Result{
+			Content: "# Insight",
+			Agent:   "claude",
+		}, nil
+	}
+	te := setupWithServerOpts(t, []server.Option{
+		server.WithGenerateStreamFunc(stubGen),
+	})
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/api/v1/insights/generate",
+		strings.NewReader(
+			`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"claude"}`,
+		),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := &slowFlushRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		delay:            4 * time.Millisecond,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		te.handler.ServeHTTP(w, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+		t.Fatalf("timed out waiting for generate handler")
+	}
+
+	assertStatus(t, w.ResponseRecorder, http.StatusOK)
+	events := parseSSE(w.Body.String())
+
+	foundDone := false
+	foundDropSummary := false
+	for _, ev := range events {
+		if ev.Event == "done" {
+			foundDone = true
+		}
+		if ev.Event != "log" {
+			continue
+		}
+		var line insight.LogEvent
+		if json.Unmarshal([]byte(ev.Data), &line) != nil {
+			continue
+		}
+		if line.Stream == "stderr" &&
+			strings.Contains(line.Line, "dropped ") &&
+			strings.Contains(line.Line, "slow client") {
+			foundDropSummary = true
+		}
+	}
+	if !foundDropSummary {
+		t.Fatalf(
+			"expected dropped-log summary event, got %d events",
+			len(events),
+		)
+	}
+	if !foundDone {
+		t.Fatalf("expected done event")
 	}
 }
 
