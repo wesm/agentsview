@@ -9,6 +9,7 @@ LDFLAGS := -X main.version=$(VERSION) \
            -X main.buildDate=$(BUILD_DATE)
 
 LDFLAGS_RELEASE := $(LDFLAGS) -s -w
+DESKTOP_DIST_DIR := dist/desktop
 
 .PHONY: build build-release install frontend frontend-dev dev desktop-dev desktop-build desktop-macos-app desktop-windows-installer desktop-app test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
 
@@ -69,11 +70,21 @@ desktop-build:
 # Build only the macOS .app bundle (skip DMG packaging)
 desktop-macos-app:
 	cd desktop/tauri && npm install && npm run tauri:build:macos-app
+	mkdir -p $(DESKTOP_DIST_DIR)/macos
+	rm -rf $(DESKTOP_DIST_DIR)/macos/AgentsView.app
+	cp -R desktop/tauri/src-tauri/target/release/bundle/macos/AgentsView.app \
+		$(DESKTOP_DIST_DIR)/macos/AgentsView.app
+	@echo "macOS app bundle copied to $(DESKTOP_DIST_DIR)/macos/AgentsView.app"
 
 # Build Windows NSIS installer bundle (.exe)
 # Run on Windows runner/host.
 desktop-windows-installer:
 	cd desktop/tauri && npm install && npm run tauri:build:windows
+	mkdir -p $(DESKTOP_DIST_DIR)/windows
+	find desktop/tauri/src-tauri/target/release/bundle/nsis \
+		-maxdepth 1 -type f -name '*.exe' \
+		-exec cp {} $(DESKTOP_DIST_DIR)/windows/ \;
+	@echo "Windows installer copied to $(DESKTOP_DIST_DIR)/windows/"
 
 # Backward-compatible alias (macOS .app)
 desktop-app: desktop-macos-app

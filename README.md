@@ -131,6 +131,11 @@ make desktop-macos-app       # build macOS .app only
 make desktop-windows-installer  # build Windows installer (.exe)
 ```
 
+Friendly output copies are placed in:
+
+- `dist/desktop/macos/AgentsView.app`
+- `dist/desktop/windows/*.exe`
+
 ### Project Structure
 
 ```
