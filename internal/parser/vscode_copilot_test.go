@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -438,9 +439,10 @@ func TestDiscoverVSCodeCopilotSessions(t *testing.T) {
 	// Check workspace session
 	var wsFile, globalFile DiscoveredFile
 	for _, f := range files {
-		if f.Project == "myproject" {
+		switch f.Project {
+		case "myproject":
 			wsFile = f
-		} else if f.Project == "empty-window" {
+		case "empty-window":
 			globalFile = f
 		}
 	}
@@ -551,7 +553,7 @@ func TestExtractVSCopilotInputJSON(t *testing.T) {
 				return
 			}
 
-			var m map[string]interface{}
+			var m map[string]any
 			if err := json.Unmarshal(
 				[]byte(got), &m,
 			); err != nil {
@@ -635,10 +637,7 @@ func TestParseVSCodeCopilotSession_JSONL(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "test-session.jsonl")
 
-			content := ""
-			for _, line := range tt.lines {
-				content += line + "\n"
-			}
+			content := strings.Join(tt.lines, "\n") + "\n"
 			if err := os.WriteFile(
 				path, []byte(content), 0644,
 			); err != nil {
@@ -714,7 +713,7 @@ func TestReconstructJSONL(t *testing.T) {
 				`{"kind":0,"v":{"sessionId":"s1","version":3}}`,
 			},
 			check: func(t *testing.T, data []byte) {
-				var m map[string]interface{}
+				var m map[string]any
 				if err := json.Unmarshal(data, &m); err != nil {
 					t.Fatal(err)
 				}
@@ -730,11 +729,11 @@ func TestReconstructJSONL(t *testing.T) {
 				`{"kind":1,"k":["a","b"],"v":"new"}`,
 			},
 			check: func(t *testing.T, data []byte) {
-				var m map[string]interface{}
+				var m map[string]any
 				if err := json.Unmarshal(data, &m); err != nil {
 					t.Fatal(err)
 				}
-				a := m["a"].(map[string]interface{})
+				a := m["a"].(map[string]any)
 				if a["b"] != "new" {
 					t.Errorf("got %v, want new", a["b"])
 				}
@@ -747,11 +746,11 @@ func TestReconstructJSONL(t *testing.T) {
 				`{"kind":2,"k":["items"],"v":["b","c"]}`,
 			},
 			check: func(t *testing.T, data []byte) {
-				var m map[string]interface{}
+				var m map[string]any
 				if err := json.Unmarshal(data, &m); err != nil {
 					t.Fatal(err)
 				}
-				items := m["items"].([]interface{})
+				items := m["items"].([]any)
 				if len(items) != 3 {
 					t.Fatalf("len: got %d, want 3", len(items))
 				}
@@ -767,11 +766,11 @@ func TestReconstructJSONL(t *testing.T) {
 				`{"kind":2,"k":["items"],"v":["b"],"i":1}`,
 			},
 			check: func(t *testing.T, data []byte) {
-				var m map[string]interface{}
+				var m map[string]any
 				if err := json.Unmarshal(data, &m); err != nil {
 					t.Fatal(err)
 				}
-				items := m["items"].([]interface{})
+				items := m["items"].([]any)
 				if len(items) != 3 {
 					t.Fatalf("len: got %d, want 3", len(items))
 				}
@@ -787,7 +786,7 @@ func TestReconstructJSONL(t *testing.T) {
 				`{"kind":3,"k":["b"]}`,
 			},
 			check: func(t *testing.T, data []byte) {
-				var m map[string]interface{}
+				var m map[string]any
 				if err := json.Unmarshal(data, &m); err != nil {
 					t.Fatal(err)
 				}
@@ -806,11 +805,11 @@ func TestReconstructJSONL(t *testing.T) {
 				`{"kind":1,"k":["arr",1],"v":"Y"}`,
 			},
 			check: func(t *testing.T, data []byte) {
-				var m map[string]interface{}
+				var m map[string]any
 				if err := json.Unmarshal(data, &m); err != nil {
 					t.Fatal(err)
 				}
-				arr := m["arr"].([]interface{})
+				arr := m["arr"].([]any)
 				if arr[1] != "Y" {
 					t.Errorf("arr[1]: got %v", arr[1])
 				}
@@ -832,10 +831,7 @@ func TestReconstructJSONL(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "test.jsonl")
 
-			content := ""
-			for _, line := range tt.lines {
-				content += line + "\n"
-			}
+			content := strings.Join(tt.lines, "\n") + "\n"
 			if err := os.WriteFile(
 				path, []byte(content), 0644,
 			); err != nil {

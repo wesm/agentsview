@@ -413,7 +413,7 @@ func extractVSCopilotToolBody(tc ParsedToolCall) string {
 	if tc.InputJSON == "" {
 		return ""
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal(
 		[]byte(tc.InputJSON), &m,
 	); err != nil {
@@ -433,7 +433,7 @@ func extractVSCopilotToolBody(tc ParsedToolCall) string {
 func extractVSCopilotInputJSON(
 	invocationMsg, pastTenseMsg, toolData json.RawMessage,
 ) string {
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	// Extract message from invocationMessage (string or object)
 	msg := extractInvocationText(pastTenseMsg)
@@ -557,7 +557,7 @@ func reconstructJSONL(path string) ([]byte, error) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 
-	var state interface{}
+	var state any
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -583,7 +583,7 @@ func reconstructJSONL(path string) ([]byte, error) {
 				continue
 			}
 			keys := decodeJSONLKeys(op.K)
-			var val interface{}
+			var val any
 			if err := json.Unmarshal(op.V, &val); err != nil {
 				continue
 			}
@@ -594,7 +594,7 @@ func reconstructJSONL(path string) ([]byte, error) {
 				continue
 			}
 			keys := decodeJSONLKeys(op.K)
-			var items []interface{}
+			var items []any
 			if err := json.Unmarshal(op.V, &items); err != nil {
 				continue
 			}
@@ -639,8 +639,8 @@ func decodeJSONLKeys(raw []json.RawMessage) []string {
 // jsonlNavigate traverses the state tree to the parent of
 // the target, returning the parent and the final key.
 func jsonlNavigate(
-	state interface{}, keys []string,
-) (interface{}, string) {
+	state any, keys []string,
+) (any, string) {
 	current := state
 	for _, k := range keys[:len(keys)-1] {
 		current = jsonlChild(current, k)
@@ -651,11 +651,11 @@ func jsonlNavigate(
 	return current, keys[len(keys)-1]
 }
 
-func jsonlChild(node interface{}, key string) interface{} {
+func jsonlChild(node any, key string) any {
 	switch n := node.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		return n[key]
-	case []interface{}:
+	case []any:
 		idx, err := strconv.Atoi(key)
 		if err != nil || idx < 0 || idx >= len(n) {
 			return nil
@@ -666,16 +666,16 @@ func jsonlChild(node interface{}, key string) interface{} {
 }
 
 func jsonlSet(
-	state interface{}, keys []string, val interface{},
+	state any, keys []string, val any,
 ) {
 	parent, lastKey := jsonlNavigate(state, keys)
 	if parent == nil {
 		return
 	}
 	switch p := parent.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		p[lastKey] = val
-	case []interface{}:
+	case []any:
 		idx, err := strconv.Atoi(lastKey)
 		if err != nil || idx < 0 || idx >= len(p) {
 			return
@@ -685,11 +685,11 @@ func jsonlSet(
 }
 
 func jsonlPush(
-	state interface{}, keys []string,
-	items []interface{}, spliceIdx *int,
+	state any, keys []string,
+	items []any, spliceIdx *int,
 ) {
 	// Navigate to the array
-	var target interface{}
+	var target any
 	if len(keys) == 0 {
 		return
 	}
@@ -708,18 +708,15 @@ func jsonlPush(
 	lastKey := keys[len(keys)-1]
 
 	switch p := target.(type) {
-	case map[string]interface{}:
-		arr, ok := p[lastKey].([]interface{})
+	case map[string]any:
+		arr, ok := p[lastKey].([]any)
 		if !ok {
 			return
 		}
 		if spliceIdx != nil {
-			idx := *spliceIdx
-			if idx > len(arr) {
-				idx = len(arr)
-			}
+			idx := min(*spliceIdx, len(arr))
 			newArr := make(
-				[]interface{}, 0, len(arr)+len(items),
+				[]any, 0, len(arr)+len(items),
 			)
 			newArr = append(newArr, arr[:idx]...)
 			newArr = append(newArr, items...)
@@ -728,22 +725,19 @@ func jsonlPush(
 		} else {
 			p[lastKey] = append(arr, items...)
 		}
-	case []interface{}:
+	case []any:
 		idx, err := strconv.Atoi(lastKey)
 		if err != nil || idx < 0 || idx >= len(p) {
 			return
 		}
-		arr, ok := p[idx].([]interface{})
+		arr, ok := p[idx].([]any)
 		if !ok {
 			return
 		}
 		if spliceIdx != nil {
-			si := *spliceIdx
-			if si > len(arr) {
-				si = len(arr)
-			}
+			si := min(*spliceIdx, len(arr))
 			newArr := make(
-				[]interface{}, 0, len(arr)+len(items),
+				[]any, 0, len(arr)+len(items),
 			)
 			newArr = append(newArr, arr[:si]...)
 			newArr = append(newArr, items...)
@@ -755,12 +749,12 @@ func jsonlPush(
 	}
 }
 
-func jsonlDelete(state interface{}, keys []string) {
+func jsonlDelete(state any, keys []string) {
 	parent, lastKey := jsonlNavigate(state, keys)
 	if parent == nil {
 		return
 	}
-	if m, ok := parent.(map[string]interface{}); ok {
+	if m, ok := parent.(map[string]any); ok {
 		delete(m, lastKey)
 	}
 }

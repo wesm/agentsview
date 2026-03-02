@@ -1011,9 +1011,8 @@ func discoverVSCodeSessionFiles(
 				Project: project,
 				Agent:   AgentVSCodeCopilot,
 			})
-		} else if strings.HasSuffix(name, ".json") {
+		} else if uuid, ok := strings.CutSuffix(name, ".json"); ok {
 			// Skip .json if a .jsonl exists for the same UUID
-			uuid := strings.TrimSuffix(name, ".json")
 			if hasJSONL[uuid] {
 				continue
 			}
