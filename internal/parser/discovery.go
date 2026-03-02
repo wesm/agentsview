@@ -940,7 +940,7 @@ func DiscoverIflowProjects(projectsDir string) []DiscoveredFile {
 			files = append(files, DiscoveredFile{
 				Path:    filepath.Join(projDir, name),
 				Project: entry.Name(),
-				Agent:   parser.AgentIflow,
+				Agent:   AgentIflow,
 			})
 		}
 	}
@@ -983,7 +983,7 @@ func extractIflowBaseSessionID(sessionID string) string {
 func FindIflowSourceFile(
 	projectsDir, sessionID string,
 ) string {
-	if !isValidSessionID(sessionID) {
+	if !IsValidSessionID(sessionID) {
 		return ""
 	}
 

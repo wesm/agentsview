@@ -353,7 +353,7 @@ func (e *Engine) classifyOnePath(
 	}
 
 	// iFlow: <iflowDir>/<project>/session-<uuid>.jsonl
-	for _, iflowDir := range e.iflowDirs {
+	for _, iflowDir := range e.agentDirs[parser.AgentIflow] {
 		if iflowDir == "" {
 			continue
 		}
@@ -365,7 +365,7 @@ func (e *Engine) classifyOnePath(
 			if !strings.HasPrefix(parts[1], "session-") || !strings.HasSuffix(parts[1], ".jsonl") {
 				continue
 			}
-			return DiscoveredFile{
+			return parser.DiscoveredFile{
 				Path:    path,
 				Project: parts[0],
 				Agent:   parser.AgentIflow,
@@ -373,7 +373,6 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
-	return DiscoveredFile{}, false
 	// Amp: <ampDir>/T-*.json
 	for _, ampDir := range e.agentDirs[parser.AgentAmp] {
 		if ampDir == "" {
@@ -1234,7 +1233,7 @@ func validateCursorContainment(
 }
 
 func (e *Engine) processIflow(
-	file DiscoveredFile, info os.FileInfo,
+	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 	// Extract session ID from filename: session-<uuid>.jsonl
 	sessionID := "iflow:" + strings.TrimPrefix(strings.TrimSuffix(info.Name(), ".jsonl"), "session-")

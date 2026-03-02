@@ -170,9 +170,6 @@ func (c *Config) loadFile() error {
 			c.AgentDirs[def.Type] = dirs
 		}
 	}
-	if len(file.IflowDirs) > 0 && c.IflowDirs == nil {
-		c.IflowDirs = file.IflowDirs
-	}
 	return nil
 }
 
@@ -221,10 +218,6 @@ func (c *Config) loadEnv() {
 			c.AgentDirs[def.Type] = []string{v}
 			c.agentDirSource[def.Type] = dirEnv
 		}
-	}
-	if v := os.Getenv("IFLOW_DIR"); v != "" {
-		c.IflowDir = v
-		c.IflowDirs = []string{v}
 	}
 	if v := os.Getenv("AGENT_VIEWER_DATA_DIR"); v != "" {
 		c.DataDir = v
