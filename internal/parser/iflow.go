@@ -435,7 +435,7 @@ func extractMessagesIflow(entries []dagEntryIflow) (
 		content := gjson.Get(e.line, "message.content")
 		text, hasThinking, hasToolUse, tcs, trs :=
 			ExtractTextContent(content)
-		if strings.TrimSpace(text) == "" && len(trs) == 0 {
+		if strings.TrimSpace(text) == "" && len(trs) == 0 && len(tcs) == 0 {
 			continue
 		}
 

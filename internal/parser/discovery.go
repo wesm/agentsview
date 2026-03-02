@@ -995,7 +995,7 @@ func FindIflowSourceFile(
 		return ""
 	}
 
-	target := "session-" + baseID + ".jsonl"
+	target := "session-" + strings.TrimPrefix(baseID, "iflow:") + ".jsonl"
 	for _, entry := range entries {
 		if !isDirOrSymlink(entry, projectsDir) {
 			continue
