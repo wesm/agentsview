@@ -946,3 +946,50 @@ func TestDiscoverVSCodeCopilot_JSONLDedup(t *testing.T) {
 		}
 	}
 }
+
+func TestFindVSCodeCopilotSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	uuid := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+	// Set up a workspace session file
+	chatDir := filepath.Join(
+		dir, "workspaceStorage", "hash1", "chatSessions",
+	)
+	sessionPath := filepath.Join(chatDir, uuid+".json")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		sessionPath, []byte("{}"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		dir     string
+		rawID   string
+		wantHit bool
+	}{
+		{"valid UUID", dir, uuid, true},
+		{"empty dir", "", uuid, false},
+		{"empty ID", dir, "", false},
+		{"traversal slash", dir, "../etc/passwd", false},
+		{"traversal dotdot", dir, "..", false},
+		{"path separator", dir, "foo/bar", false},
+		{"nonexistent UUID", dir, "00000000-0000-0000-0000-000000000000", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindVSCodeCopilotSourceFile(
+				tt.dir, tt.rawID,
+			)
+			if tt.wantHit && got == "" {
+				t.Error("expected a result, got empty")
+			}
+			if !tt.wantHit && got != "" {
+				t.Errorf("expected empty, got %q", got)
+			}
+		})
+	}
+}
