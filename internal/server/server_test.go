@@ -605,6 +605,12 @@ func TestListSessions_Empty(t *testing.T) {
 			"expected sessions to be [], got: %s", got,
 		)
 	}
+
+	resp := decode[sessionListResponse](t, w)
+	if len(resp.Sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %d",
+			len(resp.Sessions))
+	}
 }
 
 func TestListSessions_WithData(t *testing.T) {
