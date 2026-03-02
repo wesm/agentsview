@@ -119,6 +119,17 @@ var Registry = []AgentDef{
 		DiscoverFunc:   DiscoverAmpSessions,
 		FindSourceFunc: FindAmpSourceFile,
 	},
+	{
+		Type:           AgentIflow,
+		DisplayName:    "iFlow",
+		EnvVar:         "IFLOW_DIR",
+		ConfigKey:      "iflow_dirs",
+		DefaultDirs:    []string{".iflow/projects"},
+		IDPrefix:       "iflow:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverIflowProjects,
+		FindSourceFunc: FindIflowSourceFile,
+	},
 }
 
 // AgentByType returns the AgentDef for the given type.

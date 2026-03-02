@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wesm/agentsview/internal/parser"
 )
 
 func TestDiscoverIflowProjects(t *testing.T) {
@@ -51,7 +53,7 @@ func TestDiscoverIflowProjects(t *testing.T) {
 	}
 
 	// Run discovery
-	files := DiscoverIflowProjects(tmpDir)
+	files := parser.DiscoverIflowProjects(tmpDir)
 
 	// Verify results
 	if len(files) != 3 {
@@ -115,13 +117,13 @@ func TestFindIflowSourceFile(t *testing.T) {
 	}
 
 	// Test finding the file
-	found := FindIflowSourceFile(tmpDir, sessionID)
+	found := parser.FindIflowSourceFile(tmpDir, sessionID)
 	if found != sessionFile {
 		t.Errorf("expected to find %s, got %s", sessionFile, found)
 	}
 
 	// Test finding a non-existent file
-	notFound := FindIflowSourceFile(tmpDir, "nonexistent")
+	notFound := parser.FindIflowSourceFile(tmpDir, "nonexistent")
 	if notFound != "" {
 		t.Errorf("expected empty string for non-existent file, got %s", notFound)
 	}
@@ -137,7 +139,7 @@ func TestFindIflowSourceFile(t *testing.T) {
 	}
 
 	// Test finding the fork session - should find the base file
-	foundFork := FindIflowSourceFile(tmpDir, forkSessionID)
+	foundFork := parser.FindIflowSourceFile(tmpDir, forkSessionID)
 	if foundFork != forkSessionFile {
 		t.Errorf("expected to find %s for fork ID %s, got %s", forkSessionFile, forkSessionID, foundFork)
 	}
