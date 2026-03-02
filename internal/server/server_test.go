@@ -591,6 +591,15 @@ func TestListSessions_Empty(t *testing.T) {
 	w := te.get(t, "/api/v1/sessions")
 	assertStatus(t, w, http.StatusOK)
 
+	// Verify raw JSON has "sessions":[] not "sessions":null.
+	body := w.Body.String()
+	if !strings.Contains(body, `"sessions":[]`) {
+		t.Fatalf(
+			"expected sessions to be [] in JSON, got: %s",
+			body,
+		)
+	}
+
 	resp := decode[sessionListResponse](t, w)
 	if len(resp.Sessions) != 0 {
 		t.Fatalf("expected 0 sessions, got %d",
