@@ -15,6 +15,7 @@ const (
 	AgentGemini   AgentType = "gemini"
 	AgentOpenCode AgentType = "opencode"
 	AgentCursor   AgentType = "cursor"
+	AgentIflow    AgentType = "iflow"
 	AgentAmp      AgentType = "amp"
 )
 
@@ -117,6 +118,17 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverAmpSessions,
 		FindSourceFunc: FindAmpSourceFile,
+	},
+	{
+		Type:           AgentIflow,
+		DisplayName:    "iFlow",
+		EnvVar:         "IFLOW_DIR",
+		ConfigKey:      "iflow_dirs",
+		DefaultDirs:    []string{".iflow/projects"},
+		IDPrefix:       "iflow:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverIflowProjects,
+		FindSourceFunc: FindIflowSourceFile,
 	},
 }
 

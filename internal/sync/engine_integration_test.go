@@ -25,6 +25,7 @@ type testEnv struct {
 	cursorDir   string
 	geminiDir   string
 	opencodeDir string
+	iflowDir    string
 	ampDir      string
 	db          *db.DB
 	engine      *sync.Engine
@@ -70,6 +71,7 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 	env := &testEnv{
 		geminiDir:   t.TempDir(),
 		opencodeDir: t.TempDir(),
+		iflowDir:    t.TempDir(),
 		ampDir:      t.TempDir(),
 		db:          dbtest.OpenTestDB(t),
 	}
@@ -105,6 +107,7 @@ func setupTestEnv(t *testing.T, opts ...TestEnvOption) *testEnv {
 			parser.AgentCursor:   cursorDirs,
 			parser.AgentGemini:   {env.geminiDir},
 			parser.AgentOpenCode: {env.opencodeDir},
+			parser.AgentIflow:    {env.iflowDir},
 			parser.AgentAmp:      {env.ampDir},
 		},
 		Machine: "local",
