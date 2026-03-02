@@ -128,9 +128,11 @@ var Registry = []AgentDef{
 			// macOS
 			"Library/Application Support/Code/User",
 			"Library/Application Support/Code - Insiders/User",
+			"Library/Application Support/VSCodium/User",
 			// Linux
 			".config/Code/User",
 			".config/Code - Insiders/User",
+			".config/VSCodium/User",
 		},
 		IDPrefix:       "vscode-copilot:",
 		WatchSubdir:    "workspaceStorage",
