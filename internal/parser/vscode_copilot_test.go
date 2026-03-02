@@ -966,29 +966,26 @@ func TestFindVSCodeCopilotSourceFile(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		dir     string
-		rawID   string
-		wantHit bool
+		name string
+		dir  string
+		id   string
+		want string
 	}{
-		{"valid UUID", dir, uuid, true},
-		{"empty dir", "", uuid, false},
-		{"empty ID", dir, "", false},
-		{"traversal slash", dir, "../etc/passwd", false},
-		{"traversal dotdot", dir, "..", false},
-		{"path separator", dir, "foo/bar", false},
-		{"nonexistent UUID", dir, "00000000-0000-0000-0000-000000000000", false},
+		{"valid UUID", dir, uuid, sessionPath},
+		{"empty dir", "", uuid, ""},
+		{"empty ID", dir, "", ""},
+		{"traversal slash", dir, "../etc/passwd", ""},
+		{"traversal dotdot", dir, "..", ""},
+		{"path separator", dir, "foo/bar", ""},
+		{"nonexistent UUID", dir, "00000000-0000-0000-0000-000000000000", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := FindVSCodeCopilotSourceFile(
-				tt.dir, tt.rawID,
+				tt.dir, tt.id,
 			)
-			if tt.wantHit && got == "" {
-				t.Error("expected a result, got empty")
-			}
-			if !tt.wantHit && got != "" {
-				t.Errorf("expected empty, got %q", got)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}
