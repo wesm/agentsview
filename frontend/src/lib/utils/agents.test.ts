@@ -14,6 +14,7 @@ describe("KNOWN_AGENTS", () => {
       "gemini",
       "opencode",
       "cursor",
+      "amp",
     ]);
   });
 
@@ -43,6 +44,9 @@ describe("agentColor", () => {
     );
     expect(agentColor("cursor")).toBe(
       "var(--accent-black)",
+    );
+    expect(agentColor("amp")).toBe(
+      "var(--accent-coral)",
     );
   });
 

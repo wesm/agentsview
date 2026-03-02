@@ -1,4 +1,4 @@
-package sync
+package parser
 
 import (
 	"crypto/sha256"
@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"unicode"
-
-	"github.com/wesm/agentsview/internal/parser"
 )
 
 // uuidRe matches a standard UUID (8-4-4-4-12 hex) at the end of a rollout filename stem.
@@ -39,11 +37,11 @@ func isDirOrSymlink(
 	return err == nil && fi.IsDir()
 }
 
-// DiscoveredFile holds a discovered session JSONL file.
+// DiscoveredFile holds a discovered session file.
 type DiscoveredFile struct {
 	Path    string
-	Project string           // pre-extracted project name
-	Agent   parser.AgentType // AgentClaude or AgentCodex
+	Project string    // pre-extracted project name
+	Agent   AgentType // which agent this file belongs to
 }
 
 // DiscoverClaudeProjects finds all project directories under the
@@ -81,7 +79,7 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 			files = append(files, DiscoveredFile{
 				Path:    filepath.Join(projDir, name),
 				Project: entry.Name(),
-				Agent:   parser.AgentClaude,
+				Agent:   AgentClaude,
 			})
 		}
 
@@ -111,7 +109,7 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 						subagentsDir, name,
 					),
 					Project: entry.Name(),
-					Agent:   parser.AgentClaude,
+					Agent:   AgentClaude,
 				})
 			}
 		}
@@ -142,7 +140,7 @@ func DiscoverCodexSessions(sessionsDir string) []DiscoveredFile {
 			}
 			files = append(files, DiscoveredFile{
 				Path:  filepath.Join(dayPath, sf.Name()),
-				Agent: parser.AgentCodex,
+				Agent: AgentCodex,
 			})
 		}
 		return true
@@ -159,7 +157,7 @@ func DiscoverCodexSessions(sessionsDir string) []DiscoveredFile {
 func FindClaudeSourceFile(
 	projectsDir, sessionID string,
 ) string {
-	if !isValidSessionID(sessionID) {
+	if !IsValidSessionID(sessionID) {
 		return ""
 	}
 
@@ -217,7 +215,7 @@ func FindClaudeSourceFile(
 // Searches the year/month/day directory structure for files matching
 // rollout-{timestamp}-{uuid}.jsonl.
 func FindCodexSourceFile(sessionsDir, sessionID string) string {
-	if !isValidSessionID(sessionID) {
+	if !IsValidSessionID(sessionID) {
 		return ""
 	}
 
@@ -260,7 +258,7 @@ func walkCodexDayDirs(
 		return
 	}
 	for _, year := range years {
-		if !year.IsDir() || !isDigits(year.Name()) {
+		if !year.IsDir() || !IsDigits(year.Name()) {
 			continue
 		}
 		yearPath := filepath.Join(root, year.Name())
@@ -269,7 +267,7 @@ func walkCodexDayDirs(
 			continue
 		}
 		for _, month := range months {
-			if !month.IsDir() || !isDigits(month.Name()) {
+			if !month.IsDir() || !IsDigits(month.Name()) {
 				continue
 			}
 			monthPath := filepath.Join(yearPath, month.Name())
@@ -278,7 +276,7 @@ func walkCodexDayDirs(
 				continue
 			}
 			for _, day := range days {
-				if !day.IsDir() || !isDigits(day.Name()) {
+				if !day.IsDir() || !IsDigits(day.Name()) {
 					continue
 				}
 				if !fn(filepath.Join(monthPath, day.Name())) {
@@ -301,7 +299,9 @@ func extractUUIDFromRollout(filename string) string {
 	return match[1]
 }
 
-func isDigits(s string) bool {
+// IsDigits reports whether s is non-empty and contains only
+// Unicode digit characters.
+func IsDigits(s string) bool {
 	if s == "" {
 		return false
 	}
@@ -313,7 +313,9 @@ func isDigits(s string) bool {
 	return true
 }
 
-func isValidSessionID(id string) bool {
+// IsValidSessionID reports whether id contains only
+// alphanumeric characters, dashes, and underscores.
+func IsValidSessionID(id string) bool {
 	if id == "" {
 		return false
 	}
@@ -326,10 +328,36 @@ func isValidSessionID(id string) bool {
 }
 
 func isAlphanumOrDashUnderscore(c rune) bool {
+	return isAlphanum(c) ||
+		c == '-' || c == '_'
+}
+
+func isAlphanum(c rune) bool {
 	return (c >= 'a' && c <= 'z') ||
 		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '-' || c == '_'
+		(c >= '0' && c <= '9')
+}
+
+func isValidAmpThreadID(id string) bool {
+	if !strings.HasPrefix(id, "T-") {
+		return false
+	}
+	if len(id) == len("T-") {
+		return false
+	}
+	if !isAlphanum(rune(id[len("T-")])) {
+		return false
+	}
+	return IsValidSessionID(id)
+}
+
+// IsAmpThreadFileName reports whether name matches the Amp
+// thread file pattern (T-*.json).
+func IsAmpThreadFileName(name string) bool {
+	if !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	return isValidAmpThreadID(strings.TrimSuffix(name, ".json"))
 }
 
 // DiscoverGeminiSessions finds all session JSON files under
@@ -347,7 +375,7 @@ func DiscoverGeminiSessions(
 		return nil
 	}
 
-	projectMap := buildGeminiProjectMap(geminiDir)
+	projectMap := BuildGeminiProjectMap(geminiDir)
 
 	var files []DiscoveredFile
 	for _, hd := range hashDirs {
@@ -361,7 +389,7 @@ func DiscoverGeminiSessions(
 			continue
 		}
 
-		project := resolveGeminiProject(hash, projectMap)
+		project := ResolveGeminiProject(hash, projectMap)
 
 		for _, sf := range entries {
 			if sf.IsDir() {
@@ -375,7 +403,7 @@ func DiscoverGeminiSessions(
 			files = append(files, DiscoveredFile{
 				Path:    filepath.Join(chatsDir, name),
 				Project: project,
-				Agent:   parser.AgentGemini,
+				Agent:   AgentGemini,
 			})
 		}
 	}
@@ -391,7 +419,7 @@ func DiscoverGeminiSessions(
 func FindGeminiSourceFile(
 	geminiDir, sessionID string,
 ) string {
-	if geminiDir == "" || !isValidSessionID(sessionID) ||
+	if geminiDir == "" || !IsValidSessionID(sessionID) ||
 		len(sessionID) < 8 {
 		return ""
 	}
@@ -420,8 +448,6 @@ func FindGeminiSourceFile(
 				!strings.HasSuffix(name, ".json") {
 				continue
 			}
-			// The UUID prefix appears in the filename:
-			// session-<timestamp>-<uuid-prefix>.json
 			if strings.Contains(name, sessionID[:8]) {
 				path := filepath.Join(chatsDir, name)
 				if confirmGeminiSessionID(
@@ -444,7 +470,7 @@ func confirmGeminiSessionID(
 	if err != nil {
 		return false
 	}
-	return parser.GeminiSessionID(data) == sessionID
+	return GeminiSessionID(data) == sessionID
 }
 
 // DiscoverCursorSessions finds all agent transcript files under
@@ -484,8 +510,7 @@ func DiscoverCursorSessions(
 		)
 
 		// Verify the transcripts directory resolves within
-		// the canonical root. This catches symlinked
-		// agent-transcripts directories pointing outside.
+		// the canonical root.
 		resolvedDir, err := filepath.EvalSymlinks(
 			transcriptsDir,
 		)
@@ -501,7 +526,7 @@ func DiscoverCursorSessions(
 			continue
 		}
 
-		project := parser.DecodeCursorProjectDir(entry.Name())
+		project := DecodeCursorProjectDir(entry.Name())
 		if project == "" {
 			project = "unknown"
 		}
@@ -509,19 +534,19 @@ func DiscoverCursorSessions(
 		// Collect valid transcripts, deduping by basename
 		// stem. When both .jsonl and .txt exist for the
 		// same session, prefer .jsonl.
-		seen := make(map[string]string) // stem → path
+		seen := make(map[string]string) // stem -> path
 		for _, sf := range transcripts {
 			if sf.IsDir() {
 				continue
 			}
 			name := sf.Name()
-			if !isCursorTranscriptExt(name) {
+			if !IsCursorTranscriptExt(name) {
 				continue
 			}
 			fullPath := filepath.Join(
 				transcriptsDir, name,
 			)
-			if !isRegularFile(fullPath) {
+			if !IsRegularFile(fullPath) {
 				continue
 			}
 			stem := strings.TrimSuffix(
@@ -541,7 +566,7 @@ func DiscoverCursorSessions(
 			files = append(files, DiscoveredFile{
 				Path:    path,
 				Project: project,
-				Agent:   parser.AgentCursor,
+				Agent:   AgentCursor,
 			})
 		}
 	}
@@ -553,13 +578,11 @@ func DiscoverCursorSessions(
 }
 
 // FindCursorSourceFile finds a Cursor transcript file by
-// session UUID. Searches all project directories for a
-// matching agent-transcripts/<uuid>.{jsonl,txt} file.
-// Prefers .jsonl over .txt (consistent with discovery).
+// session UUID. Prefers .jsonl over .txt.
 func FindCursorSourceFile(
 	projectsDir, sessionID string,
 ) string {
-	if projectsDir == "" || !isValidSessionID(sessionID) {
+	if projectsDir == "" || !IsValidSessionID(sessionID) {
 		return ""
 	}
 
@@ -568,8 +591,6 @@ func FindCursorSourceFile(
 		return ""
 	}
 
-	// Canonicalize the root so the containment check works
-	// even when CURSOR_PROJECTS_DIR is itself a symlink.
 	resolvedRoot, err := filepath.EvalSymlinks(projectsDir)
 	if err != nil {
 		return ""
@@ -585,7 +606,7 @@ func FindCursorSourceFile(
 				projectsDir, entry.Name(),
 				"agent-transcripts", target,
 			)
-			if !isRegularFile(candidate) {
+			if !IsRegularFile(candidate) {
 				continue
 			}
 			resolved, err := filepath.EvalSymlinks(
@@ -622,13 +643,10 @@ type geminiTrustedFoldersFile struct {
 
 // buildGeminiProjectMap reads ~/.gemini/projects.json and
 // ~/.gemini/trustedFolders.json to build a map from directory
-// name to resolved project name. Entries are keyed by both the
-// SHA-256 hash of the absolute path (old Gemini format) and
-// the short project name from the JSON value (new format).
-// trustedFolders.json provides additional path-to-hash
-// mappings for directories that projects.json has lost.
-// ExtractProjectFromCwd resolves worktrees to the main repo.
-func buildGeminiProjectMap(
+// name to resolved project name.
+// BuildGeminiProjectMap reads Gemini config files and returns
+// a map from directory name to resolved project name.
+func BuildGeminiProjectMap(
 	geminiDir string,
 ) map[string]string {
 	result := make(map[string]string)
@@ -643,10 +661,6 @@ func buildGeminiProjectMap(
 		}
 	}
 
-	// trustedFolders.json lists additional project paths
-	// that may not be in projects.json (Gemini CLI cleans
-	// up projects.json but trustedFolders.json persists
-	// longer). Format: {"trustedFolders": ["/abs/path",...]}
 	tfData, err := os.ReadFile(
 		filepath.Join(geminiDir, "trustedFolders.json"),
 	)
@@ -667,15 +681,11 @@ func buildGeminiProjectMap(
 }
 
 // addProjectPaths adds hash and name entries for the given
-// absolute paths. name is the short project name from
-// projects.json (empty for trustedFolders.json entries).
-// Existing entries are not overwritten.
+// absolute paths.
 func addProjectPaths(
 	result map[string]string,
 	paths map[string]string,
 ) {
-	// Sort keys for deterministic first-seen-wins on
-	// duplicate short names.
 	sorted := make([]string, 0, len(paths))
 	for absPath := range paths {
 		sorted = append(sorted, absPath)
@@ -684,7 +694,7 @@ func addProjectPaths(
 
 	for _, absPath := range sorted {
 		name := paths[absPath]
-		project := parser.ExtractProjectFromCwd(absPath)
+		project := ExtractProjectFromCwd(absPath)
 		if project == "" {
 			project = "unknown"
 		}
@@ -718,29 +728,66 @@ func isHexHash(s string) bool {
 }
 
 // resolveGeminiProject maps a tmp/ subdirectory name to a
-// project name. Newer Gemini CLI versions use the project name
-// directly; older versions use a SHA-256 hash. Both are looked
-// up in the project map (built from projects.json) which
-// resolves worktrees to the main repository via
-// ExtractProjectFromCwd. For named dirs not in the map, the
-// directory name itself is used.
-func resolveGeminiProject(
+// project name.
+// ResolveGeminiProject maps a tmp/ subdirectory name to a
+// project name using the project map.
+func ResolveGeminiProject(
 	dirName string,
 	projectMap map[string]string,
 ) string {
 	if p := projectMap[dirName]; p != "" {
 		return p
 	}
-	// Old-format dirs use a SHA-256 hash of the project path.
-	// If the hash isn't in the project map (e.g. projects.json
-	// was cleaned up), we can't resolve it. A project name
-	// that coincidentally matches the 64-char hex pattern
-	// would also hit this path, but that's vanishingly
-	// unlikely compared to orphaned hashes.
 	if isHexHash(dirName) {
 		return "unknown"
 	}
-	return parser.NormalizeName(dirName)
+	return NormalizeName(dirName)
+}
+
+// DiscoverAmpSessions finds all thread JSON files under
+// the Amp threads directory (~/.local/share/amp/threads/T-*.json).
+func DiscoverAmpSessions(threadsDir string) []DiscoveredFile {
+	if threadsDir == "" {
+		return nil
+	}
+
+	entries, err := os.ReadDir(threadsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !IsAmpThreadFileName(name) {
+			continue
+		}
+		files = append(files, DiscoveredFile{
+			Path:  filepath.Join(threadsDir, name),
+			Agent: AgentAmp,
+		})
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindAmpSourceFile locates an Amp thread file by its raw
+// thread ID (without the "amp:" prefix).
+func FindAmpSourceFile(threadsDir, threadID string) string {
+	if threadsDir == "" || !isValidAmpThreadID(threadID) {
+		return ""
+	}
+	candidate := filepath.Join(threadsDir, threadID+".json")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
 }
 
 // DiscoverCopilotSessions finds all JSONL files under
@@ -759,9 +806,6 @@ func DiscoverCopilotSessions(
 		return nil
 	}
 
-	// Collect directories that actually contain events.jsonl
-	// so we can skip bare files that have a valid directory
-	// counterpart.
 	dirs := make(map[string]struct{})
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -779,27 +823,24 @@ func DiscoverCopilotSessions(
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
-			// Directory format: <uuid>/events.jsonl
 			candidate := filepath.Join(
 				stateDir, name, "events.jsonl",
 			)
 			if _, err := os.Stat(candidate); err == nil {
 				files = append(files, DiscoveredFile{
 					Path:  candidate,
-					Agent: parser.AgentCopilot,
+					Agent: AgentCopilot,
 				})
 			}
 			continue
 		}
-		// Bare format: <uuid>.jsonl — skip if a directory
-		// with the same stem exists (prefer directory format).
 		if stem, ok := strings.CutSuffix(name, ".jsonl"); ok {
 			if _, dup := dirs[stem]; dup {
 				continue
 			}
 			files = append(files, DiscoveredFile{
 				Path:  filepath.Join(stateDir, name),
-				Agent: parser.AgentCopilot,
+				Agent: AgentCopilot,
 			})
 		}
 	}
@@ -816,20 +857,17 @@ func DiscoverCopilotSessions(
 func FindCopilotSourceFile(
 	copilotDir, rawID string,
 ) string {
-	if copilotDir == "" || !isValidSessionID(rawID) {
+	if copilotDir == "" || !IsValidSessionID(rawID) {
 		return ""
 	}
 
 	stateDir := filepath.Join(copilotDir, "session-state")
 
-	// Check directory format first (matches discovery
-	// precedence which prefers directory over bare).
 	dirFmt := filepath.Join(stateDir, rawID, "events.jsonl")
 	if _, err := os.Stat(dirFmt); err == nil {
 		return dirFmt
 	}
 
-	// Fall back to bare format.
 	bare := filepath.Join(stateDir, rawID+".jsonl")
 	if _, err := os.Stat(bare); err == nil {
 		return bare
@@ -840,8 +878,9 @@ func FindCopilotSourceFile(
 
 // isRegularFile returns true if path exists and is a regular
 // file (not a symlink, directory, or other special file).
-// Uses os.Lstat to avoid following symlinks.
-func isRegularFile(path string) bool {
+// IsRegularFile reports whether path is a regular file (not
+// a symlink, directory, or special file).
+func IsRegularFile(path string) bool {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return false
@@ -851,14 +890,15 @@ func isRegularFile(path string) bool {
 
 // isCursorTranscriptExt returns true if the filename has a
 // recognized Cursor transcript extension (.txt or .jsonl).
-func isCursorTranscriptExt(name string) bool {
+// IsCursorTranscriptExt reports whether the filename has a
+// recognized Cursor transcript extension (.txt or .jsonl).
+func IsCursorTranscriptExt(name string) bool {
 	return strings.HasSuffix(name, ".txt") ||
 		strings.HasSuffix(name, ".jsonl")
 }
 
 // isContainedIn returns true if child is a path strictly
-// under root. Both paths must be absolute / canonical (no
-// symlinks) for this to be reliable.
+// under root. Both paths must be absolute / canonical.
 func isContainedIn(child, root string) bool {
 	rel, err := filepath.Rel(root, child)
 	if err != nil {

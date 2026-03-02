@@ -2,6 +2,7 @@
   import { onMount, untrack } from "svelte";
   import AppHeader from "./lib/components/layout/AppHeader.svelte";
   import ThreeColumnLayout from "./lib/components/layout/ThreeColumnLayout.svelte";
+  import SessionBreadcrumb from "./lib/components/layout/SessionBreadcrumb.svelte";
   import StatusBar from "./lib/components/layout/StatusBar.svelte";
   import SessionList from "./lib/components/sidebar/SessionList.svelte";
   import MessageList from "./lib/components/content/MessageList.svelte";
@@ -17,15 +18,7 @@
   import { ui } from "./lib/stores/ui.svelte.js";
   import { router } from "./lib/stores/router.svelte.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
-  import { copyToClipboard } from "./lib/utils/clipboard.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
-
-  let copiedSessionId = $state("");
-
-  function sessionDisplayId(id: string): string {
-    const idx = id.indexOf(":");
-    return idx >= 0 ? id.slice(idx + 1) : id;
-  }
 
   let messageListRef:
     | {
@@ -172,59 +165,10 @@
     {#snippet content()}
       {#if sessions.activeSessionId}
         {@const session = sessions.activeSession}
-        <div class="session-breadcrumb">
-          <button
-            class="breadcrumb-link"
-            onclick={() => sessions.deselectSession()}
-          >Sessions</button>
-          <span class="breadcrumb-sep">/</span>
-          <span class="breadcrumb-current">
-            {session?.project ?? ""}
-          </span>
-          {#if session}
-            <span class="breadcrumb-meta">
-              <span
-                class="agent-badge"
-                class:agent-claude={session.agent === "claude"}
-                class:agent-codex={session.agent === "codex"}
-                class:agent-copilot={session.agent === "copilot"}
-                class:agent-gemini={session.agent === "gemini"}
-                class:agent-opencode={session.agent === "opencode"}
-              >{session.agent}</span>
-              {#if session.started_at}
-                <span class="session-time">
-                  {new Date(session.started_at).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                  {new Date(session.started_at).toLocaleTimeString(undefined, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              {/if}
-              {#if session.id}
-                {@const rawId = sessionDisplayId(session.id)}
-                <button
-                  class="session-id"
-                  title={rawId}
-                  onclick={async () => {
-                    const ok = await copyToClipboard(rawId);
-                    if (ok) {
-                      const id = session.id;
-                      copiedSessionId = id;
-                      setTimeout(() => {
-                        if (copiedSessionId === id) copiedSessionId = "";
-                      }, 1500);
-                    }
-                  }}
-                >
-                  {copiedSessionId === session.id ? "Copied!" : rawId.slice(0, 8)}
-                </button>
-              {/if}
-            </span>
-          {/if}
-        </div>
+        <SessionBreadcrumb
+          session={session}
+          onBack={() => sessions.deselectSession()}
+        />
         <MessageList bind:this={messageListRef} />
       {:else}
         <AnalyticsPage />
@@ -250,110 +194,3 @@
 {#if ui.activeModal === "resync"}
   <ResyncModal />
 {/if}
-
-<style>
-  .session-breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 14px;
-    border-bottom: 1px solid var(--border-muted);
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .breadcrumb-link {
-    color: var(--text-muted);
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: color 0.12s;
-  }
-
-  .breadcrumb-link:hover {
-    color: var(--accent-blue);
-  }
-
-  .breadcrumb-sep {
-    opacity: 0.3;
-    font-size: 10px;
-  }
-
-  .breadcrumb-current {
-    color: var(--text-primary);
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .breadcrumb-meta {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-
-  .agent-badge {
-    font-size: 9px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: white;
-    flex-shrink: 0;
-    background: var(--text-muted);
-  }
-
-  .agent-claude {
-    background: var(--accent-blue);
-  }
-
-  .agent-codex {
-    background: var(--accent-green);
-  }
-
-  .agent-copilot {
-    background: var(--accent-amber);
-  }
-
-  .agent-gemini {
-    background: var(--accent-rose);
-  }
-
-  .agent-opencode {
-    background: var(--accent-purple);
-  }
-
-  .session-time {
-    font-size: 10px;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .session-id {
-    font-size: 10px;
-    font-family: "SF Mono", "Menlo", "Consolas", monospace;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: var(--bg-tertiary);
-    transition: color 0.15s, background 0.15s;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .session-id:hover {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
-  }
-</style>

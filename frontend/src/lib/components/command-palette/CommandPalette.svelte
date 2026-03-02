@@ -9,6 +9,7 @@
     truncate,
     sanitizeSnippet,
   } from "../../utils/format.js";
+  import { agentColor } from "../../utils/agents.js";
   import type { Session, SearchResult } from "../../api/types.js";
 
   let inputRef: HTMLInputElement | undefined = $state(undefined);
@@ -181,15 +182,7 @@
             onclick={() => selectSession(session)}
             onmouseenter={() => (selectedIndex = i)}
           >
-            <span class="item-dot" style:background={
-              session.agent === "codex"
-                ? "var(--accent-green)"
-                : session.agent === "copilot"
-                  ? "var(--accent-amber)"
-                  : session.agent === "opencode"
-                    ? "var(--accent-purple)"
-                    : "var(--accent-blue)"
-            }></span>
+            <span class="item-dot" style:background={agentColor(session.agent)}></span>
             <span class="item-text">
               {session.first_message
                 ? truncate(session.first_message, 60)
