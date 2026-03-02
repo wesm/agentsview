@@ -1031,7 +1031,7 @@ func discoverVSCodeSessionFiles(
 func FindVSCodeCopilotSourceFile(
 	vscodeUserDir, rawID string,
 ) string {
-	if vscodeUserDir == "" || rawID == "" {
+	if vscodeUserDir == "" || !IsValidSessionID(rawID) {
 		return ""
 	}
 
