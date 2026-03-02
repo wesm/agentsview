@@ -382,6 +382,9 @@ func (e *Engine) classifyOnePath(
 				parts[2] == "chatSessions" &&
 				(strings.HasSuffix(parts[3], ".json") ||
 					strings.HasSuffix(parts[3], ".jsonl")) {
+				if vscodeJSONLSiblingExists(path) {
+					continue
+				}
 				hashDir := filepath.Join(
 					vscDir, "workspaceStorage", parts[1],
 				)
@@ -402,6 +405,9 @@ func (e *Engine) classifyOnePath(
 				(parts[1] == "emptyWindowChatSessions" || parts[1] == "transferredChatSessions") &&
 				(strings.HasSuffix(parts[2], ".json") ||
 					strings.HasSuffix(parts[2], ".jsonl")) {
+				if vscodeJSONLSiblingExists(path) {
+					continue
+				}
 				return parser.DiscoveredFile{
 					Path:    path,
 					Project: "empty-window",
@@ -412,6 +418,18 @@ func (e *Engine) classifyOnePath(
 	}
 
 	return parser.DiscoveredFile{}, false
+}
+
+// vscodeJSONLSiblingExists returns true when path is a .json
+// file and a .jsonl sibling exists for the same UUID. This
+// mirrors the dedup logic in DiscoverVSCodeCopilotSessions.
+func vscodeJSONLSiblingExists(path string) bool {
+	base, ok := strings.CutSuffix(path, ".json")
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(base + ".jsonl")
+	return err == nil
 }
 
 // resyncTempSuffix is appended to the original DB path to

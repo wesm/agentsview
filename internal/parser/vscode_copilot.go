@@ -714,7 +714,7 @@ func jsonlPush(
 			return
 		}
 		if spliceIdx != nil {
-			idx := min(*spliceIdx, len(arr))
+			idx := max(0, min(*spliceIdx, len(arr)))
 			newArr := make(
 				[]any, 0, len(arr)+len(items),
 			)
@@ -735,7 +735,7 @@ func jsonlPush(
 			return
 		}
 		if spliceIdx != nil {
-			si := min(*spliceIdx, len(arr))
+			si := max(0, min(*spliceIdx, len(arr)))
 			newArr := make(
 				[]any, 0, len(arr)+len(items),
 			)

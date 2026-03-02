@@ -780,6 +780,29 @@ func TestReconstructJSONL(t *testing.T) {
 			},
 		},
 		{
+			name: "push with negative splice index",
+			lines: []string{
+				`{"kind":0,"v":{"items":["a","b"]}}`,
+				`{"kind":2,"k":["items"],"v":["z"],"i":-1}`,
+			},
+			check: func(t *testing.T, data []byte) {
+				var m map[string]any
+				if err := json.Unmarshal(data, &m); err != nil {
+					t.Fatal(err)
+				}
+				items := m["items"].([]any)
+				if len(items) != 3 {
+					t.Fatalf("len: got %d, want 3",
+						len(items))
+				}
+				// Negative index clamped to 0: inserted at front
+				if items[0] != "z" {
+					t.Errorf("items[0]: got %v, want z",
+						items[0])
+				}
+			},
+		},
+		{
 			name: "delete property",
 			lines: []string{
 				`{"kind":0,"v":{"a":"keep","b":"remove"}}`,

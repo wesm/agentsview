@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestAgentByType(t *testing.T) {
 	tests := []struct {
@@ -14,6 +17,7 @@ func TestAgentByType(t *testing.T) {
 		{AgentOpenCode, true},
 		{AgentCursor, true},
 		{AgentAmp, true},
+		{AgentVSCodeCopilot, true},
 		{"unknown", false},
 	}
 	for _, tt := range tests {
@@ -83,6 +87,12 @@ func TestAgentByPrefix(t *testing.T) {
 			true,
 		},
 		{
+			"vscode-copilot prefix",
+			"vscode-copilot:sess-id",
+			AgentVSCodeCopilot,
+			true,
+		},
+		{
 			"unknown prefix",
 			"future:sess-id",
 			"",
@@ -123,6 +133,7 @@ func TestRegistryCompleteness(t *testing.T) {
 		AgentOpenCode,
 		AgentCursor,
 		AgentAmp,
+		AgentVSCodeCopilot,
 	}
 
 	registered := make(map[AgentType]bool)
@@ -221,5 +232,26 @@ func TestInferRelationshipTypes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVSCodeCopilotDefaultDirs(t *testing.T) {
+	def, ok := AgentByType(AgentVSCodeCopilot)
+	if !ok {
+		t.Fatal("AgentVSCodeCopilot not in Registry")
+	}
+
+	required := []string{
+		"Library/Application Support/Code/User",
+		"Library/Application Support/Code - Insiders/User",
+		"Library/Application Support/VSCodium/User",
+		".config/Code/User",
+		".config/Code - Insiders/User",
+		".config/VSCodium/User",
+	}
+	for _, path := range required {
+		if !slices.Contains(def.DefaultDirs, path) {
+			t.Errorf("missing default dir: %s", path)
+		}
 	}
 }

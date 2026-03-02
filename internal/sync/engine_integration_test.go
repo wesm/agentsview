@@ -2695,3 +2695,62 @@ func TestSyncPathsClassifyFallsThrough(t *testing.T) {
 		},
 	)
 }
+
+func TestSyncPathsVSCodeCopilotJSONLPriority(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	dir := t.TempDir()
+	vscDir := filepath.Join(dir, "vscode")
+	chatDir := filepath.Join(
+		vscDir, "workspaceStorage", "abc123",
+		"chatSessions",
+	)
+
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentVSCodeCopilot: {vscDir},
+		},
+		Machine: "local",
+	})
+
+	uuid := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	session := fmt.Sprintf(
+		`{"version":1,"sessionId":"%s",`+
+			`"creationDate":1704103200000,`+
+			`"lastMessageDate":1704103260000,`+
+			`"requests":[{"requestId":"r1",`+
+			`"message":{"text":"hello"},`+
+			`"response":[{"value":"hi"}],`+
+			`"timestamp":1704103200000}]}`,
+		uuid,
+	)
+
+	jsonPath := filepath.Join(chatDir, uuid+".json")
+	jsonlPath := filepath.Join(chatDir, uuid+".jsonl")
+	dbtest.WriteTestFile(t, jsonPath, []byte(session))
+	dbtest.WriteTestFile(
+		t, jsonlPath,
+		[]byte(`{"kind":0,"v":`+session+`}`),
+	)
+
+	// Sync the .json path; classifier should skip it
+	// because a .jsonl sibling exists.
+	engine.SyncPaths([]string{jsonPath})
+
+	ctx := context.Background()
+	page, err := database.ListSessions(
+		ctx, db.SessionFilter{Limit: 10},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != 0 {
+		t.Errorf(
+			"expected 0 sessions (.json skipped), got %d",
+			len(page.Sessions),
+		)
+	}
+}

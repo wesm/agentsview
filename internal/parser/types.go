@@ -22,14 +22,14 @@ const (
 // AgentDef describes a supported coding agent's filesystem
 // layout, configuration keys, and session ID conventions.
 type AgentDef struct {
-	Type        AgentType
-	DisplayName string   // "Claude Code", "Codex", etc.
-	EnvVar      string   // env var for dir override
-	ConfigKey   string   // JSON key in config.json ("" = none)
-	DefaultDirs []string // paths relative to $HOME
-	IDPrefix    string   // session ID prefix ("" for Claude)
-	WatchSubdir string   // subdir to watch ("" = watch root)
-	FileBased   bool     // false for DB-backed agents
+	Type         AgentType
+	DisplayName  string   // "Claude Code", "Codex", etc.
+	EnvVar       string   // env var for dir override
+	ConfigKey    string   // JSON key in config.json ("" = none)
+	DefaultDirs  []string // paths relative to $HOME
+	IDPrefix     string   // session ID prefix ("" for Claude)
+	WatchSubdirs []string // subdirs to watch (nil = watch root)
+	FileBased    bool     // false for DB-backed agents
 
 	// DiscoverFunc finds session files under a root directory.
 	// Nil for non-file-based agents.
@@ -73,7 +73,7 @@ var Registry = []AgentDef{
 		ConfigKey:      "copilot_dirs",
 		DefaultDirs:    []string{".copilot"},
 		IDPrefix:       "copilot:",
-		WatchSubdir:    "session-state",
+		WatchSubdirs:   []string{"session-state"},
 		FileBased:      true,
 		DiscoverFunc:   DiscoverCopilotSessions,
 		FindSourceFunc: FindCopilotSourceFile,
@@ -85,7 +85,7 @@ var Registry = []AgentDef{
 		ConfigKey:      "gemini_dirs",
 		DefaultDirs:    []string{".gemini"},
 		IDPrefix:       "gemini:",
-		WatchSubdir:    "tmp",
+		WatchSubdirs:   []string{"tmp"},
 		FileBased:      true,
 		DiscoverFunc:   DiscoverGeminiSessions,
 		FindSourceFunc: FindGeminiSourceFile,
@@ -134,8 +134,11 @@ var Registry = []AgentDef{
 			".config/Code - Insiders/User",
 			".config/VSCodium/User",
 		},
-		IDPrefix:       "vscode-copilot:",
-		WatchSubdir:    "workspaceStorage",
+		IDPrefix: "vscode-copilot:",
+		WatchSubdirs: []string{
+			"workspaceStorage",
+			"globalStorage",
+		},
 		FileBased:      true,
 		DiscoverFunc:   DiscoverVSCodeCopilotSessions,
 		FindSourceFunc: FindVSCodeCopilotSourceFile,
