@@ -592,18 +592,18 @@ func TestListSessions_Empty(t *testing.T) {
 	assertStatus(t, w, http.StatusOK)
 
 	// Verify raw JSON has "sessions":[] not "sessions":null.
-	body := w.Body.String()
-	if !strings.Contains(body, `"sessions":[]`) {
-		t.Fatalf(
-			"expected sessions to be [] in JSON, got: %s",
-			body,
-		)
+	var raw struct {
+		Sessions json.RawMessage `json:"sessions"`
 	}
-
-	resp := decode[sessionListResponse](t, w)
-	if len(resp.Sessions) != 0 {
-		t.Fatalf("expected 0 sessions, got %d",
-			len(resp.Sessions))
+	if err := json.Unmarshal(
+		w.Body.Bytes(), &raw,
+	); err != nil {
+		t.Fatalf("unmarshaling raw response: %v", err)
+	}
+	if got := strings.TrimSpace(string(raw.Sessions)); got != "[]" {
+		t.Fatalf(
+			"expected sessions to be [], got: %s", got,
+		)
 	}
 }
 
