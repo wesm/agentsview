@@ -569,6 +569,21 @@ func (e *Engine) ResyncAll(
 		time.Since(tInsights).Round(time.Millisecond),
 	)
 
+	// Copy orphaned sessions (source files gone) from the
+	// old DB so archived data is preserved.
+	orphaned, err := newDB.CopyOrphanedDataFrom(origPath)
+	if err != nil {
+		log.Printf("resync: copy orphaned sessions: %v", err)
+		stats.Warnings = append(stats.Warnings,
+			"orphaned session copy failed: "+err.Error(),
+		)
+		// Non-fatal: proceed with swap. The freshly synced
+		// data is still valid; only archived sessions whose
+		// files are gone are lost.
+	} else {
+		stats.OrphanedCopied = orphaned
+	}
+
 	// 5. Close newDB and swap files, then reopen origDB.
 	newDB.Close()
 

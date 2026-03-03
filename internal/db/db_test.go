@@ -283,7 +283,7 @@ func TestOpenCreatesFile(t *testing.T) {
 	}
 }
 
-func TestOpenRebuildOnDataVersion(t *testing.T) {
+func TestOpenDataVersionBump_PreservesData(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
 
@@ -291,40 +291,65 @@ func TestOpenRebuildOnDataVersion(t *testing.T) {
 	d, err := Open(path)
 	requireNoError(t, err, "initial open")
 
-	// Insert a session so we can verify it gets dropped.
 	err = d.UpsertSession(Session{
-		ID:      "s1",
-		Project: "proj",
-		Machine: "local",
-		Agent:   "codex",
+		ID:           "s1",
+		Project:      "proj",
+		Machine:      "local",
+		Agent:        "codex",
+		MessageCount: 1,
+		FileMtime:    Ptr(int64(12345)),
 	})
 	requireNoError(t, err, "insert session")
+	insertMessages(t, d,
+		userMsg("s1", 0, "hello"),
+		asstMsg("s1", 1, "world"),
+	)
+
+	// Add a skipped file entry.
+	err = d.ReplaceSkippedFiles(map[string]int64{
+		"/tmp/skip.jsonl": 99999,
+	})
+	requireNoError(t, err, "add skipped file")
 	d.Close()
 
-	// Set user_version to 0 to simulate old data.
+	// Set user_version to 0 to simulate stale data version.
 	conn, err := sql.Open("sqlite3", path)
 	requireNoError(t, err, "raw open")
 	_, err = conn.Exec("PRAGMA user_version = 0")
 	requireNoError(t, err, "reset version")
 	conn.Close()
 
-	// Re-open: should detect stale version and rebuild.
+	// Re-open: should detect stale version but preserve data.
 	d2, err := Open(path)
 	requireNoError(t, err, "reopen")
 	defer d2.Close()
 
-	// Session should be gone (DB was rebuilt).
+	// NeedsResync should be true.
+	if !d2.NeedsResync() {
+		t.Fatal("expected NeedsResync()=true after version bump")
+	}
+
+	// Session and messages must still exist.
 	page, err := d2.ListSessions(
 		context.Background(),
 		SessionFilter{Limit: 100},
 	)
 	requireNoError(t, err, "list sessions")
-	if len(page.Sessions) != 0 {
-		t.Fatalf("expected 0 sessions after rebuild, got %d",
+	if len(page.Sessions) != 1 {
+		t.Fatalf("expected 1 session preserved, got %d",
 			len(page.Sessions))
 	}
 
-	// user_version should now be current.
+	msgs, err := d2.GetMessages(
+		context.Background(), "s1", 0, 100, true,
+	)
+	requireNoError(t, err, "get messages")
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages preserved, got %d",
+			len(msgs))
+	}
+
+	// user_version should be updated to current.
 	var ver int
 	err = d2.getReader().QueryRow(
 		"PRAGMA user_version",
@@ -356,6 +381,10 @@ func TestOpenPreservesDataAtCurrentVersion(t *testing.T) {
 	d2, err := Open(path)
 	requireNoError(t, err, "reopen")
 	defer d2.Close()
+
+	if d2.NeedsResync() {
+		t.Fatal("expected NeedsResync()=false at current version")
+	}
 
 	page, err := d2.ListSessions(
 		context.Background(),
@@ -2677,6 +2706,196 @@ func TestCopyInsightsFrom(t *testing.T) {
 			"content = %q, want %q",
 			insights[0].Content, "test insight content",
 		)
+	}
+}
+
+func TestCopyOrphanedDataFrom(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source (old) DB with two sessions: s1 and s2.
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj", func(s *Session) {
+		s.Agent = "claude"
+	})
+	insertSession(t, srcDB, "s2", "proj", func(s *Session) {
+		s.Agent = "codex"
+	})
+	insertMessages(t, srcDB,
+		userMsg("s1", 0, "hello from s1"),
+		asstMsg("s1", 1, "reply from s1"),
+		userMsg("s2", 0, "hello from s2"),
+	)
+	// Insert tool_calls for s1 via raw SQL since
+	// insertToolCallsTx is unexported.
+	_, err = srcDB.getWriter().Exec(`
+		INSERT INTO tool_calls
+			(message_id, session_id, tool_name, category)
+		SELECT id, session_id, 'Read', 'file'
+		FROM messages
+		WHERE session_id = 's1' AND ordinal = 1`,
+	)
+	requireNoError(t, err, "insert tool_call")
+	srcDB.Close()
+
+	// Destination (new) DB: only has s1 (re-synced from
+	// file). s2 is orphaned (file gone).
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj", func(s *Session) {
+		s.Agent = "claude"
+	})
+	insertMessages(t, dstDB,
+		userMsg("s1", 0, "hello from s1"),
+		asstMsg("s1", 1, "reply from s1"),
+	)
+
+	// Copy orphaned data from source.
+	count, err := dstDB.CopyOrphanedDataFrom(srcPath)
+	requireNoError(t, err, "CopyOrphanedDataFrom")
+	if count != 1 {
+		t.Fatalf("expected 1 orphaned session, got %d", count)
+	}
+
+	// s2 should now exist in dst.
+	s, err := dstDB.GetSession(
+		context.Background(), "s2",
+	)
+	requireNoError(t, err, "GetSession s2")
+	if s == nil {
+		t.Fatal("orphaned session s2 not found in dst")
+	}
+	if s.Agent != "codex" {
+		t.Errorf("s2 agent = %q, want %q", s.Agent, "codex")
+	}
+
+	// s2 messages should be copied.
+	ctx := context.Background()
+	msgs, err := dstDB.GetMessages(ctx, "s2", 0, 100, true)
+	requireNoError(t, err, "GetMessages s2")
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message for s2, got %d",
+			len(msgs))
+	}
+	if msgs[0].Content != "hello from s2" {
+		t.Errorf("s2 message content = %q, want %q",
+			msgs[0].Content, "hello from s2")
+	}
+
+	// s1 should still exist and not be duplicated.
+	s1msgs, err := dstDB.GetMessages(ctx, "s1", 0, 100, true)
+	requireNoError(t, err, "GetMessages s1")
+	if len(s1msgs) != 2 {
+		t.Fatalf("expected 2 messages for s1, got %d",
+			len(s1msgs))
+	}
+
+	// Tool calls for s1 should NOT be copied (s1 exists in
+	// dst, so it's not orphaned). Only verify s2's tool_calls
+	// aren't present (s2 had no tool_calls on ordinal 0).
+	var tcCount int
+	err = dstDB.getReader().QueryRow(
+		"SELECT count(*) FROM tool_calls " +
+			"WHERE session_id = 's2'",
+	).Scan(&tcCount)
+	requireNoError(t, err, "count s2 tool_calls")
+	if tcCount != 0 {
+		t.Errorf("expected 0 tool_calls for s2, got %d",
+			tcCount)
+	}
+}
+
+func TestCopyOrphanedDataFrom_NoOrphans(t *testing.T) {
+	dir := t.TempDir()
+
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	srcDB.Close()
+
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj")
+
+	count, err := dstDB.CopyOrphanedDataFrom(srcPath)
+	requireNoError(t, err, "CopyOrphanedDataFrom")
+	if count != 0 {
+		t.Fatalf("expected 0 orphaned sessions, got %d",
+			count)
+	}
+}
+
+func TestCopyOrphanedDataFrom_WithToolCalls(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source DB with session s1 that has tool_calls.
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	insertMessages(t, srcDB,
+		userMsg("s1", 0, "hello"),
+		asstMsg("s1", 1, "used a tool"),
+	)
+	_, err = srcDB.getWriter().Exec(`
+		INSERT INTO tool_calls
+			(message_id, session_id, tool_name, category,
+			 tool_use_id)
+		SELECT id, session_id, 'Bash', 'command',
+			'tu_123'
+		FROM messages
+		WHERE session_id = 's1' AND ordinal = 1`,
+	)
+	requireNoError(t, err, "insert tool_call")
+	srcDB.Close()
+
+	// Empty destination DB.
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	count, err := dstDB.CopyOrphanedDataFrom(srcPath)
+	requireNoError(t, err, "CopyOrphanedDataFrom")
+	if count != 1 {
+		t.Fatalf("expected 1 orphaned, got %d", count)
+	}
+
+	// Verify tool_call was copied with correct message_id
+	// mapping.
+	var toolName, toolUseID string
+	var msgID int
+	err = dstDB.getReader().QueryRow(`
+		SELECT tc.message_id, tc.tool_name, tc.tool_use_id
+		FROM tool_calls tc
+		WHERE tc.session_id = 's1'`,
+	).Scan(&msgID, &toolName, &toolUseID)
+	requireNoError(t, err, "query tool_call")
+	if toolName != "Bash" {
+		t.Errorf("tool_name = %q, want %q", toolName, "Bash")
+	}
+	if toolUseID != "tu_123" {
+		t.Errorf(
+			"tool_use_id = %q, want %q",
+			toolUseID, "tu_123",
+		)
+	}
+
+	// Verify the message_id FK is valid.
+	var ordinal int
+	err = dstDB.getReader().QueryRow(
+		"SELECT ordinal FROM messages WHERE id = ?", msgID,
+	).Scan(&ordinal)
+	requireNoError(t, err, "verify FK")
+	if ordinal != 1 {
+		t.Errorf("tool_call message ordinal = %d, want 1",
+			ordinal)
 	}
 }
 
