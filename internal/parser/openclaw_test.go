@@ -6,10 +6,19 @@ import (
 	"testing"
 )
 
-func writeOpenClawTestFile(t *testing.T, lines ...string) string {
+// writeOpenClawTestFile creates a test JSONL file inside an
+// agent directory structure: <root>/<agentId>/sessions/<name>.jsonl.
+// Returns the full path to the file and the root agents directory.
+func writeOpenClawTestFile(
+	t *testing.T, agentID string, lines ...string,
+) (path, agentsDir string) {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test-session.jsonl")
+	root := t.TempDir()
+	sessDir := filepath.Join(root, agentID, "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path = filepath.Join(sessDir, "test-session.jsonl")
 	var content string
 	for _, line := range lines {
 		content += line + "\n"
@@ -17,11 +26,11 @@ func writeOpenClawTestFile(t *testing.T, lines ...string) string {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return path, root
 }
 
 func TestParseOpenClawSession_Basic(t *testing.T) {
-	path := writeOpenClawTestFile(t,
+	path, _ := writeOpenClawTestFile(t, "main",
 		`{"type":"session","version":3,"id":"abc-123","timestamp":"2026-02-25T10:00:00Z","cwd":"/home/user/project"}`,
 		`{"type":"model_change","id":"mc1","timestamp":"2026-02-25T10:00:00Z","provider":"anthropic","modelId":"claude-sonnet-4-6"}`,
 		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"Hello, how are you?"}],"timestamp":"2026-02-25T10:00:01Z"}}`,
@@ -36,8 +45,8 @@ func TestParseOpenClawSession_Basic(t *testing.T) {
 		t.Fatal("expected session, got nil")
 	}
 
-	if sess.ID != "openclaw:abc-123" {
-		t.Errorf("expected ID openclaw:abc-123, got %s", sess.ID)
+	if sess.ID != "openclaw:main:abc-123" {
+		t.Errorf("expected ID openclaw:main:abc-123, got %s", sess.ID)
 	}
 	if sess.Agent != AgentOpenClaw {
 		t.Errorf("expected agent openclaw, got %s", sess.Agent)
@@ -66,7 +75,7 @@ func TestParseOpenClawSession_Basic(t *testing.T) {
 }
 
 func TestParseOpenClawSession_Thinking(t *testing.T) {
-	path := writeOpenClawTestFile(t,
+	path, _ := writeOpenClawTestFile(t, "main",
 		`{"type":"session","version":3,"id":"think-123","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
 		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"Think about this"}],"timestamp":"2026-02-25T10:00:01Z"}}`,
 		`{"type":"message","id":"m2","timestamp":"2026-02-25T10:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me consider..."},{"type":"text","text":"Here is my response."}],"timestamp":"2026-02-25T10:00:02Z"}}`,
@@ -85,7 +94,7 @@ func TestParseOpenClawSession_Thinking(t *testing.T) {
 }
 
 func TestParseOpenClawSession_ToolResult(t *testing.T) {
-	path := writeOpenClawTestFile(t,
+	path, _ := writeOpenClawTestFile(t, "main",
 		`{"type":"session","version":3,"id":"tool-123","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
 		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"Read a file"}],"timestamp":"2026-02-25T10:00:01Z"}}`,
 		`{"type":"message","id":"m2","timestamp":"2026-02-25T10:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"read","input":{"path":"/etc/hosts"}}],"timestamp":"2026-02-25T10:00:02Z"}}`,
@@ -127,10 +136,16 @@ func TestParseOpenClawSession_ToolResult(t *testing.T) {
 	if sess.MessageCount != 4 {
 		t.Errorf("expected 4 messages, got %d", sess.MessageCount)
 	}
+
+	// UserMessageCount should only count the real user message,
+	// not the synthetic tool-result message.
+	if sess.UserMessageCount != 1 {
+		t.Errorf("expected UserMessageCount 1 (tool results excluded), got %d", sess.UserMessageCount)
+	}
 }
 
 func TestParseOpenClawSession_EmptyFile(t *testing.T) {
-	path := writeOpenClawTestFile(t,
+	path, _ := writeOpenClawTestFile(t, "main",
 		`{"type":"session","version":3,"id":"empty","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
 	)
 
@@ -144,7 +159,7 @@ func TestParseOpenClawSession_EmptyFile(t *testing.T) {
 }
 
 func TestParseOpenClawSession_Compaction(t *testing.T) {
-	path := writeOpenClawTestFile(t,
+	path, _ := writeOpenClawTestFile(t, "main",
 		`{"type":"session","version":3,"id":"compact","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
 		`{"type":"compaction","id":"c1","timestamp":"2026-02-25T10:00:01Z","summary":"Previous work summary"}`,
 		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:02Z","message":{"role":"user","content":[{"type":"text","text":"Continue from here"}],"timestamp":"2026-02-25T10:00:02Z"}}`,
@@ -161,6 +176,38 @@ func TestParseOpenClawSession_Compaction(t *testing.T) {
 	// Compaction should be skipped, only messages remain.
 	if len(msgs) != 2 {
 		t.Errorf("expected 2 messages (compaction skipped), got %d", len(msgs))
+	}
+}
+
+func TestParseOpenClawSession_AgentIDInSessionID(t *testing.T) {
+	// Verify different agent subdirectories produce distinct
+	// session IDs even when the raw session ID is the same.
+	pathA, _ := writeOpenClawTestFile(t, "alpha",
+		`{"type":"session","version":3,"id":"same-id","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
+		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"Hello"}],"timestamp":"2026-02-25T10:00:01Z"}}`,
+	)
+	pathB, _ := writeOpenClawTestFile(t, "beta",
+		`{"type":"session","version":3,"id":"same-id","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
+		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"Hello"}],"timestamp":"2026-02-25T10:00:01Z"}}`,
+	)
+
+	sessA, _, err := ParseOpenClawSession(pathA, "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessB, _, err := ParseOpenClawSession(pathB, "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if sessA.ID == sessB.ID {
+		t.Errorf("expected different session IDs for different agents, both got %s", sessA.ID)
+	}
+	if sessA.ID != "openclaw:alpha:same-id" {
+		t.Errorf("expected openclaw:alpha:same-id, got %s", sessA.ID)
+	}
+	if sessB.ID != "openclaw:beta:same-id" {
+		t.Errorf("expected openclaw:beta:same-id, got %s", sessB.ID)
 	}
 }
 
@@ -212,14 +259,27 @@ func TestFindOpenClawSourceFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	found := FindOpenClawSourceFile(root, "abc-123")
+	// Raw ID is now "agentId:sessionId".
+	found := FindOpenClawSourceFile(root, "main:abc-123")
 	if found != target {
 		t.Errorf("expected %s, got %s", target, found)
 	}
 
 	// Non-existent session.
-	notFound := FindOpenClawSourceFile(root, "nonexistent")
+	notFound := FindOpenClawSourceFile(root, "main:nonexistent")
 	if notFound != "" {
 		t.Errorf("expected empty string, got %s", notFound)
+	}
+
+	// Non-existent agent.
+	notFound2 := FindOpenClawSourceFile(root, "other:abc-123")
+	if notFound2 != "" {
+		t.Errorf("expected empty string, got %s", notFound2)
+	}
+
+	// Invalid format (no colon separator).
+	notFound3 := FindOpenClawSourceFile(root, "abc-123")
+	if notFound3 != "" {
+		t.Errorf("expected empty string for bare ID, got %s", notFound3)
 	}
 }

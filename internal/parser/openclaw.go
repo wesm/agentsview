@@ -31,13 +31,14 @@ func ParseOpenClawSession(
 
 	lr := newLineReader(f, maxLineSize)
 	var (
-		messages  []ParsedMessage
-		startedAt time.Time
-		endedAt   time.Time
-		ordinal   int
-		firstMsg  string
-		sessionID string
-		cwd       string
+		messages      []ParsedMessage
+		startedAt     time.Time
+		endedAt       time.Time
+		ordinal       int
+		realUserCount int
+		firstMsg      string
+		sessionID     string
+		cwd           string
 	)
 
 	for {
@@ -122,6 +123,7 @@ func ParseOpenClawSession(
 				ToolResults:   trs,
 			})
 			ordinal++
+			realUserCount++
 
 		case "assistant":
 			content := msg.Get("content")
@@ -203,11 +205,13 @@ func ParseOpenClawSession(
 		return nil, nil, nil
 	}
 
-	// Build session ID with prefix.
+	// Build session ID with prefix, including the agent
+	// subdirectory to avoid collisions across agents.
 	if sessionID == "" {
 		sessionID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
 	}
-	fullID := "openclaw:" + sessionID
+	agentID := openClawAgentIDFromPath(path)
+	fullID := "openclaw:" + agentID + ":" + sessionID
 
 	// Derive project from cwd if not provided.
 	if project == "" && cwd != "" {
@@ -215,13 +219,6 @@ func ParseOpenClawSession(
 	}
 	if project == "" {
 		project = "openclaw"
-	}
-
-	userCount := 0
-	for _, m := range messages {
-		if m.Role == RoleUser && m.Content != "" {
-			userCount++
-		}
 	}
 
 	sess := &ParsedSession{
@@ -233,7 +230,7 @@ func ParseOpenClawSession(
 		StartedAt:        startedAt,
 		EndedAt:          endedAt,
 		MessageCount:     len(messages),
-		UserMessageCount: userCount,
+		UserMessageCount: realUserCount,
 		File: FileInfo{
 			Path:  path,
 			Size:  info.Size(),
@@ -264,6 +261,21 @@ func extractToolResultText(content gjson.Result) string {
 		return true
 	})
 	return strings.Join(parts, "\n")
+}
+
+// openClawAgentIDFromPath extracts the agent subdirectory name
+// from an OpenClaw session file path. The expected layout is
+// <agentsDir>/<agentId>/sessions/<sessionId>.jsonl, so the
+// agent ID is the grandparent directory of the file.
+func openClawAgentIDFromPath(path string) string {
+	// path = .../agents/<agentId>/sessions/<file>.jsonl
+	sessionsDir := filepath.Dir(path)     // .../agents/<agentId>/sessions
+	agentDir := filepath.Dir(sessionsDir) // .../agents/<agentId>
+	name := filepath.Base(agentDir)
+	if name == "" || name == "." || name == "/" {
+		return "unknown"
+	}
+	return name
 }
 
 // parseOpenClawTimestamp extracts and parses the timestamp from

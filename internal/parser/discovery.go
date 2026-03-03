@@ -1125,29 +1125,27 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 }
 
 // FindOpenClawSourceFile locates an OpenClaw session file by its
-// raw session ID (without the "openclaw:" prefix). Searches across
-// all agent subdirectories.
-func FindOpenClawSourceFile(agentsDir, sessionID string) string {
-	if agentsDir == "" || !IsValidSessionID(sessionID) {
+// raw ID (without the "openclaw:" prefix). The raw ID has the
+// format "<agentId>:<sessionId>", which directly maps to the
+// file at <agentsDir>/<agentId>/sessions/<sessionId>.jsonl.
+func FindOpenClawSourceFile(agentsDir, rawID string) string {
+	if agentsDir == "" {
 		return ""
 	}
 
-	agentEntries, err := os.ReadDir(agentsDir)
-	if err != nil {
+	// Split "agentId:sessionId" into its two parts.
+	agentID, sessionID, ok := strings.Cut(rawID, ":")
+	if !ok || !IsValidSessionID(agentID) ||
+		!IsValidSessionID(sessionID) {
 		return ""
 	}
 
-	for _, agentEntry := range agentEntries {
-		if !isDirOrSymlink(agentEntry, agentsDir) {
-			continue
-		}
-		candidate := filepath.Join(
-			agentsDir, agentEntry.Name(), "sessions",
-			sessionID+".jsonl",
-		)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
+	candidate := filepath.Join(
+		agentsDir, agentID, "sessions",
+		sessionID+".jsonl",
+	)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
 	}
 	return ""
 }
