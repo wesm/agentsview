@@ -15,10 +15,14 @@
   import { sessions } from "./lib/stores/sessions.svelte.js";
   import { messages } from "./lib/stores/messages.svelte.js";
   import { sync } from "./lib/stores/sync.svelte.js";
-  import { ui } from "./lib/stores/ui.svelte.js";
+  import { ui, type BlockType } from "./lib/stores/ui.svelte.js";
   import { router } from "./lib/stores/router.svelte.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
+  import {
+    parseContent,
+    enrichSegments,
+  } from "./lib/utils/content-parser.js";
 
   let messageListRef:
     | {
@@ -58,8 +62,10 @@
   });
 
   // Scroll to pending ordinal once messages finish loading.
-  // If the target message is hidden (thinking-only with thinking
-  // disabled), auto-enable thinking so the message becomes visible.
+  // If the target message is hidden specifically because thinking
+  // is disabled, auto-enable thinking so the message becomes visible.
+  // Messages hidden by other block filters (tool/code/user/assistant)
+  // are left alone — auto-changing unrelated filters is unexpected.
   $effect(() => {
     const ordinal = ui.pendingScrollOrdinal;
     const loading = messages.loading;
@@ -72,16 +78,39 @@
         item.ordinals.includes(ordinal),
       );
 
-      if (!found && !thinkingVisible) {
+      if (!found) {
         // Only auto-enable thinking if the ordinal is loaded
-        // but filtered out. If it's outside the loaded window,
-        // try loading it first instead of changing the filter.
-        const loaded = messages.messages.some(
+        // but filtered out *specifically* due to hidden thinking.
+        // If it's outside the loaded window, don't change filters.
+        // If it's hidden by other filters (tool/code/user/assistant),
+        // don't unexpectedly toggle the thinking filter.
+        const msg = messages.messages.find(
           (m) => m.ordinal === ordinal,
         );
-        if (loaded) {
-          ui.setBlockVisible("thinking", true);
-          return; // effect re-runs with thinking visible
+        if (msg && !thinkingVisible) {
+          const segs = enrichSegments(
+            parseContent(msg.content, msg.has_tool_use),
+            msg.tool_calls,
+          );
+          const hasThinkingSegment = segs.some(
+            (s) => s.type === "thinking",
+          );
+          if (hasThinkingSegment) {
+            // Verify that enabling thinking would actually make
+            // the message visible (i.e. at least one segment
+            // would pass the block filter with thinking on).
+            const role: BlockType =
+              msg.role === "user" ? "user" : "assistant";
+            const wouldBeVisible = segs.some((s) => {
+              if (s.type === "thinking") return true;
+              if (s.type === "text") return ui.isBlockVisible(role);
+              return ui.isBlockVisible(s.type);
+            });
+            if (wouldBeVisible) {
+              ui.setBlockVisible("thinking", true);
+              return; // effect re-runs with thinking visible
+            }
+          }
         }
       }
 
