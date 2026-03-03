@@ -9,27 +9,28 @@ import (
 type AgentType string
 
 const (
-	AgentClaude   AgentType = "claude"
-	AgentCodex    AgentType = "codex"
-	AgentCopilot  AgentType = "copilot"
-	AgentGemini   AgentType = "gemini"
-	AgentOpenCode AgentType = "opencode"
-	AgentCursor   AgentType = "cursor"
-	AgentAmp      AgentType = "amp"
-	AgentPi       AgentType = "pi"
+	AgentClaude        AgentType = "claude"
+	AgentCodex         AgentType = "codex"
+	AgentCopilot       AgentType = "copilot"
+	AgentGemini        AgentType = "gemini"
+	AgentOpenCode      AgentType = "opencode"
+	AgentCursor        AgentType = "cursor"
+	AgentAmp           AgentType = "amp"
+	AgentVSCodeCopilot AgentType = "vscode-copilot"
+	AgentPi            AgentType = "pi"
 )
 
 // AgentDef describes a supported coding agent's filesystem
 // layout, configuration keys, and session ID conventions.
 type AgentDef struct {
-	Type        AgentType
-	DisplayName string   // "Claude Code", "Codex", etc.
-	EnvVar      string   // env var for dir override
-	ConfigKey   string   // JSON key in config.json ("" = none)
-	DefaultDirs []string // paths relative to $HOME
-	IDPrefix    string   // session ID prefix ("" for Claude)
-	WatchSubdir string   // subdir to watch ("" = watch root)
-	FileBased   bool     // false for DB-backed agents
+	Type         AgentType
+	DisplayName  string   // "Claude Code", "Codex", etc.
+	EnvVar       string   // env var for dir override
+	ConfigKey    string   // JSON key in config.json ("" = none)
+	DefaultDirs  []string // paths relative to $HOME
+	IDPrefix     string   // session ID prefix ("" for Claude)
+	WatchSubdirs []string // subdirs to watch (nil = watch root)
+	FileBased    bool     // false for DB-backed agents
 
 	// DiscoverFunc finds session files under a root directory.
 	// Nil for non-file-based agents.
@@ -73,7 +74,7 @@ var Registry = []AgentDef{
 		ConfigKey:      "copilot_dirs",
 		DefaultDirs:    []string{".copilot"},
 		IDPrefix:       "copilot:",
-		WatchSubdir:    "session-state",
+		WatchSubdirs:   []string{"session-state"},
 		FileBased:      true,
 		DiscoverFunc:   DiscoverCopilotSessions,
 		FindSourceFunc: FindCopilotSourceFile,
@@ -85,7 +86,7 @@ var Registry = []AgentDef{
 		ConfigKey:      "gemini_dirs",
 		DefaultDirs:    []string{".gemini"},
 		IDPrefix:       "gemini:",
-		WatchSubdir:    "tmp",
+		WatchSubdirs:   []string{"tmp"},
 		FileBased:      true,
 		DiscoverFunc:   DiscoverGeminiSessions,
 		FindSourceFunc: FindGeminiSourceFile,
@@ -118,6 +119,34 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverAmpSessions,
 		FindSourceFunc: FindAmpSourceFile,
+	},
+	{
+		Type:        AgentVSCodeCopilot,
+		DisplayName: "VSCode Copilot",
+		EnvVar:      "VSCODE_COPILOT_DIR",
+		ConfigKey:   "vscode_copilot_dirs",
+		DefaultDirs: []string{
+			// Windows
+			"AppData/Roaming/Code/User",
+			"AppData/Roaming/Code - Insiders/User",
+			"AppData/Roaming/VSCodium/User",
+			// macOS
+			"Library/Application Support/Code/User",
+			"Library/Application Support/Code - Insiders/User",
+			"Library/Application Support/VSCodium/User",
+			// Linux
+			".config/Code/User",
+			".config/Code - Insiders/User",
+			".config/VSCodium/User",
+		},
+		IDPrefix: "vscode-copilot:",
+		WatchSubdirs: []string{
+			"workspaceStorage",
+			"globalStorage",
+		},
+		FileBased:      true,
+		DiscoverFunc:   DiscoverVSCodeCopilotSessions,
+		FindSourceFunc: FindVSCodeCopilotSourceFile,
 	},
 	{
 		Type:           AgentPi,

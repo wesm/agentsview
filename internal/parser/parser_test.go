@@ -375,6 +375,11 @@ func TestFormatToolUseVariants(t *testing.T) {
 			"[Task: explore (Explore)]",
 		},
 		{
+			"Agent",
+			`{"type":"tool_use","name":"Agent","input":{"description":"explore","subagent_type":"Explore"}}`,
+			"[Task: explore (Explore)]",
+		},
+		{
 			"EnterPlanMode",
 			`{"type":"tool_use","name":"EnterPlanMode","input":{}}`,
 			"[Entering Plan Mode]",

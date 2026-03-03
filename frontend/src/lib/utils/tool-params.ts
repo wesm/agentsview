@@ -113,7 +113,7 @@ export function generateFallbackContent(
   toolName: string,
   params: Params,
 ): string | null {
-  if (toolName === "Task") return null;
+  if (toolName === "Task" || toolName === "Agent") return null;
   if (toolName === "Edit") {
     const lines: string[] = [];
     // Claude Code: old_string/new_string; OpenCode: oldString/newString (camelCase)

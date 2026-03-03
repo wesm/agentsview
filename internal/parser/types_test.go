@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestAgentByType(t *testing.T) {
 	tests := []struct {
@@ -14,6 +17,7 @@ func TestAgentByType(t *testing.T) {
 		{AgentOpenCode, true},
 		{AgentCursor, true},
 		{AgentAmp, true},
+		{AgentVSCodeCopilot, true},
 		{AgentPi, true},
 		{"unknown", false},
 	}
@@ -84,6 +88,12 @@ func TestAgentByPrefix(t *testing.T) {
 			true,
 		},
 		{
+			"vscode-copilot prefix",
+			"vscode-copilot:sess-id",
+			AgentVSCodeCopilot,
+			true,
+		},
+		{
 			"pi prefix",
 			"pi:pi-session-uuid",
 			AgentPi,
@@ -130,6 +140,7 @@ func TestRegistryCompleteness(t *testing.T) {
 		AgentOpenCode,
 		AgentCursor,
 		AgentAmp,
+		AgentVSCodeCopilot,
 		AgentPi,
 	}
 
@@ -239,5 +250,32 @@ func TestInferRelationshipTypes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVSCodeCopilotDefaultDirs(t *testing.T) {
+	def, ok := AgentByType(AgentVSCodeCopilot)
+	if !ok {
+		t.Fatal("AgentVSCodeCopilot not in Registry")
+	}
+
+	required := []string{
+		// Windows
+		"AppData/Roaming/Code/User",
+		"AppData/Roaming/Code - Insiders/User",
+		"AppData/Roaming/VSCodium/User",
+		// macOS
+		"Library/Application Support/Code/User",
+		"Library/Application Support/Code - Insiders/User",
+		"Library/Application Support/VSCodium/User",
+		// Linux
+		".config/Code/User",
+		".config/Code - Insiders/User",
+		".config/VSCodium/User",
+	}
+	for _, path := range required {
+		if !slices.Contains(def.DefaultDirs, path) {
+			t.Errorf("missing default dir: %s", path)
+		}
 	}
 }

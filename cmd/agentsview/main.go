@@ -346,16 +346,21 @@ func startFileWatcher(
 			continue
 		}
 		for _, d := range cfg.ResolveDirs(def.Type) {
-			watchDir := d
-			if def.WatchSubdir != "" {
-				watchDir = filepath.Join(
-					d, def.WatchSubdir,
-				)
+			if len(def.WatchSubdirs) == 0 {
+				if _, err := os.Stat(d); err == nil {
+					roots = append(
+						roots, watchRoot{d, d},
+					)
+				}
+				continue
 			}
-			if _, err := os.Stat(watchDir); err == nil {
-				roots = append(
-					roots, watchRoot{d, watchDir},
-				)
+			for _, sub := range def.WatchSubdirs {
+				watchDir := filepath.Join(d, sub)
+				if _, err := os.Stat(watchDir); err == nil {
+					roots = append(
+						roots, watchRoot{d, watchDir},
+					)
+				}
 			}
 		}
 	}

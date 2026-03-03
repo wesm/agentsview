@@ -9,6 +9,7 @@ import {
   generateInsight,
   ApiError,
   type GenerateInsightHandle,
+  type InsightLogEvent,
 } from "../api/client.js";
 
 function localDateStr(d: Date): string {
@@ -29,7 +30,10 @@ export interface InsightTask {
   phase: string;
   error: string | null;
   insightId: number | null;
+  logs: InsightLogEvent[];
 }
+
+const MAX_TASK_LOG_LINES = 200;
 
 class InsightsStore {
   dateFrom: string = $state(localDateStr(new Date()));
@@ -130,6 +134,7 @@ class InsightsStore {
       phase: "generating",
       error: null,
       insightId: null,
+      logs: [],
     };
     this.tasks = [...this.tasks, task];
 
@@ -148,6 +153,18 @@ class InsightsStore {
             ? { ...t, phase }
             : t,
         );
+      },
+      (logEvent) => {
+        this.tasks = this.tasks.map((t) => {
+          if (t.clientId !== clientId) {
+            return t;
+          }
+          const nextLogs =
+            t.logs.length >= MAX_TASK_LOG_LINES
+              ? [...t.logs.slice(1), logEvent]
+              : [...t.logs, logEvent];
+          return { ...t, logs: nextLogs };
+        });
       },
     );
     this.#handles.set(clientId, handle);

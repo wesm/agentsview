@@ -9,8 +9,9 @@ LDFLAGS := -X main.version=$(VERSION) \
            -X main.buildDate=$(BUILD_DATE)
 
 LDFLAGS_RELEASE := $(LDFLAGS) -s -w
+DESKTOP_DIST_DIR := dist/desktop
 
-.PHONY: build build-release install frontend frontend-dev dev test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
+.PHONY: build build-release install frontend frontend-dev dev desktop-dev desktop-build desktop-macos-app desktop-windows-installer desktop-app test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
 
 # Ensure go:embed has at least one file (no-op if frontend is built)
 ensure-embed-dir:
@@ -57,6 +58,43 @@ frontend-dev:
 # Run Go server in dev mode (no embedded frontend)
 dev: ensure-embed-dir
 	go run -tags fts5 -ldflags="$(LDFLAGS)" ./cmd/agentsview $(ARGS)
+
+# Run the Tauri desktop wrapper in development mode
+desktop-dev:
+	cd desktop && npm install && npm run tauri:dev
+
+# Build desktop app bundles via Tauri
+desktop-build:
+	cd desktop && npm install && npm run tauri:build
+
+# Build only the macOS .app bundle (skip DMG packaging)
+desktop-macos-app:
+	cd desktop && npm install && npm run tauri:build:macos-app
+	mkdir -p $(DESKTOP_DIST_DIR)/macos
+	rm -rf $(DESKTOP_DIST_DIR)/macos/AgentsView.app
+	cp -R desktop/src-tauri/target/release/bundle/macos/AgentsView.app \
+		$(DESKTOP_DIST_DIR)/macos/AgentsView.app
+	@echo "macOS app bundle copied to $(DESKTOP_DIST_DIR)/macos/AgentsView.app"
+
+# Build Windows NSIS installer bundle (.exe)
+# Run on Windows runner/host.
+desktop-windows-installer:
+	cd desktop && npm install && npm run tauri:build:windows
+	mkdir -p $(DESKTOP_DIST_DIR)/windows
+	rm -f $(DESKTOP_DIST_DIR)/windows/*.exe
+	@exe_count=$$(find desktop/src-tauri/target/release/bundle/nsis \
+		-maxdepth 1 -type f -name '*.exe' | wc -l | tr -d ' '); \
+	if [ "$$exe_count" -eq 0 ]; then \
+		echo "error: no Windows installer (.exe) found in bundle output" >&2; \
+		exit 1; \
+	fi; \
+	find desktop/src-tauri/target/release/bundle/nsis \
+		-maxdepth 1 -type f -name '*.exe' \
+		-exec cp {} $(DESKTOP_DIST_DIR)/windows/ \;; \
+	echo "Copied $$exe_count Windows installer(s) to $(DESKTOP_DIST_DIR)/windows/"
+
+# Backward-compatible alias (macOS .app)
+desktop-app: desktop-macos-app
 
 # Run tests
 test: ensure-embed-dir
@@ -139,6 +177,11 @@ help:
 	@echo "  dev            - Run Go server (use with frontend-dev)"
 	@echo "  frontend       - Build frontend SPA"
 	@echo "  frontend-dev   - Run Vite dev server"
+	@echo "  desktop-dev    - Run Tauri desktop wrapper in dev mode"
+	@echo "  desktop-build  - Build Tauri desktop app bundles"
+	@echo "  desktop-macos-app - Build macOS .app bundle only"
+	@echo "  desktop-windows-installer - Build Windows NSIS installer"
+	@echo "  desktop-app    - Alias for desktop-macos-app"
 	@echo ""
 	@echo "  test           - Run all tests"
 	@echo "  test-short     - Run fast tests only"

@@ -374,7 +374,7 @@ func codexCategoryDetail(
 			return fmt.Sprintf("%s in %s", pattern, path)
 		}
 		return firstNonEmpty(pattern, path)
-	case "Task":
+	case "Task", "Agent":
 		desc := codexArgValue(args, "description")
 		agent := codexArgValue(args, "subagent_type")
 		if desc != "" && agent != "" {

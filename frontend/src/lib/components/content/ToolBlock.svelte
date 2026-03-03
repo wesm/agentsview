@@ -8,6 +8,8 @@
     generateFallbackContent,
   } from "../../utils/tool-params.js";
 
+
+
   interface Props {
     content: string;
     label?: string;
@@ -119,6 +121,7 @@
 
   let isTask = $derived(
     toolCall?.tool_name === "Task" ||
+      toolCall?.tool_name === "Agent" ||
       toolCall?.category === "Task",
   );
 

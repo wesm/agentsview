@@ -37,9 +37,9 @@ type Server struct {
 	httpSrv *http.Server
 	version VersionInfo
 
-	generateFunc insight.GenerateFunc
-	spaFS        fs.FS
-	spaHandler   http.Handler
+	generateStreamFunc insight.GenerateStreamFunc
+	spaFS              fs.FS
+	spaHandler         http.Handler
 
 	// handlerDelay is injected before each timeout-wrapped
 	// handler, used only by tests to guarantee handlers
@@ -58,13 +58,13 @@ func New(
 	}
 
 	s := &Server{
-		cfg:          cfg,
-		db:           database,
-		engine:       engine,
-		mux:          http.NewServeMux(),
-		generateFunc: insight.Generate,
-		spaFS:        dist,
-		spaHandler:   http.FileServerFS(dist),
+		cfg:                cfg,
+		db:                 database,
+		engine:             engine,
+		mux:                http.NewServeMux(),
+		generateStreamFunc: insight.GenerateStream,
+		spaFS:              dist,
+		spaHandler:         http.FileServerFS(dist),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -86,7 +86,22 @@ func WithVersion(v VersionInfo) Option {
 func WithGenerateFunc(f insight.GenerateFunc) Option {
 	return func(s *Server) {
 		if f != nil {
-			s.generateFunc = f
+			s.generateStreamFunc = func(
+				ctx context.Context, agent, prompt string,
+				_ insight.LogFunc,
+			) (insight.Result, error) {
+				return f(ctx, agent, prompt)
+			}
+		}
+	}
+}
+
+// WithGenerateStreamFunc overrides the streaming insight
+// generation function used by the SSE handler. Nil is ignored.
+func WithGenerateStreamFunc(f insight.GenerateStreamFunc) Option {
+	return func(s *Server) {
+		if f != nil {
+			s.generateStreamFunc = f
 		}
 	}
 }

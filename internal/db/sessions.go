@@ -584,7 +584,7 @@ func (db *DB) GetMachines(
 // scanSessionRows iterates rows and scans each using
 // scanSessionRow.
 func scanSessionRows(rows *sql.Rows) ([]Session, error) {
-	var sessions []Session
+	sessions := []Session{}
 	for rows.Next() {
 		s, err := scanSessionRow(rows)
 		if err != nil {

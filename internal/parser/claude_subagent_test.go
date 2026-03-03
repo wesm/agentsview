@@ -63,6 +63,18 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 			},
 		},
 		{
+			name: "Agent Tool Name",
+			lines: []string{
+				`{"type":"user","timestamp":"2024-01-01T10:00:00Z","uuid":"u1","message":{"content":"hello"},"cwd":"/tmp"}`,
+				`{"type":"assistant","timestamp":"2024-01-01T10:00:01Z","uuid":"u2","parentUuid":"u1","message":{"content":[{"type":"tool_use","id":"toolu_agent1","name":"Agent","input":{"description":"explore codebase","subagent_type":"general-purpose","prompt":"find all API endpoints"}}]}}`,
+				`{"type":"queue-operation","operation":"enqueue","timestamp":"2024-01-01T10:00:01Z","sessionId":"test-session","content":"{\"task_id\":\"agent789\",\"tool_use_id\":\"toolu_agent1\",\"description\":\"explore codebase\",\"task_type\":\"local_agent\"}"}`,
+				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","uuid":"u3","parentUuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_agent1","content":"found 5 endpoints"}]}}`,
+			},
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_agent1", ToolName: "Agent", Category: "Task", SubagentSessionID: "agent-agent789"},
+			},
+		},
+		{
 			name: "Non-Task Tool Unchanged",
 			lines: []string{
 				`{"type":"user","timestamp":"2024-01-01T10:00:00Z","uuid":"u1","message":{"content":"hello"},"cwd":"/tmp"}`,
@@ -96,6 +108,19 @@ func TestSubagentSessionIDMapping(t *testing.T) {
 			},
 			wantTools: []ParsedToolCall{
 				{ToolUseID: "toolu_01XYZ", ToolName: "Task", Category: "Task", SubagentSessionID: "agent-beef4567"},
+			},
+		},
+		{
+			name: "Agent Progress Events",
+			lines: []string{
+				`{"type":"user","timestamp":"2024-01-01T10:00:00Z","uuid":"u1","message":{"content":"hello"},"cwd":"/tmp"}`,
+				`{"type":"assistant","timestamp":"2024-01-01T10:00:01Z","uuid":"u2","parentUuid":"u1","message":{"content":[{"type":"tool_use","id":"toolu_bdrk_01Wt5","name":"Agent","input":{"description":"wiki search","subagent_type":"wiki-search","prompt":"search wiki"}}]}}`,
+				`{"type":"progress","timestamp":"2024-01-01T10:00:02Z","parentToolUseID":"toolu_bdrk_01Wt5","data":{"type":"agent_progress","agentId":"a78243c84a44ebcd4","message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"search wiki"}]}}}}`,
+				`{"type":"progress","timestamp":"2024-01-01T10:00:03Z","parentToolUseID":"toolu_bdrk_01Wt5","data":{"type":"agent_progress","agentId":"a78243c84a44ebcd4","message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"found it"}]}}}}`,
+				`{"type":"user","timestamp":"2024-01-01T10:00:05Z","uuid":"u3","parentUuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bdrk_01Wt5","content":"wiki results"}]}}`,
+			},
+			wantTools: []ParsedToolCall{
+				{ToolUseID: "toolu_bdrk_01Wt5", ToolName: "Agent", Category: "Task", SubagentSessionID: "agent-a78243c84a44ebcd4"},
 			},
 		},
 		{
