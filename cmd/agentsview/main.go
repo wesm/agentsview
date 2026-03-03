@@ -147,6 +147,9 @@ func runServe(args []string) {
 	defer database.Close()
 
 	for _, def := range parser.Registry {
+		if !cfg.IsUserConfigured(def.Type) {
+			continue
+		}
 		warnMissingDirs(
 			cfg.ResolveDirs(def.Type),
 			string(def.Type),
