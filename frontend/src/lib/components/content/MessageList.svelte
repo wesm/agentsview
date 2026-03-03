@@ -14,7 +14,7 @@
   } from "../../utils/display-items.js";
   import {
     parseContent,
-    isToolOnly,
+    enrichSegments,
   } from "../../utils/content-parser.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
@@ -45,7 +45,10 @@
    */
   function hasVisibleSegments(m: Message): boolean {
     const role: "user" | "assistant" = m.role === "user" ? "user" : "assistant";
-    const segs = parseContent(m.content, m.has_tool_use);
+    const segs = enrichSegments(
+      parseContent(m.content, m.has_tool_use),
+      m.tool_calls,
+    );
     return segs.some((s) => {
       if (s.type === "text") return ui.isBlockVisible(role);
       return ui.isBlockVisible(s.type);
@@ -57,11 +60,6 @@
 
     // Filter system-injected user messages
     msgs = msgs.filter((m) => !isSystemMessage(m));
-
-    // Filter tool-only messages when tools are hidden
-    if (!ui.isBlockVisible("tool")) {
-      msgs = msgs.filter((m) => !isToolOnly(m));
-    }
 
     // Hide messages where all segments are filtered out
     // (e.g. hiding "Assistant text" still shows code/tool/thinking
