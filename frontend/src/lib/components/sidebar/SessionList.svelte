@@ -1,18 +1,22 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { sessions } from "../../stores/sessions.svelte.js";
-  import type { SessionGroup } from "../../stores/sessions.svelte.js";
   import SessionItem from "./SessionItem.svelte";
   import { formatNumber } from "../../utils/format.js";
   import {
     KNOWN_AGENTS,
     agentColor,
   } from "../../utils/agents.js";
-
-  const ITEM_HEIGHT = 40;
-  const HEADER_HEIGHT = 28;
-  const OVERSCAN = 10;
-  const STORAGE_KEY = "agentsview-group-by-agent";
+  import {
+    ITEM_HEIGHT,
+    HEADER_HEIGHT,
+    OVERSCAN,
+    STORAGE_KEY,
+    buildAgentSections,
+    buildDisplayItems,
+    computeTotalSize,
+    findStart,
+  } from "./session-list-utils.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollTop = $state(0);
@@ -49,32 +53,9 @@
   let groups = $derived(sessions.groupedSessions);
 
   // Build agent-grouped structure when groupByAgent is on.
-  interface AgentSection {
-    agent: string;
-    groups: SessionGroup[];
-  }
-
-  let agentSections = $derived.by((): AgentSection[] => {
-    if (!groupByAgent) return [];
-    const map = new Map<string, SessionGroup[]>();
-    for (const g of groups) {
-      const primary =
-        g.sessions.find((s) => s.id === g.primarySessionId) ??
-        g.sessions[0];
-      if (!primary) continue;
-      const agent = primary.agent;
-      let list = map.get(agent);
-      if (!list) {
-        list = [];
-        map.set(agent, list);
-      }
-      list.push(g);
-    }
-    // Sort by count descending (most sessions first).
-    return Array.from(map.entries())
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([agent, groups]) => ({ agent, groups }));
-  });
+  let agentSections = $derived.by(() =>
+    buildAgentSections(groups, groupByAgent),
+  );
 
   // Initialize all agents as collapsed when grouping is first enabled.
   $effect(() => {
@@ -88,94 +69,18 @@
   });
 
   // Build flat display items for virtual scrolling.
-  interface DisplayItem {
-    id: string;
-    type: "header" | "session";
-    agent: string;
-    count: number;
-    group?: SessionGroup;
-    height: number;
-    top: number;
-  }
-
-  let displayItems = $derived.by((): DisplayItem[] => {
-    if (!groupByAgent) {
-      // Regular flat list.
-      return groups.map((g, i) => ({
-        id: `session:${g.primarySessionId}`,
-        type: "session" as const,
-        agent: "",
-        count: 0,
-        group: g,
-        height: ITEM_HEIGHT,
-        top: i * ITEM_HEIGHT,
-      }));
-    }
-
-    const items: DisplayItem[] = [];
-    let y = 0;
-    for (const section of agentSections) {
-      items.push({
-        id: `header:${section.agent}`,
-        type: "header",
-        agent: section.agent,
-        count: section.groups.length,
-        height: HEADER_HEIGHT,
-        top: y,
-      });
-      y += HEADER_HEIGHT;
-
-      if (!collapsedAgents.has(section.agent)) {
-        for (const g of section.groups) {
-          items.push({
-            id: `session:${section.agent}:${g.primarySessionId}`,
-            type: "session",
-            agent: section.agent,
-            count: 0,
-            group: g,
-            height: ITEM_HEIGHT,
-            top: y,
-          });
-          y += ITEM_HEIGHT;
-        }
-      }
-    }
-    return items;
-  });
-
-  let totalCount = $derived(
-    groupByAgent
-      ? groups.length
-      : groups.length,
-  );
-  let totalSize = $derived(
-    displayItems.length > 0
-      ? displayItems[displayItems.length - 1]!.top +
-        displayItems[displayItems.length - 1]!.height
-      : 0,
+  let displayItems = $derived.by(() =>
+    buildDisplayItems(groups, agentSections, groupByAgent, collapsedAgents),
   );
 
-  // Binary search for first visible item.
-  function findStart(scrollY: number): number {
-    const target = scrollY - OVERSCAN * ITEM_HEIGHT;
-    let lo = 0;
-    let hi = displayItems.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (displayItems[mid]!.top + displayItems[mid]!.height <= target) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-    return Math.max(0, lo);
-  }
+  let totalCount = $derived(groups.length);
+  let totalSize = $derived(computeTotalSize(displayItems));
 
   let visibleItems = $derived.by(() => {
     if (displayItems.length === 0) return [];
-    const start = findStart(scrollTop);
+    const start = findStart(displayItems, scrollTop);
     const end = scrollTop + viewportHeight + OVERSCAN * ITEM_HEIGHT;
-    const result: DisplayItem[] = [];
+    const result: typeof displayItems = [];
     for (let i = start; i < displayItems.length; i++) {
       const item = displayItems[i]!;
       if (item.top > end) break;
