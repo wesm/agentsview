@@ -283,6 +283,58 @@ func TestOpenCreatesFile(t *testing.T) {
 	}
 }
 
+func TestOpenRebuildOnDataVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a valid DB (sets user_version = dataVersion).
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+
+	// Insert a session so we can verify it gets dropped.
+	d.UpsertSession(Session{
+		ID:      "s1",
+		Project: "proj",
+		Machine: "local",
+		Agent:   "codex",
+	})
+	d.Close()
+
+	// Set user_version to 0 to simulate old data.
+	conn, err := sql.Open("sqlite3", path)
+	requireNoError(t, err, "raw open")
+	_, err = conn.Exec("PRAGMA user_version = 0")
+	requireNoError(t, err, "reset version")
+	conn.Close()
+
+	// Re-open: should detect stale version and rebuild.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen")
+	defer d2.Close()
+
+	// Session should be gone (DB was rebuilt).
+	page, err := d2.ListSessions(
+		context.Background(),
+		SessionFilter{Limit: 100},
+	)
+	requireNoError(t, err, "list sessions")
+	if len(page.Sessions) != 0 {
+		t.Fatalf("expected 0 sessions after rebuild, got %d",
+			len(page.Sessions))
+	}
+
+	// user_version should now be current.
+	var ver int
+	err = d2.getReader().QueryRow(
+		"PRAGMA user_version",
+	).Scan(&ver)
+	requireNoError(t, err, "read version")
+	if ver != dataVersion {
+		t.Fatalf("expected user_version=%d, got %d",
+			dataVersion, ver)
+	}
+}
+
 func TestOpenProbeErrorPropagates(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping: chmod semantics differ on Windows")

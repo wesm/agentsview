@@ -17,6 +17,13 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// dataVersion tracks parser/schema changes that require a full
+// re-sync. Increment this when parsing logic changes in ways
+// that affect stored data (e.g. new fields extracted, content
+// formatting changes). Old databases with a lower user_version
+// are dropped and rebuilt on next startup.
+const dataVersion = 1
+
 //go:embed schema.sql
 var schemaSQL string
 
@@ -221,7 +228,18 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return subagentColCount == 0, nil
+	if subagentColCount == 0 {
+		return true, nil
+	}
+
+	var version int
+	err = conn.QueryRow("PRAGMA user_version").Scan(&version)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing data version: %w", err,
+		)
+	}
+	return version < dataVersion, nil
 }
 
 func dropDatabase(path string) error {
@@ -327,6 +345,12 @@ func (db *DB) init() error {
 	w := db.getWriter()
 	if _, err := w.Exec(schemaSQL); err != nil {
 		return err
+	}
+
+	if _, err := w.Exec(
+		fmt.Sprintf("PRAGMA user_version = %d", dataVersion),
+	); err != nil {
+		return fmt.Errorf("setting data version: %w", err)
 	}
 
 	// Check if FTS table exists before trying to create it
