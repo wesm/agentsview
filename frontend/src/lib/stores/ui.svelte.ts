@@ -56,7 +56,7 @@ function readStoredTheme(): Theme | null {
 
 class UIStore {
   theme: Theme = $state(readStoredTheme() || "light");
-  showThinking: boolean = $state(true);
+  showThinking: boolean = $state(readBlockFilters().has("thinking"));
   sortNewestFirst: boolean = $state(false);
   activeModal: ModalType = $state(null);
   selectedOrdinal: number | null = $state(null);

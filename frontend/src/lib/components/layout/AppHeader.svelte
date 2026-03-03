@@ -137,7 +137,7 @@
     {#if hasActiveSession}
       <button
         class="header-btn"
-        class:active={ui.showThinking}
+        class:active={ui.isBlockVisible("thinking")}
         onclick={() => ui.toggleThinking()}
         title="Toggle thinking blocks (t)"
         aria-label="Toggle thinking blocks"

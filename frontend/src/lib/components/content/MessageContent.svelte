@@ -29,6 +29,11 @@
 
   let isUser = $derived(message.role === "user");
 
+  /** Whether the text (prose) segments for this role should render. */
+  let showText = $derived(
+    ui.isBlockVisible(isUser ? "user" : "assistant"),
+  );
+
   let accentColor = $derived(
     isUser ? "var(--accent-blue)" : "var(--accent-purple)",
   );
@@ -109,9 +114,11 @@
           <CodeBlock content={segment.content} language={segment.label} />
         {/if}
       {:else}
-        <div class="text-content markdown">
-          {@html renderMarkdown(segment.content)}
-        </div>
+        {#if showText}
+          <div class="text-content markdown">
+            {@html renderMarkdown(segment.content)}
+          </div>
+        {/if}
       {/if}
     {/each}
   </div>

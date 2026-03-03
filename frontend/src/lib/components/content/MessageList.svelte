@@ -12,7 +12,10 @@
     buildDisplayItems,
     type DisplayItem,
   } from "../../utils/display-items.js";
-  import { isToolOnly } from "../../utils/content-parser.js";
+  import {
+    parseContent,
+    isToolOnly,
+  } from "../../utils/content-parser.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollRaf: number | null = $state(null);
@@ -36,35 +39,35 @@
     );
   }
 
+  /**
+   * Returns true when at least one segment of the message
+   * would be rendered given the current block visibility.
+   */
+  function hasVisibleSegments(m: Message): boolean {
+    const role: "user" | "assistant" = m.role === "user" ? "user" : "assistant";
+    const segs = parseContent(m.content, m.has_tool_use);
+    return segs.some((s) => {
+      if (s.type === "text") return ui.isBlockVisible(role);
+      return ui.isBlockVisible(s.type);
+    });
+  }
+
   let filteredMessages: Message[] = $derived.by(() => {
     let msgs = messages.messages;
 
     // Filter system-injected user messages
     msgs = msgs.filter((m) => !isSystemMessage(m));
 
-    // Filter by role visibility
-    const showUser = ui.isBlockVisible("user");
-    const showAssistant = ui.isBlockVisible("assistant");
-    if (!showUser || !showAssistant) {
-      msgs = msgs.filter((m) => {
-        if (m.role === "user") return showUser;
-        return showAssistant;
-      });
-    }
-
-    // Filter thinking-only messages
-    if (!ui.showThinking) {
-      msgs = msgs.filter(
-        (m) => !(m.has_thinking && !m.content
-          .replace(/\[Thinking\]\n?[\s\S]*?\n?\[\/Thinking\]/g, "")
-          .replace(/\[Thinking\]\n?[\s\S]*?(?:\n\[|\n\n|$)/g, "")
-          .trim()),
-      );
-    }
-
     // Filter tool-only messages when tools are hidden
     if (!ui.isBlockVisible("tool")) {
       msgs = msgs.filter((m) => !isToolOnly(m));
+    }
+
+    // Hide messages where all segments are filtered out
+    // (e.g. hiding "Assistant text" still shows code/tool/thinking
+    // nested inside assistant messages, but hides pure-text ones)
+    if (ui.hasBlockFilters) {
+      msgs = msgs.filter((m) => hasVisibleSegments(m));
     }
 
     return msgs;
