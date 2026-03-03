@@ -6,6 +6,43 @@ type ModalType =
   | "resync"
   | null;
 
+/** Block types that can be toggled visible/hidden. */
+export type BlockType =
+  | "user"
+  | "assistant"
+  | "thinking"
+  | "tool"
+  | "code";
+
+export const ALL_BLOCK_TYPES: BlockType[] = [
+  "user",
+  "assistant",
+  "thinking",
+  "tool",
+  "code",
+];
+
+const BLOCK_FILTER_KEY = "agentsview-block-filters";
+
+function readBlockFilters(): Set<BlockType> {
+  try {
+    const raw = localStorage?.getItem(BLOCK_FILTER_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        return new Set(
+          arr.filter((t: string) =>
+            ALL_BLOCK_TYPES.includes(t as BlockType),
+          ) as BlockType[],
+        );
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return new Set(ALL_BLOCK_TYPES);
+}
+
 function readStoredTheme(): Theme | null {
   if (
     typeof localStorage !== "undefined" &&
@@ -25,6 +62,9 @@ class UIStore {
   selectedOrdinal: number | null = $state(null);
   pendingScrollOrdinal: number | null = $state(null);
   pendingScrollSession: string | null = $state(null);
+
+  /** Set of block types currently visible. */
+  visibleBlocks: Set<BlockType> = $state(readBlockFilters());
 
   constructor() {
     $effect.root(() => {
@@ -65,6 +105,57 @@ class UIStore {
 
   toggleThinking() {
     this.showThinking = !this.showThinking;
+    // Keep block filter in sync
+    const next = new Set(this.visibleBlocks);
+    if (this.showThinking) {
+      next.add("thinking");
+    } else {
+      next.delete("thinking");
+    }
+    this.visibleBlocks = next;
+    this.persistBlockFilters();
+  }
+
+  isBlockVisible(type: BlockType): boolean {
+    return this.visibleBlocks.has(type);
+  }
+
+  toggleBlock(type: BlockType) {
+    const next = new Set(this.visibleBlocks);
+    if (next.has(type)) {
+      next.delete(type);
+    } else {
+      next.add(type);
+    }
+    this.visibleBlocks = next;
+    // Keep showThinking in sync
+    this.showThinking = next.has("thinking");
+    this.persistBlockFilters();
+  }
+
+  showAllBlocks() {
+    this.visibleBlocks = new Set(ALL_BLOCK_TYPES);
+    this.showThinking = true;
+    this.persistBlockFilters();
+  }
+
+  get hiddenBlockCount(): number {
+    return ALL_BLOCK_TYPES.length - this.visibleBlocks.size;
+  }
+
+  get hasBlockFilters(): boolean {
+    return this.visibleBlocks.size < ALL_BLOCK_TYPES.length;
+  }
+
+  private persistBlockFilters() {
+    try {
+      localStorage?.setItem(
+        BLOCK_FILTER_KEY,
+        JSON.stringify([...this.visibleBlocks]),
+      );
+    } catch {
+      // ignore
+    }
   }
 
   toggleSort() {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "../../stores/ui.svelte.js";
+  import { ui, ALL_BLOCK_TYPES, type BlockType } from "../../stores/ui.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { sync } from "../../stores/sync.svelte.js";
   import { router } from "../../stores/router.svelte.js";
@@ -8,6 +8,28 @@
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const modKey = isMac ? "Cmd" : "Ctrl";
+
+  let showBlockFilter = $state(false);
+  let filterBtnRef: HTMLButtonElement | undefined =
+    $state(undefined);
+  let filterDropRef: HTMLDivElement | undefined =
+    $state(undefined);
+
+  const BLOCK_LABELS: Record<BlockType, string> = {
+    user: "User messages",
+    assistant: "Assistant text",
+    thinking: "Thinking blocks",
+    tool: "Tool calls",
+    code: "Code blocks",
+  };
+
+  const BLOCK_COLORS: Record<BlockType, string> = {
+    user: "var(--accent-blue)",
+    assistant: "var(--accent-purple)",
+    thinking: "var(--accent-purple)",
+    tool: "var(--accent-amber)",
+    code: "var(--text-muted)",
+  };
 
   function handleExport() {
     if (sessions.activeSessionId) {
@@ -21,6 +43,27 @@
   const hasActiveSession = $derived(
     sessions.activeSessionId !== null,
   );
+
+  // Close block filter dropdown on outside click
+  $effect(() => {
+    if (!showBlockFilter) return;
+    function onClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (
+        filterBtnRef?.contains(target) ||
+        filterDropRef?.contains(target)
+      )
+        return;
+      showBlockFilter = false;
+    }
+    document.addEventListener("click", onClickOutside, true);
+    return () =>
+      document.removeEventListener(
+        "click",
+        onClickOutside,
+        true,
+      );
+  });
 </script>
 
 <header class="header">
@@ -103,6 +146,59 @@
           <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 4a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 4zm0 6a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
         </svg>
       </button>
+
+      <div class="block-filter-wrap">
+        <button
+          class="header-btn"
+          class:active={ui.hasBlockFilters}
+          bind:this={filterBtnRef}
+          onclick={() => (showBlockFilter = !showBlockFilter)}
+          title="Filter block types"
+          aria-label="Filter block types"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+          </svg>
+          {#if ui.hasBlockFilters}
+            <span class="block-filter-badge">{ui.hiddenBlockCount}</span>
+          {/if}
+        </button>
+
+        {#if showBlockFilter}
+          <div class="block-filter-dropdown" bind:this={filterDropRef}>
+            <div class="block-filter-title">Block Visibility</div>
+            {#each ALL_BLOCK_TYPES as bt}
+              {@const visible = ui.isBlockVisible(bt)}
+              <button
+                class="block-filter-item"
+                class:active={visible}
+                onclick={() => ui.toggleBlock(bt)}
+              >
+                <span
+                  class="block-filter-dot"
+                  style:background={visible ? BLOCK_COLORS[bt] : "var(--border-muted)"}
+                ></span>
+                <span class="block-filter-label">{BLOCK_LABELS[bt]}</span>
+                <span class="block-filter-check" class:on={visible}>
+                  {#if visible}
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+                    </svg>
+                  {/if}
+                </span>
+              </button>
+            {/each}
+            {#if ui.hasBlockFilters}
+              <button
+                class="block-filter-reset"
+                onclick={() => ui.showAllBlocks()}
+              >
+                Show all
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
 
       <button
         class="header-btn"
@@ -354,5 +450,122 @@
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+  }
+
+  .block-filter-wrap {
+    position: relative;
+  }
+
+  .block-filter-badge {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-amber);
+    color: white;
+    font-size: 8px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .block-filter-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    width: 190px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 6px 0;
+    z-index: 100;
+    animation: dropdown-in 0.12s ease-out;
+    transform-origin: top right;
+  }
+
+  @keyframes dropdown-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95) translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  .block-filter-title {
+    padding: 4px 12px 6px;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .block-filter-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: left;
+    transition: background 0.08s;
+  }
+
+  .block-filter-item:hover {
+    background: var(--bg-surface-hover);
+  }
+
+  .block-filter-item:not(.active) {
+    opacity: 0.5;
+  }
+
+  .block-filter-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background 0.1s;
+  }
+
+  .block-filter-label {
+    flex: 1;
+  }
+
+  .block-filter-check {
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-green);
+    flex-shrink: 0;
+  }
+
+  .block-filter-reset {
+    display: block;
+    width: calc(100% - 16px);
+    margin: 6px 8px 2px;
+    padding: 4px 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+    border-top: 1px solid var(--border-muted);
+    padding-top: 8px;
+    transition: color 0.1s;
+  }
+
+  .block-filter-reset:hover {
+    color: var(--text-primary);
   }
 </style>

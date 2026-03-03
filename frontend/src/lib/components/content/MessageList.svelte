@@ -12,6 +12,7 @@
     buildDisplayItems,
     type DisplayItem,
   } from "../../utils/display-items.js";
+  import { isToolOnly } from "../../utils/content-parser.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollRaf: number | null = $state(null);
@@ -41,6 +42,16 @@
     // Filter system-injected user messages
     msgs = msgs.filter((m) => !isSystemMessage(m));
 
+    // Filter by role visibility
+    const showUser = ui.isBlockVisible("user");
+    const showAssistant = ui.isBlockVisible("assistant");
+    if (!showUser || !showAssistant) {
+      msgs = msgs.filter((m) => {
+        if (m.role === "user") return showUser;
+        return showAssistant;
+      });
+    }
+
     // Filter thinking-only messages
     if (!ui.showThinking) {
       msgs = msgs.filter(
@@ -49,6 +60,11 @@
           .replace(/\[Thinking\]\n?[\s\S]*?(?:\n\[|\n\n|$)/g, "")
           .trim()),
       );
+    }
+
+    // Filter tool-only messages when tools are hidden
+    if (!ui.isBlockVisible("tool")) {
+      msgs = msgs.filter((m) => !isToolOnly(m));
     }
 
     return msgs;

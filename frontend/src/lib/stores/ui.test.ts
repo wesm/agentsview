@@ -225,4 +225,58 @@ describe("UIStore", () => {
       expect(ui.sortNewestFirst).toBe(!initial);
     });
   });
+
+  describe("block type filtering", () => {
+    beforeEach(() => {
+      ui.showAllBlocks();
+    });
+
+    it("should start with all blocks visible", () => {
+      expect(ui.hiddenBlockCount).toBe(0);
+      expect(ui.hasBlockFilters).toBe(false);
+      expect(ui.isBlockVisible("user")).toBe(true);
+      expect(ui.isBlockVisible("tool")).toBe(true);
+      expect(ui.isBlockVisible("thinking")).toBe(true);
+      expect(ui.isBlockVisible("code")).toBe(true);
+      expect(ui.isBlockVisible("assistant")).toBe(true);
+    });
+
+    it("should toggle a block type off and on", () => {
+      ui.toggleBlock("tool");
+      expect(ui.isBlockVisible("tool")).toBe(false);
+      expect(ui.hiddenBlockCount).toBe(1);
+      expect(ui.hasBlockFilters).toBe(true);
+
+      ui.toggleBlock("tool");
+      expect(ui.isBlockVisible("tool")).toBe(true);
+      expect(ui.hiddenBlockCount).toBe(0);
+    });
+
+    it("should sync showThinking when toggling thinking block", () => {
+      ui.toggleBlock("thinking");
+      expect(ui.showThinking).toBe(false);
+
+      ui.toggleBlock("thinking");
+      expect(ui.showThinking).toBe(true);
+    });
+
+    it("should sync block filter when toggling thinking", () => {
+      ui.toggleThinking();
+      expect(ui.isBlockVisible("thinking")).toBe(false);
+
+      ui.toggleThinking();
+      expect(ui.isBlockVisible("thinking")).toBe(true);
+    });
+
+    it("should reset all with showAllBlocks", () => {
+      ui.toggleBlock("user");
+      ui.toggleBlock("tool");
+      ui.toggleBlock("code");
+      expect(ui.hiddenBlockCount).toBe(3);
+
+      ui.showAllBlocks();
+      expect(ui.hiddenBlockCount).toBe(0);
+      expect(ui.hasBlockFilters).toBe(false);
+    });
+  });
 });
