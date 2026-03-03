@@ -89,6 +89,7 @@
 
   // Build flat display items for virtual scrolling.
   interface DisplayItem {
+    id: string;
     type: "header" | "session";
     agent: string;
     count: number;
@@ -101,6 +102,7 @@
     if (!groupByAgent) {
       // Regular flat list.
       return groups.map((g, i) => ({
+        id: `session:${g.primarySessionId}`,
         type: "session" as const,
         agent: "",
         count: 0,
@@ -114,6 +116,7 @@
     let y = 0;
     for (const section of agentSections) {
       items.push({
+        id: `header:${section.agent}`,
         type: "header",
         agent: section.agent,
         count: section.groups.length,
@@ -125,6 +128,7 @@
       if (!collapsedAgents.has(section.agent)) {
         for (const g of section.groups) {
           items.push({
+            id: `session:${section.agent}:${g.primarySessionId}`,
             type: "session",
             agent: section.agent,
             count: 0,
@@ -393,7 +397,7 @@
   <div
     style="height: {totalSize}px; width: 100%; position: relative;"
   >
-    {#each visibleItems as item (groupByAgent ? `${item.type}:${item.agent}:${item.group?.key ?? ''}` : item.group?.key ?? item.agent)}
+    {#each visibleItems as item (item.id)}
       <div
         style="position: absolute; top: 0; left: 0; width: 100%; height: {item.height}px; transform: translateY({item.top}px);"
       >
