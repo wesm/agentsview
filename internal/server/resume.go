@@ -178,13 +178,20 @@ func (s *Server) handleResumeSession(
 
 // shellQuote applies POSIX single-quote escaping.
 func shellQuote(s string) string {
-	// Simple IDs: alphanumeric + hyphens need no quoting.
+	// Simple IDs: alphanumeric + hyphens need no quoting,
+	// but a leading '-' must always be quoted to prevent
+	// the value being interpreted as a CLI flag.
 	safe := true
-	for _, c := range s {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_') {
-			safe = false
-			break
+	if len(s) > 0 && s[0] == '-' {
+		safe = false
+	}
+	if safe {
+		for _, c := range s {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+				(c >= '0' && c <= '9') || c == '-' || c == '_') {
+				safe = false
+				break
+			}
 		}
 	}
 	if safe {
@@ -328,6 +335,17 @@ func (s *Server) handleSetTerminalConfig(
 			`custom_args must contain the {cmd} placeholder so the `+
 				`resume command is passed to the terminal`)
 		return
+	}
+
+	// Validate that custom_args can be shell-split so users get
+	// immediate feedback about malformed quoting (e.g. unmatched
+	// quotes) instead of a silent save that fails later at resume.
+	if tc.CustomArgs != "" {
+		if _, splitErr := shlex.Split(tc.CustomArgs); splitErr != nil {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("custom_args has invalid shell syntax: %v", splitErr))
+			return
+		}
 	}
 
 	s.mu.Lock()
