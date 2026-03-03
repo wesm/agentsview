@@ -432,6 +432,44 @@ func TestOpenPreservesDataAtCurrentVersion(t *testing.T) {
 	}
 }
 
+func TestOpenDoesNotDowngradeUserVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+
+	// Simulate a newer build by setting user_version higher
+	// than our dataVersion.
+	futureVersion := dataVersion + 10
+	_, err = d.getWriter().Exec(
+		fmt.Sprintf("PRAGMA user_version = %d", futureVersion),
+	)
+	requireNoError(t, err, "set future version")
+	d.Close()
+
+	// Reopen with current (lower) dataVersion.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen")
+	defer d2.Close()
+
+	var version int
+	err = d2.getWriter().QueryRow(
+		"PRAGMA user_version",
+	).Scan(&version)
+	requireNoError(t, err, "read version")
+
+	if version != futureVersion {
+		t.Errorf(
+			"user_version = %d, want %d (should not downgrade)",
+			version, futureVersion,
+		)
+	}
+	if d2.NeedsResync() {
+		t.Error("NeedsResync should be false for higher version")
+	}
+}
+
 func TestOpenProbeErrorPropagates(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping: chmod semantics differ on Windows")

@@ -352,12 +352,24 @@ func (db *DB) HasFTS() bool {
 }
 
 // setDataVersion stamps the current dataVersion into
-// user_version. Called by Open() only when data is current
-// (not stale), so the marker survives until ResyncAll
-// completes.
+// user_version, but never downgrades a higher version left
+// by a newer build. Called by Open() only when data is
+// current (not stale), so the marker survives until
+// ResyncAll completes.
 func (db *DB) setDataVersion() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	var current int
+	if err := db.getWriter().QueryRow(
+		"PRAGMA user_version",
+	).Scan(&current); err != nil {
+		return fmt.Errorf("reading data version: %w", err)
+	}
+	if current >= dataVersion {
+		return nil
+	}
+
 	_, err := db.getWriter().Exec(
 		fmt.Sprintf("PRAGMA user_version = %d", dataVersion),
 	)
