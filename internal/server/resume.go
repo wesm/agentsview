@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/google/shlex"
 	"github.com/wesm/agentsview/internal/config"
 )
 
@@ -207,8 +208,14 @@ func detectTerminal(
 			)
 		}
 		if tc.CustomArgs != "" {
-			// Split args on space and replace {cmd} placeholder.
-			parts := strings.Fields(tc.CustomArgs)
+			// Shell-aware split so that quoted args like
+			// --title "My Terminal" are kept together.
+			parts, splitErr := shlex.Split(tc.CustomArgs)
+			if splitErr != nil {
+				return "", nil, fmt.Errorf(
+					"parsing custom_args: %w", splitErr,
+				)
+			}
 			a := make([]string, 0, len(parts))
 			for _, p := range parts {
 				a = append(a, strings.ReplaceAll(p, "{cmd}", cmd))
@@ -312,6 +319,14 @@ func (s *Server) handleSetTerminalConfig(
 	if tc.Mode == "custom" && tc.CustomBin == "" {
 		writeError(w, http.StatusBadRequest,
 			`custom_bin is required when mode is "custom"`)
+		return
+	}
+
+	if tc.Mode == "custom" && tc.CustomArgs != "" &&
+		!strings.Contains(tc.CustomArgs, "{cmd}") {
+		writeError(w, http.StatusBadRequest,
+			`custom_args must contain the {cmd} placeholder so the `+
+				`resume command is passed to the terminal`)
 		return
 	}
 
