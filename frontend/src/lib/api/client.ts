@@ -366,6 +366,28 @@ export function setGithubConfig(
   });
 }
 
+/* Terminal config */
+
+export interface TerminalConfig {
+  mode: "auto" | "custom" | "clipboard";
+  custom_bin?: string;
+  custom_args?: string;
+}
+
+export function getTerminalConfig(): Promise<TerminalConfig> {
+  return fetchJSON("/config/terminal");
+}
+
+export function setTerminalConfig(
+  cfg: TerminalConfig,
+): Promise<TerminalConfig> {
+  return fetchJSON("/config/terminal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
+  });
+}
+
 /* Analytics */
 
 export interface AnalyticsParams {

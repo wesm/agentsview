@@ -3,11 +3,14 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/wesm/agentsview/internal/config"
 )
 
 // resumeRequest is the JSON body for POST /api/v1/sessions/{id}/resume.
@@ -87,10 +90,13 @@ func (s *Server) handleResumeSession(
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 
-	// Strip agent prefix from compound ID (e.g. "codex:abc" → "abc").
+	// Strip agent prefix from compound ID only when it matches the
+	// expected agent (e.g. "codex:abc" → "abc"). Raw IDs that
+	// happen to contain ":" are left untouched.
 	rawID := id
-	if idx := strings.Index(rawID, ":"); idx >= 0 {
-		rawID = rawID[idx+1:]
+	prefix := string(session.Agent) + ":"
+	if strings.HasPrefix(rawID, prefix) {
+		rawID = rawID[len(prefix):]
 	}
 
 	// Build the CLI command.
@@ -104,14 +110,29 @@ func (s *Server) handleResumeSession(
 		}
 	}
 
-	// Detect and launch a terminal.
-	termBin, termArgs, termErr := detectTerminal(cmd, session.Project)
-	if termErr != nil {
-		// Can't launch — return the command for clipboard fallback.
+	// Check terminal config.
+	s.mu.RLock()
+	termCfg := s.cfg.Terminal
+	s.mu.RUnlock()
+
+	if termCfg.Mode == "clipboard" {
+		// User explicitly chose clipboard-only mode.
 		writeJSON(w, http.StatusOK, resumeResponse{
 			Launched: false,
 			Command:  cmd,
-			Error:    termErr.Error(),
+		})
+		return
+	}
+
+	// Detect and launch a terminal.
+	termBin, termArgs, termErr := detectTerminal(cmd, session.Project, termCfg)
+	if termErr != nil {
+		// Can't launch — return the command for clipboard fallback.
+		log.Printf("resume: terminal detection failed: %v", termErr)
+		writeJSON(w, http.StatusOK, resumeResponse{
+			Launched: false,
+			Command:  cmd,
+			Error:    "no_terminal_found",
 		})
 		return
 	}
@@ -130,10 +151,11 @@ func (s *Server) handleResumeSession(
 	}
 
 	if err := proc.Start(); err != nil {
+		log.Printf("resume: terminal start failed: %v", err)
 		writeJSON(w, http.StatusOK, resumeResponse{
 			Launched: false,
 			Command:  cmd,
-			Error:    fmt.Sprintf("failed to start terminal: %v", err),
+			Error:    "terminal_launch_failed",
 		})
 		return
 	}
@@ -168,8 +190,30 @@ func shellQuote(s string) string {
 // detectTerminal finds a suitable terminal emulator and builds the
 // full argument list to launch the given command.
 func detectTerminal(
-	cmd string, cwd string,
+	cmd string, cwd string, tc config.TerminalConfig,
 ) (bin string, args []string, err error) {
+	// Custom terminal mode — use the user-configured binary + args.
+	if tc.Mode == "custom" && tc.CustomBin != "" {
+		path, lookErr := exec.LookPath(tc.CustomBin)
+		if lookErr != nil {
+			return "", nil, fmt.Errorf(
+				"custom terminal %q not found: %w",
+				tc.CustomBin, lookErr,
+			)
+		}
+		if tc.CustomArgs != "" {
+			// Split args on space and replace {cmd} placeholder.
+			parts := strings.Fields(tc.CustomArgs)
+			a := make([]string, 0, len(parts))
+			for _, p := range parts {
+				a = append(a, strings.ReplaceAll(p, "{cmd}", cmd))
+			}
+			return path, a, nil
+		}
+		// No args template — default pattern.
+		return path, []string{"-e", "bash", "-c", cmd + "; exec bash"}, nil
+	}
+
 	switch runtime.GOOS {
 	case "darwin":
 		return detectTerminalDarwin(cmd, cwd)
@@ -197,6 +241,15 @@ func detectTerminalDarwin(
 
 	// Try iTerm2 first.
 	if _, err := exec.LookPath("osascript"); err == nil {
+		// Sanitize for AppleScript: escape backslashes, then quotes,
+		// and reject newlines to prevent multi-line injection.
+		safe := strings.NewReplacer(
+			"\n", " ",
+			"\r", " ",
+			`\`, `\\`,
+			`"`, `\"`,
+		).Replace(script)
+
 		// Check if iTerm is installed.
 		iterm := "/Applications/iTerm.app"
 		if _, err := os.Stat(iterm); err == nil {
@@ -204,7 +257,7 @@ func detectTerminalDarwin(
 				`tell application "iTerm"
 					create window with default profile command "%s"
 				end tell`,
-				strings.ReplaceAll(script, `"`, `\"`),
+				safe,
 			)
 			return "osascript", []string{"-e", appleScript}, nil
 		}
@@ -214,11 +267,51 @@ func detectTerminalDarwin(
 				activate
 				do script "%s"
 			end tell`,
-			strings.ReplaceAll(script, `"`, `\"`),
+			safe,
 		)
 		return "osascript", []string{"-e", appleScript}, nil
 	}
 	return "", nil, fmt.Errorf("osascript not found on macOS")
+}
+
+func (s *Server) handleGetTerminalConfig(
+	w http.ResponseWriter, _ *http.Request,
+) {
+	s.mu.RLock()
+	tc := s.cfg.Terminal
+	s.mu.RUnlock()
+	if tc.Mode == "" {
+		tc.Mode = "auto"
+	}
+	writeJSON(w, http.StatusOK, tc)
+}
+
+func (s *Server) handleSetTerminalConfig(
+	w http.ResponseWriter, r *http.Request,
+) {
+	var tc config.TerminalConfig
+	if err := json.NewDecoder(r.Body).Decode(&tc); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	switch tc.Mode {
+	case "auto", "custom", "clipboard":
+		// ok
+	default:
+		writeError(w, http.StatusBadRequest,
+			`mode must be "auto", "custom", or "clipboard"`)
+		return
+	}
+
+	s.mu.Lock()
+	err := s.cfg.SaveTerminalConfig(tc)
+	s.mu.Unlock()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tc)
 }
 
 func detectTerminalLinux(cmd string) (string, []string, error) {

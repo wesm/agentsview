@@ -1,6 +1,11 @@
 <script lang="ts">
   import type { Session } from "../../api/types.js";
-  import { resumeSession } from "../../api/client.js";
+  import {
+    resumeSession,
+    getTerminalConfig,
+    setTerminalConfig,
+    type TerminalConfig,
+  } from "../../api/client.js";
   import { copyToClipboard } from "../../utils/clipboard.js";
   import { agentColor } from "../../utils/agents.js";
   import {
@@ -20,6 +25,11 @@
   let resumeMessage = $state("");
   let showResumeMenu = $state(false);
   let skipPermissions = $state(false);
+  let showSettings = $state(false);
+  let termMode: TerminalConfig["mode"] = $state("auto");
+  let termCustomBin = $state("");
+  let termCustomArgs = $state("");
+  let settingsSaved = $state(false);
 
   function sessionDisplayId(id: string): string {
     const idx = id.indexOf(":");
@@ -56,7 +66,7 @@
       if (resp.launched) {
         resumeState = "launched";
         resumeMessage = resp.terminal
-          ? `Launched in ${resp.terminal}`
+          ? `Launched in ${resp.terminal.split("/").pop()}`
           : "Launched!";
       } else {
         // Terminal not found — fall back to clipboard.
@@ -64,7 +74,7 @@
         if (ok) {
           resumeState = "copied";
           resumeMessage = resp.error
-            ? "No terminal found — copied command"
+            ? "No terminal — copied"
             : "Copied!";
         } else {
           resumeState = "error";
@@ -101,6 +111,37 @@
     resetResumeState();
   }
 
+  async function openSettings() {
+    showResumeMenu = false;
+    showSettings = true;
+    settingsSaved = false;
+    try {
+      const cfg = await getTerminalConfig();
+      termMode = cfg.mode || "auto";
+      termCustomBin = cfg.custom_bin || "";
+      termCustomArgs = cfg.custom_args || "";
+    } catch {
+      // Defaults are fine.
+    }
+  }
+
+  async function saveSettings() {
+    try {
+      await setTerminalConfig({
+        mode: termMode,
+        custom_bin: termCustomBin || undefined,
+        custom_args: termCustomArgs || undefined,
+      });
+      settingsSaved = true;
+      setTimeout(() => {
+        showSettings = false;
+        settingsSaved = false;
+      }, 800);
+    } catch {
+      // Silently ignore — user can try again.
+    }
+  }
+
   const canResume = $derived(
     session ? supportsResume(session.agent) : false,
   );
@@ -109,7 +150,7 @@
 
   function handleClickOutside(e: MouseEvent) {
     const target = e.target as HTMLElement;
-    if (!target.closest(".resume-group")) {
+    if (!target.closest(".resume-group") && !target.closest(".terminal-settings")) {
       showResumeMenu = false;
     }
   }
@@ -208,6 +249,14 @@
                   Skip permissions
                 </label>
               {/if}
+              <div class="resume-menu-divider"></div>
+              <button class="resume-menu-item" onclick={openSettings}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 4a.5.5 0 01.5.5v3h3a.5.5 0 010 1h-3v3a.5.5 0 01-1 0v-3h-3a.5.5 0 010-1h3v-3A.5.5 0 018 4z" opacity="0"/>
+                  <path fill-rule="evenodd" d="M7.429 1.525a3.5 3.5 0 011.142 0c.036.003.108.036.137.146l.289 1.105c.147.56.55.967.997 1.189.174.086.326.183.48.276l.04.024c.162.097.35.182.569.231l1.113.267c.11.027.163.085.186.117a3.5 3.5 0 01.571.99c.014.04.02.123-.06.207l-.826.838a2.1 2.1 0 00-.554 1.087 3.3 3.3 0 010 .56 2.1 2.1 0 00.554 1.088l.826.837c.08.085.074.168.06.208a3.5 3.5 0 01-.571.99c-.023.031-.076.09-.186.117l-1.113.268a2.1 2.1 0 00-.57.231l-.04.024a3 3 0 01-.479.276c-.447.222-.85.628-.997 1.189l-.29 1.105c-.028.11-.1.143-.136.146a3.5 3.5 0 01-1.142 0c-.036-.003-.108-.037-.137-.146l-.289-1.105a2.1 2.1 0 00-.997-1.189 3 3 0 01-.48-.276l-.04-.024a2.1 2.1 0 00-.569-.231l-1.113-.268c-.11-.027-.163-.085-.186-.117a3.5 3.5 0 01-.571-.99c-.014-.04-.02-.123.06-.207l.826-.838A2.1 2.1 0 003.82 8.28a3.3 3.3 0 010-.56A2.1 2.1 0 003.266 6.63l-.826-.837a.18.18 0 01-.06-.208 3.5 3.5 0 01.571-.99c.023-.031.076-.09.186-.117l1.113-.268a2.1 2.1 0 00.57-.231l.04-.024c.162-.097.317-.19.479-.276a2.1 2.1 0 00.997-1.189l.29-1.105c.028-.11.1-.143.136-.146zM8 10.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z"/>
+                </svg>
+                Terminal settings
+              </button>
             </div>
           {/if}
         </span>
@@ -225,6 +274,70 @@
     </span>
   {/if}
 </div>
+
+{#if showSettings}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" onclick={() => (showSettings = false)}>
+    <div class="terminal-settings modal-panel" onclick={(e) => e.stopPropagation()}>
+      <div class="modal-header">
+        <span class="modal-title">Terminal Settings</span>
+        <button class="modal-close" onclick={() => (showSettings = false)}>&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-field">
+          <span class="settings-label">Launch mode</span>
+          <div class="settings-radios">
+            <label class="settings-radio">
+              <input type="radio" name="term-mode" value="auto" bind:group={termMode} />
+              <span>Auto-detect</span>
+              <span class="settings-hint">Find terminal on server</span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="term-mode" value="clipboard" bind:group={termMode} />
+              <span>Clipboard only</span>
+              <span class="settings-hint">Always copy command, never launch</span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="term-mode" value="custom" bind:group={termMode} />
+              <span>Custom terminal</span>
+              <span class="settings-hint">Specify binary and arguments</span>
+            </label>
+          </div>
+        </div>
+        {#if termMode === "custom"}
+          <div class="settings-field">
+            <label class="settings-label" for="term-bin">Terminal binary</label>
+            <input
+              id="term-bin"
+              class="settings-input"
+              type="text"
+              placeholder="/usr/bin/kitty"
+              bind:value={termCustomBin}
+            />
+          </div>
+          <div class="settings-field">
+            <label class="settings-label" for="term-args">Arguments template</label>
+            <input
+              id="term-args"
+              class="settings-input"
+              type="text"
+              placeholder="-- bash -c {'{cmd}'}"
+              bind:value={termCustomArgs}
+            />
+            <span class="settings-hint">Use {'{cmd}'} as placeholder for the resume command</span>
+          </div>
+        {/if}
+        <div class="settings-actions">
+          <button class="modal-btn" onclick={() => (showSettings = false)}>Cancel</button>
+          <button class="modal-btn modal-btn-primary" onclick={saveSettings}>
+            {settingsSaved ? "Saved!" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .session-breadcrumb {
@@ -438,5 +551,83 @@
 
   .spin {
     animation: spin 0.8s linear infinite;
+  }
+
+  .terminal-settings {
+    width: 360px;
+  }
+
+  .settings-field {
+    margin-bottom: 12px;
+  }
+
+  .settings-field:last-of-type {
+    margin-bottom: 16px;
+  }
+
+  .settings-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+
+  .settings-radios {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .settings-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .settings-radio input {
+    accent-color: var(--accent-blue);
+  }
+
+  .settings-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .settings-input {
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: var(--font-mono, "SF Mono", "Menlo", monospace);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+  }
+
+  .settings-input:focus {
+    border-color: var(--accent-blue);
+    outline: none;
+  }
+
+  .settings-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+
+  .settings-field > .settings-hint {
+    display: block;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+
+  .settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 </style>

@@ -32,12 +32,16 @@ function shellQuote(s: string): string {
 }
 
 /**
- * Strip the agent-type prefix from a compound session ID.
- * e.g. "codex:abc123" → "abc123", "plain-uuid" → "plain-uuid"
+ * Strip the agent-type prefix from a compound session ID, but only
+ * when the prefix matches a known agent. Raw IDs that happen to
+ * contain ":" are left untouched.
  */
-function stripIdPrefix(id: string): string {
-  const idx = id.indexOf(":");
-  return idx >= 0 ? id.slice(idx + 1) : id;
+function stripIdPrefix(id: string, agent?: string): string {
+  if (agent) {
+    const prefix = agent + ":";
+    if (id.startsWith(prefix)) return id.slice(prefix.length);
+  }
+  return id;
 }
 
 /**
@@ -63,7 +67,7 @@ export function buildResumeCommand(
   const builder = RESUME_AGENTS[agent];
   if (!builder) return null;
 
-  const rawId = stripIdPrefix(sessionId);
+  const rawId = stripIdPrefix(sessionId, agent);
   let cmd = builder(rawId);
 
   if (agent === "claude" && flags) {

@@ -15,6 +15,18 @@ import (
 	"github.com/wesm/agentsview/internal/parser"
 )
 
+// TerminalConfig holds terminal launch preferences.
+type TerminalConfig struct {
+	// Mode: "auto" (detect terminal), "custom" (use CustomBin),
+	// or "clipboard" (never launch, always copy).
+	Mode string `json:"mode"`
+	// CustomBin is the terminal binary path (used when Mode == "custom").
+	CustomBin string `json:"custom_bin,omitempty"`
+	// CustomArgs is a template for terminal args. Use {cmd} as
+	// placeholder for the resume command (e.g. "-- bash -c {cmd}").
+	CustomArgs string `json:"custom_args,omitempty"`
+}
+
 // Config holds all application configuration.
 type Config struct {
 	Host         string        `json:"host"`
@@ -24,6 +36,7 @@ type Config struct {
 	DBPath       string        `json:"-"`
 	CursorSecret string        `json:"cursor_secret"`
 	GithubToken  string        `json:"github_token,omitempty"`
+	Terminal     TerminalConfig `json:"terminal,omitempty"`
 	WriteTimeout time.Duration `json:"-"`
 
 	// AgentDirs maps each AgentType to its configured
@@ -138,8 +151,9 @@ func (c *Config) loadFile() error {
 	}
 
 	var file struct {
-		GithubToken  string `json:"github_token"`
-		CursorSecret string `json:"cursor_secret"`
+		GithubToken  string         `json:"github_token"`
+		CursorSecret string         `json:"cursor_secret"`
+		Terminal     TerminalConfig `json:"terminal"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parsing config: %w", err)
@@ -149,6 +163,9 @@ func (c *Config) loadFile() error {
 	}
 	if file.CursorSecret != "" {
 		c.CursorSecret = file.CursorSecret
+	}
+	if file.Terminal.Mode != "" {
+		c.Terminal = file.Terminal
 	}
 
 	// Parse config-file dir arrays for agents that have a
@@ -277,6 +294,39 @@ func ResolveDataDir() (string, error) {
 		cfg.DataDir = v
 	}
 	return cfg.DataDir, nil
+}
+
+// SaveTerminalConfig persists terminal settings to the config file.
+func (c *Config) SaveTerminalConfig(tc TerminalConfig) error {
+	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
+		return fmt.Errorf("creating data dir: %w", err)
+	}
+
+	existing := make(map[string]any)
+	data, err := os.ReadFile(c.configPath())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+	if err == nil {
+		if err := json.Unmarshal(data, &existing); err != nil {
+			return fmt.Errorf(
+				"existing config is invalid, cannot update: %w",
+				err,
+			)
+		}
+	}
+
+	existing["terminal"] = tc
+	out, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(c.configPath(), out, 0o600); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+	c.Terminal = tc
+	return nil
 }
 
 // SaveGithubToken persists the GitHub token to the config file.
