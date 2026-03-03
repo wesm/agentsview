@@ -120,6 +120,65 @@ describe("registerShortcuts", () => {
     });
   });
 
+  describe("modifier keys bypass single-key shortcuts", () => {
+    it("should NOT trigger shortcut on Ctrl+C", () => {
+      // Ctrl+C is native copy — must not be intercepted
+      const event = new KeyboardEvent("keydown", {
+        key: "c",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      const prevented = !document.dispatchEvent(event);
+      // If preventDefault was called, the event would be cancelled.
+      // Since our handler returns early, default should NOT be prevented.
+      expect(prevented).toBe(false);
+    });
+
+    it("should NOT trigger shortcut on Cmd+C (metaKey)", () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "c",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      const prevented = !document.dispatchEvent(event);
+      expect(prevented).toBe(false);
+    });
+
+    it("should NOT trigger navigation on Ctrl+J", () => {
+      fireKey("j", { ctrlKey: true });
+      expect(navigateMessage).not.toHaveBeenCalled();
+    });
+
+    it("should NOT trigger navigation on Cmd+J", () => {
+      fireKey("j", { metaKey: true });
+      expect(navigateMessage).not.toHaveBeenCalled();
+    });
+
+    it("should NOT trigger shortcut on Alt+T", () => {
+      const toggleSpy = vi.spyOn(ui, "toggleThinking");
+      fireKey("t", { altKey: true });
+      expect(toggleSpy).not.toHaveBeenCalled();
+      toggleSpy.mockRestore();
+    });
+
+    it("should still navigate on plain J key", () => {
+      fireKey("j");
+      expect(navigateMessage).toHaveBeenCalledWith(1);
+    });
+
+    it("should still open ? shortcut (Shift is allowed)", () => {
+      fireKey("?", { shiftKey: true });
+      expect(ui.activeModal).toBe("shortcuts");
+    });
+
+    it("should still allow Cmd+K (modifier shortcut)", () => {
+      fireKey("k", { metaKey: true });
+      expect(ui.activeModal).toBe("commandPalette");
+    });
+  });
+
   describe("cleanup removes listener", () => {
     it("should stop handling keys after cleanup", () => {
       cleanup();
