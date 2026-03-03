@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -87,7 +89,10 @@ func (s *Server) handleResumeSession(
 	// Parse optional flags.
 	var req resumeRequest
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
 	}
 
 	// Strip agent prefix from compound ID only when it matches the
@@ -301,6 +306,12 @@ func (s *Server) handleSetTerminalConfig(
 	default:
 		writeError(w, http.StatusBadRequest,
 			`mode must be "auto", "custom", or "clipboard"`)
+		return
+	}
+
+	if tc.Mode == "custom" && tc.CustomBin == "" {
+		writeError(w, http.StatusBadRequest,
+			`custom_bin is required when mode is "custom"`)
 		return
 	}
 
