@@ -13,8 +13,7 @@
     type DisplayItem,
   } from "../../utils/display-items.js";
   import {
-    parseContent,
-    enrichSegments,
+    hasVisibleSegments,
   } from "../../utils/content-parser.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
@@ -39,25 +38,6 @@
     );
   }
 
-  /**
-   * Returns true when at least one segment of the message
-   * would be rendered given the current block visibility.
-   */
-  function hasVisibleSegments(m: Message): boolean {
-    const role: "user" | "assistant" = m.role === "user" ? "user" : "assistant";
-    const segs = enrichSegments(
-      parseContent(m.content, m.has_tool_use),
-      m.tool_calls,
-    );
-    // Empty messages (e.g. initial assistant streaming state) should
-    // remain visible when their role is not filtered out.
-    if (segs.length === 0) return ui.isBlockVisible(role);
-    return segs.some((s) => {
-      if (s.type === "text") return ui.isBlockVisible(role);
-      return ui.isBlockVisible(s.type);
-    });
-  }
-
   let filteredMessages: Message[] = $derived.by(() => {
     let msgs = messages.messages;
 
@@ -68,7 +48,9 @@
     // (e.g. hiding "Assistant text" still shows code/tool/thinking
     // nested inside assistant messages, but hides pure-text ones)
     if (ui.hasBlockFilters) {
-      msgs = msgs.filter((m) => hasVisibleSegments(m));
+      msgs = msgs.filter((m) =>
+        hasVisibleSegments(m, (type) => ui.isBlockVisible(type)),
+      );
     }
 
     return msgs;

@@ -149,3 +149,73 @@ describe("buildDisplayItems", () => {
     });
   });
 });
+
+describe("buildDisplayItems with skipToolGrouping", () => {
+  it("returns empty array for empty input when skipToolGrouping is true", () => {
+    expect(buildDisplayItems([], { skipToolGrouping: true })).toEqual([]);
+  });
+
+  it("emits tool-only messages as individual MessageItems when skipToolGrouping is true", () => {
+    const msgs = [
+      toolMsg(0),
+      toolMsg(1, "Read", "file.ts"),
+      toolMsg(2, "Edit", "changes"),
+    ];
+    const items = buildDisplayItems(msgs, { skipToolGrouping: true });
+    expect(items).toHaveLength(3);
+    expect(items.every((i) => i.kind === "message")).toBe(true);
+    expect(items.map((i) => i.ordinals)).toEqual([[0], [1], [2]]);
+  });
+
+  it("does not create tool-groups when skipToolGrouping is true", () => {
+    const msgs = [
+      textMsg(0, "Let me check"),
+      toolMsg(1),
+      toolMsg(2, "Read", "file.ts"),
+      textMsg(3, "Results"),
+    ];
+    const items = buildDisplayItems(msgs, { skipToolGrouping: true });
+    expect(items).toHaveLength(4);
+    expect(items.every((i) => i.kind === "message")).toBe(true);
+  });
+
+  it("still groups tool messages when skipToolGrouping is false (default)", () => {
+    const msgs = [toolMsg(0), toolMsg(1, "Read", "file.ts")];
+    const itemsDefault = buildDisplayItems(msgs);
+    const itemsExplicit = buildDisplayItems(msgs, { skipToolGrouping: false });
+    expect(itemsDefault).toHaveLength(1);
+    expect(itemsDefault[0]!.kind).toBe("tool-group");
+    expect(itemsExplicit).toHaveLength(1);
+    expect(itemsExplicit[0]!.kind).toBe("tool-group");
+  });
+
+  it("preserves ordinals for individual tool messages when skipToolGrouping is true", () => {
+    const msgs = [toolMsg(10), toolMsg(20)];
+    const items = buildDisplayItems(msgs, { skipToolGrouping: true });
+    expect(items[0]!.ordinals).toEqual([10]);
+    expect(items[1]!.ordinals).toEqual([20]);
+  });
+
+  it("handles mixed messages with text+tool content when skipToolGrouping is true", () => {
+    const mixedMsg = msg({
+      ordinal: 0,
+      content: "Let me explain.\n\n[Bash]\n$ ls",
+      has_tool_use: true,
+    });
+    const items = buildDisplayItems([mixedMsg], { skipToolGrouping: true });
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("message");
+  });
+
+  it("each message retains its message reference when skipToolGrouping is true", () => {
+    const t1 = toolMsg(0);
+    const t2 = toolMsg(1, "Read", "file.ts");
+    const items = buildDisplayItems([t1, t2], { skipToolGrouping: true });
+    expect(items[0]!.kind).toBe("message");
+    expect(items[1]!.kind).toBe("message");
+    if (items[0]!.kind === "message" && items[1]!.kind === "message") {
+      expect(items[0]!.message).toBe(t1);
+      expect(items[1]!.message).toBe(t2);
+    }
+  });
+});

@@ -386,3 +386,30 @@ export function enrichSegments(
 
   return result;
 }
+
+/**
+ * Pure-function equivalent of the component-level visibility check.
+ * Returns true when at least one segment of the message would be
+ * rendered given the supplied visibility predicate.
+ *
+ * `isVisible` is called with a BlockType string -- the component
+ * passes `ui.isBlockVisible`, but tests can supply any predicate.
+ */
+export function hasVisibleSegments(
+  msg: Message,
+  isVisible: (type: SegmentType | "user" | "assistant") => boolean,
+): boolean {
+  const role: "user" | "assistant" =
+    msg.role === "user" ? "user" : "assistant";
+  const segs = enrichSegments(
+    parseContent(msg.content, msg.has_tool_use),
+    msg.tool_calls,
+  );
+  // Empty messages (e.g. initial assistant streaming state) should
+  // remain visible when their role is not filtered out.
+  if (segs.length === 0) return isVisible(role);
+  return segs.some((s) => {
+    if (s.type === "text") return isVisible(role);
+    return isVisible(s.type);
+  });
+}
