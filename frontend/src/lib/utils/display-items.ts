@@ -16,6 +16,14 @@ export interface ToolGroupItem {
 
 export type DisplayItem = MessageItem | ToolGroupItem;
 
+export interface BuildDisplayItemsOptions {
+  /** When true, tool-only messages are emitted as individual
+   *  MessageItems instead of being grouped into ToolGroupItems.
+   *  Useful when tool blocks are filtered out — the individual
+   *  MessageContent component can then skip hidden segments. */
+  skipToolGrouping?: boolean;
+}
+
 /**
  * Groups consecutive tool-only assistant messages into
  * compact display items. Non-tool messages pass through
@@ -23,8 +31,21 @@ export type DisplayItem = MessageItem | ToolGroupItem;
  */
 export function buildDisplayItems(
   messages: Message[],
+  options?: BuildDisplayItemsOptions,
 ): DisplayItem[] {
   const items: DisplayItem[] = [];
+
+  if (options?.skipToolGrouping) {
+    for (const msg of messages) {
+      items.push({
+        kind: "message",
+        message: msg,
+        ordinals: [msg.ordinal],
+      });
+    }
+    return items;
+  }
+
   let toolAcc: Message[] = [];
 
   for (const msg of messages) {

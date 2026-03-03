@@ -12,6 +12,7 @@ export const KNOWN_AGENTS: readonly AgentMeta[] = [
   { name: "cursor", color: "var(--accent-black)" },
   { name: "amp", color: "var(--accent-coral)" },
   { name: "vscode-copilot", color: "var(--accent-teal)" },
+  { name: "openclaw", color: "var(--accent-orange)" },
 ];
 
 const agentColorMap = new Map(

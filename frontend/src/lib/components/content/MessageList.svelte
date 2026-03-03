@@ -75,7 +75,9 @@
   });
 
   let displayItemsAsc = $derived(
-    buildDisplayItems(filteredMessages),
+    buildDisplayItems(filteredMessages, {
+      skipToolGrouping: !ui.isBlockVisible("tool"),
+    }),
   );
 
   function itemAt(index: number) {
