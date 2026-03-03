@@ -125,6 +125,10 @@ var Registry = []AgentDef{
 		EnvVar:      "VSCODE_COPILOT_DIR",
 		ConfigKey:   "vscode_copilot_dirs",
 		DefaultDirs: []string{
+			// Windows
+			"AppData/Roaming/Code/User",
+			"AppData/Roaming/Code - Insiders/User",
+			"AppData/Roaming/VSCodium/User",
 			// macOS
 			"Library/Application Support/Code/User",
 			"Library/Application Support/Code - Insiders/User",
