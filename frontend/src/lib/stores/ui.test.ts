@@ -279,4 +279,34 @@ describe("UIStore", () => {
       expect(ui.hasBlockFilters).toBe(false);
     });
   });
+
+  describe("messageLayout", () => {
+    beforeEach(() => {
+      ui.setLayout("default");
+    });
+
+    it("should default to 'default'", () => {
+      expect(ui.messageLayout).toBe("default");
+    });
+
+    it("should set layout explicitly", () => {
+      ui.setLayout("compact");
+      expect(ui.messageLayout).toBe("compact");
+
+      ui.setLayout("stream");
+      expect(ui.messageLayout).toBe("stream");
+    });
+
+    it("should cycle through layouts", () => {
+      ui.setLayout("default");
+      ui.cycleLayout();
+      expect(ui.messageLayout).toBe("compact");
+
+      ui.cycleLayout();
+      expect(ui.messageLayout).toBe("stream");
+
+      ui.cycleLayout();
+      expect(ui.messageLayout).toBe("default");
+    });
+  });
 });
