@@ -1,5 +1,6 @@
 import { ui } from "../stores/ui.svelte.js";
 import { sessions } from "../stores/sessions.svelte.js";
+import { starred } from "../stores/starred.svelte.js";
 import { sync } from "../stores/sync.svelte.js";
 import {
   getExportUrl,
@@ -97,13 +98,15 @@ export function registerShortcuts(
           // Try launching terminal via backend; fall back to clipboard.
           resumeSession(session.id).then((resp) => {
             if (!resp.launched) {
-              const cmd = buildResumeCommand(
+              // Prefer the backend-built command to avoid frontend/backend drift.
+              const cmd = resp.command || buildResumeCommand(
                 session.agent,
                 session.id,
               );
               if (cmd) copyToClipboard(cmd);
             }
           }).catch(() => {
+            // Request failed entirely; rebuild locally as last resort.
             const cmd = buildResumeCommand(
               session.agent,
               session.id,

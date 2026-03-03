@@ -27,7 +27,7 @@ export interface ClaudeResumeFlags {
  * Skips quoting for IDs that are purely alphanumeric + hyphens.
  */
 function shellQuote(s: string): string {
-  if (/^[\w-]+$/.test(s)) return s;
+  if (/^[a-zA-Z0-9_][\w-]*$/.test(s)) return s;
   return "'" + s.replace(/'/g, "'\"'\"'") + "'";
 }
 
