@@ -85,6 +85,23 @@ func NormalizeToolCategory(rawName string) string {
 	case "skill":
 		return "Tool"
 
+	// OpenClaw tools
+	case "exec":
+		return "Bash"
+	case "process":
+		return "Bash"
+	case "browser", "web_search", "web_fetch":
+		return "Tool"
+	case "image", "canvas", "tts":
+		return "Tool"
+	case "message", "nodes":
+		return "Tool"
+	case "sessions_list", "sessions_history",
+		"sessions_send", "sessions_spawn":
+		return "Task"
+	case "subagents", "agents_list", "session_status":
+		return "Task"
+
 	default:
 		return "Other"
 	}

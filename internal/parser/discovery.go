@@ -1074,3 +1074,80 @@ func FindVSCodeCopilotSourceFile(
 
 	return ""
 }
+
+// DiscoverOpenClawSessions finds all JSONL session files under the
+// OpenClaw agents directory. The directory structure is:
+// <agentsDir>/<agentId>/sessions/<sessionId>.jsonl
+func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
+	if agentsDir == "" {
+		return nil
+	}
+
+	// Each agent has its own subdirectory.
+	agentEntries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, agentEntry := range agentEntries {
+		if !isDirOrSymlink(agentEntry, agentsDir) {
+			continue
+		}
+
+		sessionsDir := filepath.Join(
+			agentsDir, agentEntry.Name(), "sessions",
+		)
+		entries, err := os.ReadDir(sessionsDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if !strings.HasSuffix(name, ".jsonl") {
+				continue
+			}
+			files = append(files, DiscoveredFile{
+				Path:  filepath.Join(sessionsDir, name),
+				Agent: AgentOpenClaw,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
+// FindOpenClawSourceFile locates an OpenClaw session file by its
+// raw session ID (without the "openclaw:" prefix). Searches across
+// all agent subdirectories.
+func FindOpenClawSourceFile(agentsDir, sessionID string) string {
+	if agentsDir == "" || !IsValidSessionID(sessionID) {
+		return ""
+	}
+
+	agentEntries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return ""
+	}
+
+	for _, agentEntry := range agentEntries {
+		if !isDirOrSymlink(agentEntry, agentsDir) {
+			continue
+		}
+		candidate := filepath.Join(
+			agentsDir, agentEntry.Name(), "sessions",
+			sessionID+".jsonl",
+		)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}

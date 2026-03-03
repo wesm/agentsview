@@ -988,6 +988,8 @@ func (e *Engine) processFile(
 		res = e.processAmp(file, info)
 	case parser.AgentVSCodeCopilot:
 		res = e.processVSCodeCopilot(file, info)
+	case parser.AgentOpenClaw:
+		res = e.processOpenClaw(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -1243,6 +1245,35 @@ func (e *Engine) processVSCodeCopilot(
 	}
 
 	sess, msgs, err := parser.ParseVSCodeCopilotSession(
+		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
+}
+
+func (e *Engine) processOpenClaw(
+	file parser.DiscoveredFile, info os.FileInfo,
+) processResult {
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseOpenClawSession(
 		file.Path, file.Project, e.machine,
 	)
 	if err != nil {
