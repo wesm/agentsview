@@ -15,6 +15,8 @@ describe("KNOWN_AGENTS", () => {
       "opencode",
       "cursor",
       "amp",
+      "vscode-copilot",
+      "openclaw",
     ]);
   });
 
