@@ -722,10 +722,14 @@ func (db *DB) GetAnalyticsHeatmap(
 		source = daySessions
 	}
 
-	// Collect non-zero values for quartile computation
+	// Determine effective date range (clamped to MaxHeatmapDays)
+	entriesFrom := clampFrom(f.From, f.To)
+
+	// Collect non-zero values from the displayed range only,
+	// so outliers outside the window don't skew intensity.
 	var values []int
-	for _, v := range source {
-		if v > 0 {
+	for date, v := range source {
+		if v > 0 && date >= entriesFrom && date <= f.To {
 			values = append(values, v)
 		}
 	}
@@ -733,9 +737,9 @@ func (db *DB) GetAnalyticsHeatmap(
 
 	levels := computeQuartileLevels(values)
 
-	// Build entries for each day in range
-	entries, entriesFrom := buildDateEntries(
-		f.From, f.To, source, levels,
+	// Build entries for each day in the clamped range
+	entries := buildDateEntries(
+		entriesFrom, f.To, source, levels,
 	)
 
 	return HeatmapResponse{
@@ -782,30 +786,41 @@ func assignLevel(value int, levels HeatmapLevels) int {
 // the most recent MaxHeatmapDays from the end date.
 const MaxHeatmapDays = 366
 
+// clampFrom returns from clamped so that [from, to] spans at
+// most MaxHeatmapDays. If the range is already within bounds,
+// from is returned unchanged.
+func clampFrom(from, to string) string {
+	start, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return from
+	}
+	end, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		return from
+	}
+	earliest := end.AddDate(0, 0, -(MaxHeatmapDays - 1))
+	if start.Before(earliest) {
+		return earliest.Format("2006-01-02")
+	}
+	return from
+}
+
 // buildDateEntries creates a HeatmapEntry for each day in
-// [from, to], clamping to at most maxHeatmapDays. Returns
-// the entries and the effective start date (which may differ
-// from the requested from when clamped).
+// [from, to]. The caller is responsible for clamping the
+// range via clampFrom before calling this function.
 func buildDateEntries(
 	from, to string,
 	values map[string]int,
 	levels HeatmapLevels,
-) ([]HeatmapEntry, string) {
+) []HeatmapEntry {
 	start, err := time.Parse("2006-01-02", from)
 	if err != nil {
-		return nil, from
+		return nil
 	}
 	end, err := time.Parse("2006-01-02", to)
 	if err != nil {
-		return nil, from
+		return nil
 	}
-
-	// Clamp to most recent MaxHeatmapDays
-	earliest := end.AddDate(0, 0, -(MaxHeatmapDays - 1))
-	if start.Before(earliest) {
-		start = earliest
-	}
-	effectiveFrom := start.Format("2006-01-02")
 
 	var entries []HeatmapEntry
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
@@ -817,7 +832,7 @@ func buildDateEntries(
 			Level: assignLevel(v, levels),
 		})
 	}
-	return entries, effectiveFrom
+	return entries
 }
 
 // --- Projects ---

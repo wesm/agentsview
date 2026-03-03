@@ -475,6 +475,47 @@ func TestAnalyticsHeatmap(t *testing.T) {
 			)
 		}
 	})
+
+	t.Run("Levels_FromClampedWindow", func(t *testing.T) {
+		// Seed a historical outlier far outside the clamped
+		// window. Levels should be based only on displayed data.
+		oldDate := "2020-01-15T10:00:00Z"
+		te.seedSession(t, "old-outlier", "gamma", 500,
+			func(sess *db.Session) {
+				sess.Agent = "claude"
+				sess.StartedAt = &oldDate
+				sess.EndedAt = &oldDate
+			},
+		)
+		te.seedMessages(t, "old-outlier", 500)
+
+		// Request range covering both old and recent data
+		params := map[string]string{
+			"from": "2019-01-01",
+			"to":   "2024-06-03",
+		}
+		w := te.get(t, buildURL("heatmap", params))
+		assertStatus(t, w, http.StatusOK)
+
+		resp := decode[db.HeatmapResponse](t, w)
+
+		// The outlier at 2020-01-15 should be clamped out.
+		// Verify no entry has the outlier date.
+		for _, e := range resp.Entries {
+			if e.Date == "2020-01-15" {
+				t.Error("outlier date should be outside clamped window")
+			}
+		}
+
+		// Levels should reflect the recent data (max ~30 msgs),
+		// not the 500-message outlier.
+		if resp.Levels.L4 >= 500 {
+			t.Errorf(
+				"L4 = %d, should be << 500 (outlier leaked into levels)",
+				resp.Levels.L4,
+			)
+		}
+	})
 }
 
 func TestAnalyticsProjects(t *testing.T) {
