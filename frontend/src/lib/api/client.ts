@@ -319,6 +319,31 @@ export function getExportUrl(sessionId: string): string {
   return `${BASE}/sessions/${sessionId}/export`;
 }
 
+/* Resume in terminal */
+
+export interface ResumeRequest {
+  skip_permissions?: boolean;
+  fork_session?: boolean;
+}
+
+export interface ResumeResponse {
+  launched: boolean;
+  terminal?: string;
+  command: string;
+  error?: string;
+}
+
+export function resumeSession(
+  sessionId: string,
+  flags: ResumeRequest = {},
+): Promise<ResumeResponse> {
+  return fetchJSON(`/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(flags),
+  });
+}
+
 /* Publish / GitHub config */
 
 export function publishSession(sessionId: string): Promise<PublishResponse> {

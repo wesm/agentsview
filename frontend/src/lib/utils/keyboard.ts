@@ -1,7 +1,10 @@
 import { ui } from "../stores/ui.svelte.js";
 import { sessions } from "../stores/sessions.svelte.js";
 import { sync } from "../stores/sync.svelte.js";
-import { getExportUrl } from "../api/client.js";
+import {
+  getExportUrl,
+  resumeSession,
+} from "../api/client.js";
 import { supportsResume, buildResumeCommand } from "./resume.js";
 import { copyToClipboard } from "./clipboard.js";
 
@@ -91,11 +94,22 @@ export function registerShortcuts(
       c: () => {
         const session = sessions.activeSession;
         if (session && supportsResume(session.agent)) {
-          const cmd = buildResumeCommand(
-            session.agent,
-            session.id,
-          );
-          if (cmd) copyToClipboard(cmd);
+          // Try launching terminal via backend; fall back to clipboard.
+          resumeSession(session.id).then((resp) => {
+            if (!resp.launched) {
+              const cmd = buildResumeCommand(
+                session.agent,
+                session.id,
+              );
+              if (cmd) copyToClipboard(cmd);
+            }
+          }).catch(() => {
+            const cmd = buildResumeCommand(
+              session.agent,
+              session.id,
+            );
+            if (cmd) copyToClipboard(cmd);
+          });
         }
       },
       "?": () => {
