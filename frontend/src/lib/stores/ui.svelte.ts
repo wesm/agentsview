@@ -120,6 +120,18 @@ class UIStore {
     return this.visibleBlocks.has(type);
   }
 
+  setBlockVisible(type: BlockType, visible: boolean) {
+    const next = new Set(this.visibleBlocks);
+    if (visible) {
+      next.add(type);
+    } else {
+      next.delete(type);
+    }
+    this.visibleBlocks = next;
+    this.showThinking = next.has("thinking");
+    this.persistBlockFilters();
+  }
+
   toggleBlock(type: BlockType) {
     const next = new Set(this.visibleBlocks);
     if (next.has(type)) {

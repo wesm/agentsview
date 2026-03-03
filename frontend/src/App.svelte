@@ -63,7 +63,7 @@
   $effect(() => {
     const ordinal = ui.pendingScrollOrdinal;
     const loading = messages.loading;
-    const showThinking = ui.showThinking;
+    const thinkingVisible = ui.isBlockVisible("thinking");
     untrack(() => {
       if (ordinal === null || loading || !messageListRef) return;
 
@@ -72,7 +72,7 @@
         item.ordinals.includes(ordinal),
       );
 
-      if (!found && !showThinking) {
+      if (!found && !thinkingVisible) {
         // Only auto-enable thinking if the ordinal is loaded
         // but filtered out. If it's outside the loaded window,
         // try loading it first instead of changing the filter.
@@ -80,8 +80,8 @@
           (m) => m.ordinal === ordinal,
         );
         if (loaded) {
-          ui.showThinking = true;
-          return; // effect re-runs with showThinking=true
+          ui.setBlockVisible("thinking", true);
+          return; // effect re-runs with thinking visible
         }
       }
 

@@ -49,6 +49,9 @@
       parseContent(m.content, m.has_tool_use),
       m.tool_calls,
     );
+    // Empty messages (e.g. initial assistant streaming state) should
+    // remain visible when their role is not filtered out.
+    if (segs.length === 0) return ui.isBlockVisible(role);
     return segs.some((s) => {
       if (s.type === "text") return ui.isBlockVisible(role);
       return ui.isBlockVisible(s.type);
