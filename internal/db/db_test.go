@@ -349,15 +349,50 @@ func TestOpenDataVersionBump_PreservesData(t *testing.T) {
 			len(msgs))
 	}
 
-	// user_version should be updated to current.
+	// user_version must stay stale — it is only bumped
+	// after a successful ResyncAll, not at Open() time.
 	var ver int
 	err = d2.getReader().QueryRow(
 		"PRAGMA user_version",
 	).Scan(&ver)
 	requireNoError(t, err, "read version")
-	if ver != dataVersion {
-		t.Fatalf("expected user_version=%d, got %d",
-			dataVersion, ver)
+	if ver != 0 {
+		t.Fatalf("expected user_version=0 (stale), got %d",
+			ver)
+	}
+}
+
+func TestOpenDataVersionBump_SurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a DB and downgrade its version.
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+	insertSession(t, d, "s1", "proj")
+	d.Close()
+
+	conn, err := sql.Open("sqlite3", path)
+	requireNoError(t, err, "raw open")
+	_, err = conn.Exec("PRAGMA user_version = 0")
+	requireNoError(t, err, "reset version")
+	conn.Close()
+
+	// First reopen: detects stale, does NOT bump version.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen 1")
+	if !d2.NeedsResync() {
+		t.Fatal("first reopen: expected NeedsResync=true")
+	}
+	d2.Close() // simulate process exit without resync
+
+	// Second reopen: must still detect stale because the
+	// version was not bumped.
+	d3, err := Open(path)
+	requireNoError(t, err, "reopen 2")
+	defer d3.Close()
+	if !d3.NeedsResync() {
+		t.Fatal("second reopen: expected NeedsResync=true")
 	}
 }
 
@@ -2896,6 +2931,55 @@ func TestCopyOrphanedDataFrom_WithToolCalls(t *testing.T) {
 	if ordinal != 1 {
 		t.Errorf("tool_call message ordinal = %d, want 1",
 			ordinal)
+	}
+}
+
+func TestCopyOrphanedDataFrom_AtomicOnFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create source DB with a session and messages.
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	insertMessages(t, srcDB, userMsg("s1", 0, "hello"))
+	srcDB.Close()
+
+	// Corrupt source: drop the messages table so the
+	// message-copy step fails.
+	raw, err := sql.Open("sqlite3", srcPath)
+	requireNoError(t, err, "raw open")
+	_, err = raw.Exec("PRAGMA foreign_keys = OFF")
+	requireNoError(t, err, "disable fk")
+	_, err = raw.Exec("DROP TABLE messages")
+	requireNoError(t, err, "drop messages")
+	raw.Close()
+
+	// Empty destination.
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	// CopyOrphanedDataFrom should fail on the message
+	// copy step.
+	_, err = dstDB.CopyOrphanedDataFrom(srcPath)
+	if err == nil {
+		t.Fatal("expected error from corrupted source")
+	}
+
+	// The session insert must have been rolled back — no
+	// partial data in the destination.
+	page, err := dstDB.ListSessions(
+		context.Background(),
+		SessionFilter{Limit: 100},
+	)
+	requireNoError(t, err, "list sessions")
+	if len(page.Sessions) != 0 {
+		t.Fatalf(
+			"expected 0 sessions after failed copy, got %d",
+			len(page.Sessions),
+		)
 	}
 }
 

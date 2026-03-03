@@ -75,8 +75,17 @@ func (d *DB) CopyOrphanedDataFrom(
 
 	t := time.Now()
 
+	// Use a transaction so all three inserts are atomic.
+	// Partial orphan copies would leave dangling sessions
+	// without messages or tool_calls.
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin orphan tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// Copy session rows.
-	if _, err := conn.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO sessions
 			(id, project, machine, agent, first_message,
 			 started_at, ended_at, message_count,
@@ -100,7 +109,7 @@ func (d *DB) CopyOrphanedDataFrom(
 	// Copy messages. Omit id to let auto-increment assign
 	// new IDs (old IDs may collide with freshly synced
 	// messages).
-	if _, err := conn.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO messages
 			(session_id, ordinal, role, content,
 			 timestamp, has_thinking, has_tool_use,
@@ -121,7 +130,7 @@ func (d *DB) CopyOrphanedDataFrom(
 
 	// Copy tool_calls. Map old message_id to new
 	// message_id via the (session_id, ordinal) natural key.
-	if _, err := conn.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO tool_calls
 			(message_id, session_id, tool_name, category,
 			 tool_use_id, input_json, skill_name,
@@ -143,6 +152,12 @@ func (d *DB) CopyOrphanedDataFrom(
 	); err != nil {
 		return 0, fmt.Errorf(
 			"copying orphaned tool_calls: %w", err,
+		)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf(
+			"committing orphaned data: %w", err,
 		)
 	}
 

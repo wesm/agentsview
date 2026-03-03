@@ -139,6 +139,17 @@ func Open(path string) (*DB, error) {
 		log.Printf(
 			"data version outdated; full resync required",
 		)
+	} else {
+		// Only stamp user_version when data is current.
+		// When data is stale, preserve the old version so
+		// the "needs resync" state survives process restarts
+		// until ResyncAll completes successfully.
+		if err := d.setDataVersion(); err != nil {
+			d.Close()
+			return nil, fmt.Errorf(
+				"setting data version: %w", err,
+			)
+		}
 	}
 
 	return d, nil
@@ -340,18 +351,28 @@ func (db *DB) HasFTS() bool {
 	return err == nil
 }
 
+// setDataVersion stamps the current dataVersion into
+// user_version. Called by Open() only when data is current
+// (not stale), so the marker survives until ResyncAll
+// completes.
+func (db *DB) setDataVersion() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(
+		fmt.Sprintf("PRAGMA user_version = %d", dataVersion),
+	)
+	if err != nil {
+		return fmt.Errorf("setting data version: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) init() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	w := db.getWriter()
 	if _, err := w.Exec(schemaSQL); err != nil {
 		return err
-	}
-
-	if _, err := w.Exec(
-		fmt.Sprintf("PRAGMA user_version = %d", dataVersion),
-	); err != nil {
-		return fmt.Errorf("setting data version: %w", err)
 	}
 
 	// Check if FTS table exists before trying to create it
