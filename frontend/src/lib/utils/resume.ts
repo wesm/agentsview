@@ -2,13 +2,17 @@
 const RESUME_AGENTS: Record<
   string,
   (sessionId: string) => string
-> = {
-  claude: (id) => `claude --resume ${quote(id)}`,
-  codex: (id) => `codex resume ${id}`,
-  gemini: (id) => `gemini --resume ${id}`,
-  opencode: (id) => `opencode --session ${id}`,
-  amp: (id) => `amp --resume ${id}`,
-};
+> = Object.create(null);
+RESUME_AGENTS["claude"] = (id) =>
+  `claude --resume ${shellQuote(id)}`;
+RESUME_AGENTS["codex"] = (id) =>
+  `codex resume ${shellQuote(id)}`;
+RESUME_AGENTS["gemini"] = (id) =>
+  `gemini --resume ${shellQuote(id)}`;
+RESUME_AGENTS["opencode"] = (id) =>
+  `opencode --session ${shellQuote(id)}`;
+RESUME_AGENTS["amp"] = (id) =>
+  `amp --resume ${shellQuote(id)}`;
 
 /** Flags available for Claude Code resume. */
 export interface ClaudeResumeFlags {
@@ -17,10 +21,14 @@ export interface ClaudeResumeFlags {
   print?: boolean;
 }
 
-function quote(s: string): string {
-  // Shell-quote if the ID contains characters that need escaping
+/**
+ * POSIX-safe shell quoting using single quotes.
+ * Any embedded single quotes are escaped as '"'"'.
+ * Skips quoting for IDs that are purely alphanumeric + hyphens.
+ */
+function shellQuote(s: string): string {
   if (/^[\w-]+$/.test(s)) return s;
-  return JSON.stringify(s);
+  return "'" + s.replace(/'/g, "'\"'\"'") + "'";
 }
 
 /**
@@ -36,7 +44,7 @@ function stripIdPrefix(id: string): string {
  * Returns true if the given agent supports CLI session resumption.
  */
 export function supportsResume(agent: string): boolean {
-  return agent in RESUME_AGENTS;
+  return Object.hasOwn(RESUME_AGENTS, agent);
 }
 
 /**

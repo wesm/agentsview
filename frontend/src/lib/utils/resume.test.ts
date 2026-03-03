@@ -19,6 +19,12 @@ describe("supportsResume", () => {
     expect(supportsResume("vscode-copilot")).toBe(false);
     expect(supportsResume("unknown")).toBe(false);
   });
+
+  it("returns false for prototype properties", () => {
+    expect(supportsResume("toString")).toBe(false);
+    expect(supportsResume("constructor")).toBe(false);
+    expect(supportsResume("hasOwnProperty")).toBe(false);
+  });
 });
 
 describe("buildResumeCommand", () => {
@@ -118,11 +124,45 @@ describe("buildResumeCommand", () => {
     });
   });
 
-  it("quotes IDs with special characters", () => {
+  it("single-quotes IDs with special characters", () => {
     const cmd = buildResumeCommand(
       "claude",
-      'id with "quotes"',
+      "id with spaces",
     );
-    expect(cmd).toContain('"');
+    expect(cmd).toBe("claude --resume 'id with spaces'");
+  });
+
+  it("escapes single quotes in IDs using POSIX quoting", () => {
+    const cmd = buildResumeCommand(
+      "claude",
+      "it's a test",
+    );
+    expect(cmd).toBe(
+      "claude --resume 'it'\"'\"'s a test'",
+    );
+  });
+
+  it("quotes shell metacharacters safely", () => {
+    const cmd = buildResumeCommand(
+      "codex",
+      "codex:$(whoami)",
+    );
+    expect(cmd).toBe("codex resume '$(whoami)'");
+  });
+
+  it("quotes backtick injection attempts", () => {
+    const cmd = buildResumeCommand(
+      "gemini",
+      "gemini:`rm -rf /`",
+    );
+    expect(cmd).toBe("gemini --resume '`rm -rf /`'");
+  });
+
+  it("quotes $VAR expansion attempts", () => {
+    const cmd = buildResumeCommand(
+      "amp",
+      "amp:$HOME/evil",
+    );
+    expect(cmd).toBe("amp --resume '$HOME/evil'");
   });
 });
