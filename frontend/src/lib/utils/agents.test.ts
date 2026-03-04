@@ -52,7 +52,7 @@ describe("agentColor", () => {
       "var(--accent-coral)",
     );
     expect(agentColor("pi")).toBe(
-      "var(--accent-red)"
+      "var(--accent-indigo)"
     );
   });
 
