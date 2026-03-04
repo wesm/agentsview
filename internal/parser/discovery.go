@@ -1187,13 +1187,10 @@ func openClawArchiveTime(e os.DirEntry) time.Time {
 	}
 	suffix := name[idx+len(".jsonl."):]
 	// suffix is e.g. "deleted.2026-02-19T08-59-24.951Z" or "full.bak"
-	dotIdx := strings.IndexByte(suffix, '.')
-	if dotIdx < 0 {
+	_, tsStr, ok := strings.Cut(suffix, ".")
+	if !ok {
 		return time.Time{}
 	}
-	tsStr := suffix[dotIdx+1:]
-	// OpenClaw uses dashes instead of colons: 2026-02-19T08-59-24.951Z
-	tsStr = strings.Replace(tsStr, "T", "T", 1)
 	// Convert dash-separated time back to colons: 08-59-24 → 08:59:24
 	if tIdx := strings.IndexByte(tsStr, 'T'); tIdx >= 0 {
 		datePart := tsStr[:tIdx+1]
