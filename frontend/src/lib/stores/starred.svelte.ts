@@ -20,13 +20,15 @@ class StarredStore {
 
   private async doLoad() {
     try {
-      const vBefore = this.loadVersion;
       const res = await api.listStarred();
-      if (this.loadVersion === vBefore) {
-        const merged = new Set(res.session_ids);
-        for (const id of this.ids) merged.add(id);
-        this.ids = merged;
+      // Always merge server response with local state. Skip IDs
+      // the user explicitly toggled while the request was in flight
+      // — those are already reflected optimistically in this.ids.
+      const merged = new Set(this.ids);
+      for (const id of res.session_ids) {
+        if (!this.opVersions.has(id)) merged.add(id);
       }
+      this.ids = merged;
 
       await this.migrateLocalStorage();
       this.loaded = true;
