@@ -30,6 +30,7 @@
   let termCustomBin = $state("");
   let termCustomArgs = $state("");
   let settingsSaved = $state(false);
+  let settingsError = $state("");
 
   function sessionDisplayId(id: string): string {
     const idx = id.indexOf(":");
@@ -115,6 +116,7 @@
     showResumeMenu = false;
     showSettings = true;
     settingsSaved = false;
+    settingsError = "";
     try {
       const cfg = await getTerminalConfig();
       termMode = cfg.mode || "auto";
@@ -126,6 +128,7 @@
   }
 
   async function saveSettings() {
+    settingsError = "";
     try {
       await setTerminalConfig({
         mode: termMode,
@@ -137,8 +140,14 @@
         showSettings = false;
         settingsSaved = false;
       }, 800);
-    } catch {
-      // Silently ignore — user can try again.
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : String(err);
+      try {
+        const body = JSON.parse(raw);
+        settingsError = body.error || raw;
+      } catch {
+        settingsError = raw;
+      }
     }
   }
 
@@ -327,6 +336,9 @@
             />
             <span class="settings-hint">Use {'{cmd}'} as placeholder for the resume command</span>
           </div>
+        {/if}
+        {#if settingsError}
+          <div class="settings-error" role="alert">{settingsError}</div>
         {/if}
         <div class="settings-actions">
           <button class="modal-btn" onclick={() => (showSettings = false)}>Cancel</button>
@@ -623,6 +635,16 @@
     display: block;
     margin-left: 0;
     margin-top: 4px;
+  }
+
+  .settings-error {
+    font-size: 11px;
+    color: var(--accent-red, #f85149);
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.25);
+    border-radius: var(--radius-sm, 4px);
+    padding: 6px 8px;
+    margin-bottom: 12px;
   }
 
   .settings-actions {
