@@ -99,11 +99,8 @@ func (s *Server) handleResumeSession(
 	// Strip agent prefix from compound ID only when it matches the
 	// expected agent (e.g. "codex:abc" → "abc"). Raw IDs that
 	// happen to contain ":" are left untouched.
-	rawID := id
 	prefix := string(session.Agent) + ":"
-	if strings.HasPrefix(rawID, prefix) {
-		rawID = rawID[len(prefix):]
-	}
+	rawID := strings.TrimPrefix(id, prefix)
 
 	// Build the CLI command.
 	cmd := fmt.Sprintf(tmpl, shellQuote(rawID))
@@ -181,14 +178,11 @@ func shellQuote(s string) string {
 	// Simple IDs: alphanumeric + hyphens need no quoting,
 	// but a leading '-' must always be quoted to prevent
 	// the value being interpreted as a CLI flag.
-	safe := true
-	if len(s) > 0 && s[0] == '-' {
-		safe = false
-	}
+	safe := len(s) == 0 || s[0] != '-'
 	if safe {
 		for _, c := range s {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-				(c >= '0' && c <= '9') || c == '-' || c == '_') {
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+				(c < '0' || c > '9') && c != '-' && c != '_' {
 				safe = false
 				break
 			}
