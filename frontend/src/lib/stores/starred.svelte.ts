@@ -22,10 +22,11 @@ class StarredStore {
     try {
       const vBefore = this.loadVersion;
       const res = await api.listStarred();
-      if (this.loadVersion !== vBefore) return;
-      const merged = new Set(res.session_ids);
-      for (const id of this.ids) merged.add(id);
-      this.ids = merged;
+      if (this.loadVersion === vBefore) {
+        const merged = new Set(res.session_ids);
+        for (const id of this.ids) merged.add(id);
+        this.ids = merged;
+      }
 
       await this.migrateLocalStorage();
       this.loaded = true;
