@@ -32,12 +32,15 @@
       : `${toolSegments.length} tool calls`,
   );
 
+  let copyTimer: ReturnType<typeof setTimeout>;
+
   async function handleCopy() {
     const combined = messages.map((m) => m.content).join("\n\n");
     const ok = await copyToClipboard(combined);
     if (ok) {
+      clearTimeout(copyTimer);
       copied = true;
-      setTimeout(() => { copied = false; }, 1500);
+      copyTimer = setTimeout(() => { copied = false; }, 1500);
     }
   }
 </script>
@@ -90,6 +93,7 @@
       {formatTimestamp(timestamp)}
     </span>
     <button
+      type="button"
       class="copy-btn"
       title={copied ? "Copied!" : "Copy tool calls"}
       onclick={handleCopy}

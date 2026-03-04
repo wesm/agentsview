@@ -37,11 +37,14 @@
     isUser ? "var(--user-bg)" : "var(--assistant-bg)",
   );
 
+  let copyTimer: ReturnType<typeof setTimeout>;
+
   async function handleCopy() {
     const ok = await copyToClipboard(message.content);
     if (ok) {
+      clearTimeout(copyTimer);
       copied = true;
-      setTimeout(() => { copied = false; }, 1500);
+      copyTimer = setTimeout(() => { copied = false; }, 1500);
     }
   }
 </script>
@@ -69,6 +72,7 @@
       {formatTimestamp(message.timestamp)}
     </span>
     <button
+      type="button"
       class="copy-btn"
       title={copied ? "Copied!" : "Copy message"}
       onclick={handleCopy}
