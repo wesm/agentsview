@@ -35,7 +35,6 @@ class StarredStore {
       const merged = new Set(local);
       for (const id of this.ids) merged.add(id);
       this.ids = merged;
-      this.loaded = true;
     } finally {
       this.loading = null;
     }
@@ -53,7 +52,12 @@ class StarredStore {
         // Refresh from server — the backend silently skips stale IDs,
         // so we must not blindly add toMigrate to local state.
         const refreshed = await api.listStarred();
-        this.ids = new Set(refreshed.session_ids);
+        const refreshedSet = new Set(refreshed.session_ids);
+        const next = new Set(this.ids);
+        for (const id of toMigrate) {
+          if (refreshedSet.has(id)) next.add(id);
+        }
+        this.ids = next;
       } catch {
         // Migration failed silently — will retry next load
         return;
