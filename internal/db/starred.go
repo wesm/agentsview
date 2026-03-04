@@ -1,0 +1,89 @@
+package db
+
+import (
+	"context"
+	"fmt"
+)
+
+// StarSession marks a session as starred.
+func (db *DB) StarSession(sessionID string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(`
+		INSERT OR IGNORE INTO starred_sessions (session_id)
+		VALUES (?)`, sessionID)
+	if err != nil {
+		return fmt.Errorf("starring session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// UnstarSession removes a session's star.
+func (db *DB) UnstarSession(sessionID string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(
+		"DELETE FROM starred_sessions WHERE session_id = ?",
+		sessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("unstarring session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// ListStarredSessionIDs returns all starred session IDs.
+func (db *DB) ListStarredSessionIDs(
+	ctx context.Context,
+) ([]string, error) {
+	rows, err := db.getReader().QueryContext(ctx,
+		"SELECT session_id FROM starred_sessions ORDER BY created_at DESC",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing starred sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning starred session: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// BulkStarSessions stars multiple sessions in a single transaction.
+// Used for migrating localStorage stars to the database.
+func (db *DB) BulkStarSessions(sessionIDs []string) error {
+	if len(sessionIDs) == 0 {
+		return nil
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	tx, err := db.getWriter().Begin()
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`
+		INSERT OR IGNORE INTO starred_sessions (session_id)
+		VALUES (?)`)
+	if err != nil {
+		return fmt.Errorf("preparing statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, id := range sessionIDs {
+		if _, err := stmt.Exec(id); err != nil {
+			return fmt.Errorf("starring session %s: %w", id, err)
+		}
+	}
+
+	return tx.Commit()
+}

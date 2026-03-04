@@ -17,6 +17,7 @@
   import { sync } from "./lib/stores/sync.svelte.js";
   import { ui } from "./lib/stores/ui.svelte.js";
   import { router } from "./lib/stores/router.svelte.js";
+  import { starred } from "./lib/stores/starred.svelte.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
   import {
@@ -154,6 +155,7 @@
   });
 
   onMount(() => {
+    starred.load();
     sync.loadStatus();
     sync.loadStats();
     sync.loadVersion();
