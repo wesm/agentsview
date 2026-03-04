@@ -56,7 +56,6 @@ function readStoredTheme(): Theme | null {
 
 class UIStore {
   theme: Theme = $state(readStoredTheme() || "light");
-  showThinking: boolean = $state(readBlockFilters().has("thinking"));
   sortNewestFirst: boolean = $state(false);
   activeModal: ModalType = $state(null);
   selectedOrdinal: number | null = $state(null);
@@ -65,6 +64,10 @@ class UIStore {
 
   /** Set of block types currently visible. */
   visibleBlocks: Set<BlockType> = $state(readBlockFilters());
+
+  get showThinking(): boolean {
+    return this.visibleBlocks.has("thinking");
+  }
 
   constructor() {
     $effect.root(() => {
@@ -104,16 +107,7 @@ class UIStore {
   }
 
   toggleThinking() {
-    this.showThinking = !this.showThinking;
-    // Keep block filter in sync
-    const next = new Set(this.visibleBlocks);
-    if (this.showThinking) {
-      next.add("thinking");
-    } else {
-      next.delete("thinking");
-    }
-    this.visibleBlocks = next;
-    this.persistBlockFilters();
+    this.toggleBlock("thinking");
   }
 
   isBlockVisible(type: BlockType): boolean {
@@ -128,7 +122,6 @@ class UIStore {
       next.delete(type);
     }
     this.visibleBlocks = next;
-    this.showThinking = next.has("thinking");
     this.persistBlockFilters();
   }
 
@@ -140,14 +133,11 @@ class UIStore {
       next.add(type);
     }
     this.visibleBlocks = next;
-    // Keep showThinking in sync
-    this.showThinking = next.has("thinking");
     this.persistBlockFilters();
   }
 
   showAllBlocks() {
     this.visibleBlocks = new Set(ALL_BLOCK_TYPES);
-    this.showThinking = true;
     this.persistBlockFilters();
   }
 
