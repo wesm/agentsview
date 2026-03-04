@@ -247,6 +247,10 @@ func parsePiAssistantMessage(line string, ordinal int) *ParsedMessage {
 			id := block.Get("id").Str
 			name := block.Get("name").Str
 			argsRaw := block.Get("arguments").Raw
+			// Normalize Pi's agent__intent / _i field to "description"
+			// so the frontend can use a single params.description check
+			// across all agents.
+			argsRaw = normalizePiIntent(argsRaw)
 			toolCalls = append(toolCalls, ParsedToolCall{
 				ToolUseID: id,
 				ToolName:  name,
@@ -296,6 +300,44 @@ func parsePiToolResultMessage(line string, ordinal int) *ParsedMessage {
 			},
 		},
 	}
+}
+
+// normalizePiIntent rewrites Pi's agent__intent or _i argument field to
+// "description" so the frontend can use a uniform params.description check
+// across all agents. Returns the original JSON unchanged if neither field
+// is present or if "description" already exists.
+func normalizePiIntent(argsRaw string) string {
+	if argsRaw == "" {
+		return argsRaw
+	}
+	// Don't overwrite an existing description field.
+	if gjson.Get(argsRaw, "description").Exists() {
+		return argsRaw
+	}
+	intent := gjson.Get(argsRaw, "agent__intent")
+	if !intent.Exists() {
+		intent = gjson.Get(argsRaw, "_i")
+	}
+	if !intent.Exists() {
+		return argsRaw
+	}
+	// Build a minimal JSON object with "description" replacing the intent key,
+	// preserving all other fields.
+	var b strings.Builder
+	b.WriteString(`{"description":`)
+	b.WriteString(intent.Raw)
+	gjson.Parse(argsRaw).ForEach(func(key, value gjson.Result) bool {
+		k := key.Str
+		if k == "agent__intent" || k == "_i" {
+			return true // skip original intent keys
+		}
+		b.WriteByte(',')
+		b.WriteString(`"` + k + `":`)
+		b.WriteString(value.Raw)
+		return true
+	})
+	b.WriteByte('}')
+	return b.String()
 }
 
 // piTimestamp extracts the timestamp for a pi JSONL entry.

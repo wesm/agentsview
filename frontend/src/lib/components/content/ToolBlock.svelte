@@ -38,9 +38,6 @@
     if (filePath) return String(filePath).slice(0, 100);
     // For glob/search tools, show pattern
     if (inputParams?.pattern) return String(inputParams.pattern).slice(0, 100);
-    // Last resort: show pi agent intent metadata
-    const intent = inputParams?.agent__intent ?? inputParams?._i;
-    if (intent) return String(intent).slice(0, 100);
     return "";
   });
 

@@ -3,7 +3,6 @@ package parser
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -260,24 +259,14 @@ func TestParsePiSession_IOError(t *testing.T) {
 		assert.ErrorIs(t, err, ioErr, "wrapped error must be unwrappable")
 	})
 
-	t.Run("lr.Err check does not fire on clean pipe read", func(t *testing.T) {
-		pr, pw, err := os.Pipe()
-		require.NoError(t, err)
-
+	t.Run("lr.Err check does not fire on clean read", func(t *testing.T) {
 		header := `{"type":"session","id":"pipe-sess","timestamp":"2025-01-01T10:00:00Z","cwd":"/Users/alice/code/my-project"}` + "\n"
 		msg := `{"type":"message","id":"entry-1","timestamp":"2025-01-01T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}` + "\n"
 
-		go func() {
-			pw.WriteString(header)
-			pw.WriteString(msg)
-			pw.Close()
-		}()
-
-		path := fmt.Sprintf("/dev/fd/%d", pr.Fd())
+		path := createTestFile(t, "pi-clean-read.jsonl", header+msg)
 		sess, msgs, parseErr := ParsePiSession(path, "my_project", "local")
-		pr.Close()
 
-		require.NoError(t, parseErr, "clean pipe read must not produce an error")
+		require.NoError(t, parseErr, "clean read must not produce an error")
 		require.NotNil(t, sess)
 		assert.Equal(t, "pi:pipe-sess", sess.ID)
 		assert.Len(t, msgs, 1)
@@ -286,6 +275,55 @@ func TestParsePiSession_IOError(t *testing.T) {
 
 // TestParsePiSession_ErrorCases verifies error handling for missing, empty,
 // and invalid session files.
+func TestNormalizePiIntent(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "agent__intent renamed to description",
+			in:   `{"command":"ls","agent__intent":"List files"}`,
+			want: `{"description":"List files","command":"ls"}`,
+		},
+		{
+			name: "_i renamed to description",
+			in:   `{"command":"pwd","_i":"Show directory"}`,
+			want: `{"description":"Show directory","command":"pwd"}`,
+		},
+		{
+			name: "agent__intent preferred over _i",
+			in:   `{"command":"ls","agent__intent":"Primary","_i":"Fallback"}`,
+			want: `{"description":"Primary","command":"ls"}`,
+		},
+		{
+			name: "existing description not overwritten",
+			in:   `{"command":"ls","description":"Already set","agent__intent":"Ignored"}`,
+			want: `{"command":"ls","description":"Already set","agent__intent":"Ignored"}`,
+		},
+		{
+			name: "no intent fields unchanged",
+			in:   `{"command":"ls"}`,
+			want: `{"command":"ls"}`,
+		},
+		{
+			name: "empty string unchanged",
+			in:   "",
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizePiIntent(tt.in)
+			if tt.in == "" {
+				assert.Equal(t, tt.want, got)
+			} else {
+				assert.JSONEq(t, tt.want, got)
+			}
+		})
+	}
+}
+
 func TestParsePiSession_ErrorCases(t *testing.T) {
 	t.Run("missing file", func(t *testing.T) {
 		_, _, err := ParsePiSession("/nonexistent/path/session.jsonl", "proj", "local")

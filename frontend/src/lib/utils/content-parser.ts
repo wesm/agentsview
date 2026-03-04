@@ -55,13 +55,6 @@ const TOOL_ALIASES: Record<string, string> = {
   find: "Read",
 };
 
-function isBashTool(name: string): boolean {
-  return name === "Bash" || name === "bash" || name === "run_command";
-}
-
-function isReadTool(name: string): boolean {
-  return name === "Read" || name === "read" || name === "read_file" || name === "find";
-}
 
 const TOOL_RE = new RegExp(
   `\\[(${TOOL_NAMES})([^\\]]*)\\]([\\s\\S]*?)(?=\\n\\[|\\n\\n|$)`,
@@ -381,10 +374,10 @@ export function enrichSegments(
       tcIdx++;
       const enriched: ContentSegment = { ...seg, toolCall: tc };
 
-      if (isBashTool(tc.tool_name) && tc.input_json) {
+      if (tc.category === "Bash" && tc.input_json) {
         try {
           const input = JSON.parse(tc.input_json);
-          const fullCmd = input.command;
+          const fullCmd = input.command ?? input.cmd;
           if (fullCmd && fullCmd.includes("\n")) {
             enriched.content = `$ ${fullCmd}`;
             // Absorb orphaned text segments from truncated command
@@ -420,17 +413,17 @@ export function enrichSegments(
       const tc = toolCalls[tcIdx]!;
       tcIdx++;
       let content = "";
-      if (isBashTool(tc.tool_name) && tc.input_json) {
+      if (tc.category === "Bash" && tc.input_json) {
         try {
           const input = JSON.parse(tc.input_json);
-          const fullCmd = input.command;
+          const fullCmd = input.command ?? input.cmd;
           if (fullCmd) {
             content = `$ ${fullCmd}`;
           }
         } catch {
           /* leave empty, ToolBlock will use fallbackContent */
         }
-      } else if (isReadTool(tc.tool_name) && tc.input_json) {
+      } else if (tc.category === "Read" && tc.input_json) {
         try {
           const input = JSON.parse(tc.input_json);
           const filePath = input.path ?? input.file_path;
@@ -454,4 +447,33 @@ export function enrichSegments(
   }
 
   return result;
+}
+
+/**
+ * Pure-function equivalent of the component-level visibility check.
+ * Returns true when at least one segment of the message would be
+ * rendered given the supplied visibility predicate.
+ *
+ * `isVisible` is called with a BlockType string -- the component
+ * passes `ui.isBlockVisible`, but tests can supply any predicate.
+ */
+export function hasVisibleSegments(
+  msg: Message,
+  isVisible: (
+    type: "user" | "assistant" | "thinking" | "tool" | "code",
+  ) => boolean,
+): boolean {
+  const role: "user" | "assistant" =
+    msg.role === "user" ? "user" : "assistant";
+  const segs = enrichSegments(
+    parseContent(msg.content, msg.has_tool_use),
+    msg.tool_calls,
+  );
+  // Empty messages (e.g. initial assistant streaming state) should
+  // remain visible when their role is not filtered out.
+  if (segs.length === 0) return isVisible(role);
+  return segs.some((s) => {
+    if (s.type === "text") return isVisible(role);
+    return isVisible(s.type);
+  });
 }
