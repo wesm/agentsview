@@ -146,7 +146,7 @@
   role="button"
   tabindex="0"
   onclick={() => sessions.selectSession(session.id)}
-  onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sessions.selectSession(session.id); } }}
+  onkeydown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sessions.selectSession(session.id); } }}
   oncontextmenu={handleContextMenu}
 >
   {#if !hideAgent}

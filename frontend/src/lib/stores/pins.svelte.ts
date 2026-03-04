@@ -10,6 +10,7 @@ class PinsStore {
   sessionPinIds: Set<number> = $state(new Set());
 
   #currentSessionId: string | null = null;
+  #inflight: Set<number> = new Set();
 
   async loadAll() {
     this.loading = true;
@@ -46,17 +47,23 @@ class PinsStore {
   }
 
   async unpin(sessionId: string, messageId: number) {
-    await api.unpinMessage(sessionId, messageId);
-    const next = new Set(this.sessionPinIds);
-    next.delete(messageId);
-    this.sessionPinIds = next;
-    this.pins = this.pins.filter(
-      (p) =>
-        !(
-          p.session_id === sessionId &&
-          p.message_id === messageId
-        ),
-    );
+    if (this.#inflight.has(messageId)) return;
+    this.#inflight.add(messageId);
+    try {
+      await api.unpinMessage(sessionId, messageId);
+      const next = new Set(this.sessionPinIds);
+      next.delete(messageId);
+      this.sessionPinIds = next;
+      this.pins = this.pins.filter(
+        (p) =>
+          !(
+            p.session_id === sessionId &&
+            p.message_id === messageId
+          ),
+      );
+    } finally {
+      this.#inflight.delete(messageId);
+    }
   }
 
   async togglePin(
@@ -64,23 +71,29 @@ class PinsStore {
     messageId: number,
     ordinal: number,
   ) {
+    if (this.#inflight.has(messageId)) return;
     if (this.sessionPinIds.has(messageId)) {
       await this.unpin(sessionId, messageId);
     } else {
-      const result = await api.pinMessage(sessionId, messageId);
-      const next = new Set(this.sessionPinIds);
-      next.add(messageId);
-      this.sessionPinIds = next;
-      this.pins = [
-        {
-          id: result.id,
-          session_id: sessionId,
-          message_id: messageId,
-          ordinal,
-          created_at: new Date().toISOString(),
-        },
-        ...this.pins,
-      ];
+      this.#inflight.add(messageId);
+      try {
+        const result = await api.pinMessage(sessionId, messageId);
+        const next = new Set(this.sessionPinIds);
+        next.add(messageId);
+        this.sessionPinIds = next;
+        this.pins = [
+          {
+            id: result.id,
+            session_id: sessionId,
+            message_id: messageId,
+            ordinal,
+            created_at: new Date().toISOString(),
+          },
+          ...this.pins,
+        ];
+      } finally {
+        this.#inflight.delete(messageId);
+      }
     }
   }
 }
