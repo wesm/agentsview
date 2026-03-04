@@ -397,7 +397,9 @@ export function enrichSegments(
  */
 export function hasVisibleSegments(
   msg: Message,
-  isVisible: (type: SegmentType | "user" | "assistant") => boolean,
+  isVisible: (
+    type: "user" | "assistant" | "thinking" | "tool" | "code",
+  ) => boolean,
 ): boolean {
   const role: "user" | "assistant" =
     msg.role === "user" ? "user" : "assistant";
