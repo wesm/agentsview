@@ -324,6 +324,7 @@ export function getExportUrl(sessionId: string): string {
 export interface ResumeRequest {
   skip_permissions?: boolean;
   fork_session?: boolean;
+  command_only?: boolean;
 }
 
 export interface ResumeResponse {

@@ -83,7 +83,7 @@
     if (!session) return;
     showOpenMenu = false;
     try {
-      const resp = await resumeSession(session.id);
+      const resp = await resumeSession(session.id, { command_only: true });
       if (resp.command) {
         const ok = await copyToClipboard(resp.command);
         showFeedback(ok ? "Command copied!" : "Failed");

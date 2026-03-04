@@ -96,7 +96,7 @@ export function registerShortcuts(
         if (session && supportsResume(session.agent)) {
           // Copy resume command to clipboard. Use backend-built command
           // (includes cd to project dir) with local fallback.
-          resumeSession(session.id).then((resp) => {
+          resumeSession(session.id, { command_only: true }).then((resp) => {
             const cmd = resp.command || buildResumeCommand(
               session.agent,
               session.id,

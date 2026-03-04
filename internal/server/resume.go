@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -23,6 +24,7 @@ import (
 type resumeRequest struct {
 	SkipPermissions bool `json:"skip_permissions"`
 	ForkSession     bool `json:"fork_session"`
+	CommandOnly     bool `json:"command_only"`
 }
 
 // resumeResponse is the JSON response for a resume request.
@@ -72,7 +74,8 @@ func (s *Server) handleResumeSession(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("resume: session lookup failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if session == nil {
@@ -118,11 +121,22 @@ func (s *Server) handleResumeSession(
 
 	// Claude Code scopes sessions by the working directory the
 	// session was started from. Prepend cd <cwd> so the resume
-	// works from any terminal location.
-	if session.FilePath != nil {
+	// works from any terminal location. Only Claude uses this
+	// pattern — other agents handle directory scoping internally.
+	if string(session.Agent) == "claude" && session.FilePath != nil {
 		if cwd := readSessionCwd(*session.FilePath); cwd != "" {
 			cmd = fmt.Sprintf("cd %s && %s", shellQuote(cwd), cmd)
 		}
+	}
+
+	// If the caller only wants the command string (e.g. for
+	// clipboard copy), skip terminal detection and launch.
+	if req.CommandOnly {
+		writeJSON(w, http.StatusOK, resumeResponse{
+			Launched: false,
+			Command:  cmd,
+		})
+		return
 	}
 
 	// Check terminal config.
@@ -358,7 +372,8 @@ func (s *Server) handleSetTerminalConfig(
 	err := s.cfg.SaveTerminalConfig(tc)
 	s.mu.Unlock()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("save terminal config: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, tc)
@@ -385,12 +400,27 @@ func readSessionCwd(path string) string {
 }
 
 func detectTerminalLinux(cmd string) (string, []string, error) {
-	// Check $TERMINAL env var first.
+	// Check $TERMINAL env var first. Normalize by basename to
+	// reuse per-terminal argument templates when possible.
 	if envTerm := os.Getenv("TERMINAL"); envTerm != "" {
 		if path, err := exec.LookPath(envTerm); err == nil {
-			return path, []string{"-e", "bash", "-c", cmd}, nil
+			// Try to match a known terminal by basename so we use
+			// the correct argument pattern (some terminals don't
+			// support the generic -e flag).
+			base := filepath.Base(envTerm)
+			for _, c := range terminalCandidates {
+				if c.bin == base {
+					// Delegate to the per-terminal switch below
+					// by letting the main loop find it.
+					goto autoDetect
+				}
+			}
+			// Unknown terminal — use generic pattern with keep-open.
+			return path, []string{"-e", "bash", "-c", cmd + "; exec bash"}, nil
 		}
 	}
+
+autoDetect:
 
 	// Try each candidate in preference order.
 	for _, c := range terminalCandidates {
