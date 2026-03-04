@@ -242,7 +242,7 @@
   </div>
 {:else}
   <div
-    class="message-list-scroll"
+    class="message-list-scroll layout-{ui.messageLayout}"
     bind:this={containerRef}
     data-session-id={sessions.activeSessionId}
     data-messages-session-id={messages.sessionId}
@@ -322,5 +322,87 @@
   .empty-text {
     font-size: 14px;
     font-weight: 500;
+  }
+
+  /* ── Compact layout ── */
+  .layout-compact {
+    padding: 4px 0;
+  }
+
+  .layout-compact .virtual-row {
+    padding: 2px 12px;
+  }
+
+  .layout-compact :global(.message) {
+    padding: 6px 12px;
+    border-left-width: 2px;
+    border-radius: 0;
+  }
+
+  .layout-compact :global(.message-header) {
+    margin-bottom: 4px;
+    gap: 6px;
+  }
+
+  .layout-compact :global(.role-icon) {
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+  }
+
+  .layout-compact :global(.role-label) {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+  }
+
+  .layout-compact :global(.timestamp) {
+    font-size: 10px;
+  }
+
+  .layout-compact :global(.text-content) {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .layout-compact :global(.message-body) {
+    gap: 4px;
+  }
+
+  /* ── Stream layout ── */
+  .layout-stream {
+    padding: 0;
+  }
+
+  .layout-stream .virtual-row {
+    padding: 0;
+  }
+
+  .layout-stream :global(.message) {
+    border-left: none;
+    border-radius: 0;
+    padding: 16px 24px;
+  }
+
+  .layout-stream :global(.message.is-user) {
+    background: color-mix(
+      in srgb,
+      var(--accent-blue) 5%,
+      transparent
+    ) !important;
+  }
+
+  .layout-stream :global(.message:not(.is-user)) {
+    background: transparent !important;
+  }
+
+  .layout-stream :global(.message-header) {
+    display: none;
+  }
+
+  .layout-stream :global(.text-content) {
+    font-size: 14px;
+    line-height: 1.75;
   }
 </style>

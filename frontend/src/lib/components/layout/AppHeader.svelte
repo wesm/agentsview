@@ -219,6 +219,33 @@
 
       <button
         class="header-btn"
+        onclick={() => ui.cycleLayout()}
+        title="Cycle layout: {ui.messageLayout} (l)"
+        aria-label="Cycle message layout"
+      >
+        {#if ui.messageLayout === "default"}
+          <!-- Default: cards/bordered -->
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1.5 2A1.5 1.5 0 000 3.5v2A1.5 1.5 0 001.5 7h13A1.5 1.5 0 0016 5.5v-2A1.5 1.5 0 0014.5 2h-13zm0 1h13a.5.5 0 01.5.5v2a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-2a.5.5 0 01.5-.5zm0 6A1.5 1.5 0 000 10.5v2A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5v-2A1.5 1.5 0 0014.5 9h-13zm0 1h13a.5.5 0 01.5.5v2a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-2a.5.5 0 01.5-.5z"/>
+          </svg>
+        {:else if ui.messageLayout === "compact"}
+          <!-- Compact: terminal lines -->
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3 4l4 4-4 4" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <line x1="9" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        {:else}
+          <!-- Stream: continuous flow -->
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="1" y="1" width="14" height="4" rx="1" opacity="0.2"/>
+            <rect x="1" y="6" width="14" height="4" rx="1" opacity="0.08"/>
+            <rect x="1" y="11" width="14" height="4" rx="1" opacity="0.2"/>
+          </svg>
+        {/if}
+      </button>
+
+      <button
+        class="header-btn"
         onclick={handleExport}
         disabled={!sessions.activeSessionId}
         title="Export session (e)"
