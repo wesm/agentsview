@@ -831,6 +831,7 @@ func TestCodexUserMessageCount(t *testing.T) {
 	}
 	if sess == nil {
 		t.Fatal("session is nil")
+		return
 	}
 	if len(msgs) != 4 {
 		t.Fatalf("got %d messages, want 4", len(msgs))
@@ -969,6 +970,7 @@ func TestParseCodexSession_WorktreeBranchFallback(t *testing.T) {
 	}
 	if sess == nil {
 		t.Fatal("session is nil")
+		return
 	}
 	if sess.Project != "agentsview" {
 		t.Fatalf("project = %q, want %q", sess.Project, "agentsview")
@@ -1119,6 +1121,7 @@ func TestGeminiUserMessageCount(t *testing.T) {
 	}
 	if sess == nil {
 		t.Fatal("session is nil")
+		return
 	}
 	if len(msgs) != 4 {
 		t.Fatalf("got %d messages, want 4", len(msgs))

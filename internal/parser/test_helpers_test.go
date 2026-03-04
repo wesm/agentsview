@@ -38,6 +38,7 @@ func assertSessionMeta(t *testing.T, s *ParsedSession, wantID, wantProject strin
 	t.Helper()
 	if s == nil {
 		t.Fatal("session is nil")
+		return
 	}
 	if s.ID != wantID {
 		t.Errorf("session ID = %q, want %q", s.ID, wantID)

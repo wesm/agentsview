@@ -142,6 +142,7 @@ func TestParseVSCodeCopilotSession(t *testing.T) {
 
 			if sess == nil {
 				t.Fatal("expected non-nil session")
+				return
 			}
 
 			if len(msgs) != tt.wantMessages {
@@ -240,6 +241,7 @@ func TestParseVSCodeCopilotSession_MixedTextAndTools(t *testing.T) {
 	}
 	if assistant == nil {
 		t.Fatal("no assistant message")
+		return
 	}
 
 	if !assistant.HasToolUse {
@@ -301,6 +303,7 @@ func TestParseVSCodeCopilotSession_TerminalToolData(t *testing.T) {
 	}
 	if assistant == nil {
 		t.Fatal("no assistant message")
+		return
 	}
 
 	if len(assistant.ToolCalls) != 1 {
@@ -660,6 +663,7 @@ func TestParseVSCodeCopilotSession_JSONL(t *testing.T) {
 
 			if sess == nil {
 				t.Fatal("expected non-nil session")
+				return
 			}
 
 			if len(msgs) != tt.wantMessages {
