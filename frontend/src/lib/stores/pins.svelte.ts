@@ -45,29 +45,29 @@ class PinsStore {
     return this.sessionPinIds.has(messageId);
   }
 
+  async unpin(sessionId: string, messageId: number) {
+    await api.unpinMessage(sessionId, messageId);
+    const next = new Set(this.sessionPinIds);
+    next.delete(messageId);
+    this.sessionPinIds = next;
+    this.pins = this.pins.filter(
+      (p) =>
+        !(
+          p.session_id === sessionId &&
+          p.message_id === messageId
+        ),
+    );
+  }
+
   async togglePin(
     sessionId: string,
     messageId: number,
     ordinal: number,
   ) {
     if (this.sessionPinIds.has(messageId)) {
-      await api.unpinMessage(sessionId, messageId);
-      const next = new Set(this.sessionPinIds);
-      next.delete(messageId);
-      this.sessionPinIds = next;
-      this.pins = this.pins.filter(
-        (p) =>
-          !(
-            p.session_id === sessionId &&
-            p.message_id === messageId
-          ),
-      );
+      await this.unpin(sessionId, messageId);
     } else {
-      const result = await api.pinMessage(
-        sessionId,
-        messageId,
-        ordinal,
-      );
+      const result = await api.pinMessage(sessionId, messageId);
       const next = new Set(this.sessionPinIds);
       next.add(messageId);
       this.sessionPinIds = next;

@@ -138,11 +138,15 @@
   });
 </script>
 
-<button
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
   class="session-item"
   class:active={isActive}
   data-session-id={session.id}
+  role="button"
+  tabindex="0"
   onclick={() => sessions.selectSession(session.id)}
+  onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sessions.selectSession(session.id); } }}
   oncontextmenu={handleContextMenu}
 >
   {#if !hideAgent}
@@ -186,7 +190,7 @@
       {/if}
     </div>
   </div>
-</button>
+</div>
 
 {#if contextMenu}
   <div
@@ -216,6 +220,7 @@
     transition: background 0.1s;
     user-select: none;
     -webkit-user-select: none;
+    cursor: pointer;
   }
 
   .session-item:hover {

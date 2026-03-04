@@ -631,7 +631,6 @@ export function listSessionPins(
 export function pinMessage(
   sessionId: string,
   messageId: number,
-  ordinal: number,
   note?: string,
 ): Promise<{ id: number }> {
   return fetchJSON(
@@ -639,7 +638,7 @@ export function pinMessage(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ordinal, note: note ?? null }),
+      body: JSON.stringify({ note: note ?? null }),
     },
   );
 }

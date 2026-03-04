@@ -17,9 +17,10 @@ type PinnedMessage struct {
 	CreatedAt string  `json:"created_at"`
 
 	// Session metadata — populated only for the "all pins" query.
-	SessionProject     *string `json:"session_project,omitempty"`
-	SessionAgent       *string `json:"session_agent,omitempty"`
-	SessionDisplayName *string `json:"session_display_name,omitempty"`
+	SessionProject      *string `json:"session_project,omitempty"`
+	SessionAgent        *string `json:"session_agent,omitempty"`
+	SessionDisplayName  *string `json:"session_display_name,omitempty"`
+	SessionFirstMessage *string `json:"session_first_message,omitempty"`
 }
 
 const pinnedBaseCols = `id, session_id, message_id, ordinal, note, created_at`
@@ -40,6 +41,7 @@ func scanPinnedRowWithContent(rs rowScanner) (PinnedMessage, error) {
 		&p.Ordinal, &p.Note, &p.CreatedAt,
 		&p.Content, &p.Role,
 		&p.SessionProject, &p.SessionAgent, &p.SessionDisplayName,
+		&p.SessionFirstMessage,
 	)
 	return p, err
 }
@@ -48,21 +50,20 @@ func scanPinnedRowWithContent(rs rowScanner) (PinnedMessage, error) {
 // already pinned, the note is updated. The message must belong to
 // the specified session (enforced via INSERT ... SELECT).
 func (db *DB) PinMessage(
-	sessionID string, messageID int64, ordinal int, note *string,
+	sessionID string, messageID int64, note *string,
 ) (int64, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	// Use INSERT ... SELECT to enforce session-message ownership.
-	// If the message doesn't belong to the session, zero rows are
-	// affected and the function returns 0, nil.
+	// Use INSERT ... SELECT to enforce session-message ownership
+	// and read ordinal from the messages table (not the client).
 	res, err := db.getWriter().Exec(
 		`INSERT INTO pinned_messages (session_id, message_id, ordinal, note)
-		 SELECT ?, m.id, ?, ?
+		 SELECT ?, m.id, m.ordinal, ?
 		 FROM messages m
 		 WHERE m.id = ? AND m.session_id = ?
 		 ON CONFLICT(session_id, message_id) DO UPDATE SET note = excluded.note`,
-		sessionID, ordinal, note, messageID, sessionID,
+		sessionID, note, messageID, sessionID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("pinning message: %w", err)
@@ -117,7 +118,7 @@ func (db *DB) ListPinnedMessages(
 		// frontend doesn't need a separate lookup.
 		query = `SELECT p.id, p.session_id, p.message_id, p.ordinal,
 				p.note, p.created_at, m.content, m.role,
-				s.project, s.agent, s.display_name
+				s.project, s.agent, s.display_name, s.first_message
 			FROM pinned_messages p
 			JOIN sessions s ON p.session_id = s.id AND s.deleted_at IS NULL
 			LEFT JOIN messages m ON p.message_id = m.id

@@ -139,6 +139,7 @@ export interface PinnedMessage {
   session_project?: string | null;
   session_agent?: string | null;
   session_display_name?: string | null;
+  session_first_message?: string | null;
 }
 
 export interface PinsResponse {

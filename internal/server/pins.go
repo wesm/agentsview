@@ -31,7 +31,7 @@ func (s *Server) handlePinMessage(
 		return
 	}
 
-	id, err := s.db.PinMessage(sessionID, messageID, req.Ordinal, req.Note)
+	id, err := s.db.PinMessage(sessionID, messageID, req.Note)
 	if err != nil {
 		log.Printf("pin message: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
