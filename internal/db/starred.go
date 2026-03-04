@@ -71,16 +71,20 @@ func (db *DB) BulkStarSessions(sessionIDs []string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Use INSERT ... SELECT ... WHERE EXISTS so that stale IDs
+	// (sessions pruned or deleted from disk) are silently skipped
+	// instead of causing a foreign key violation that aborts the
+	// entire migration transaction.
 	stmt, err := tx.Prepare(`
 		INSERT OR IGNORE INTO starred_sessions (session_id)
-		VALUES (?)`)
+		SELECT ? WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`)
 	if err != nil {
 		return fmt.Errorf("preparing statement: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, id := range sessionIDs {
-		if _, err := stmt.Exec(id); err != nil {
+		if _, err := stmt.Exec(id, id); err != nil {
 			return fmt.Errorf("starring session %s: %w", id, err)
 		}
 	}
