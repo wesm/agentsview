@@ -135,18 +135,6 @@
 
   <div class="header-right">
     {#if hasActiveSession}
-      <button
-        class="header-btn"
-        class:active={ui.isBlockVisible("thinking")}
-        onclick={() => ui.toggleThinking()}
-        title="Toggle thinking blocks (t)"
-        aria-label="Toggle thinking blocks"
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 4a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 4zm0 6a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
-        </svg>
-      </button>
-
       <div class="block-filter-wrap">
         <button
           class="header-btn"

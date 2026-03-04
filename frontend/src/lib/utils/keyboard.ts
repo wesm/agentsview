@@ -81,7 +81,6 @@ export function registerShortcuts(
         sessions.navigateSession(-1, filter);
       },
       o: () => ui.toggleSort(),
-      t: () => ui.toggleThinking(),
       l: () => ui.cycleLayout(),
       r: () => sync.triggerSync(() => sessions.load()),
       e: () => {
