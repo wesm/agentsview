@@ -55,8 +55,8 @@ func (db *DB) PinMessage(
 
 	// Use INSERT ... SELECT to enforce session-message ownership.
 	// If the message doesn't belong to the session, zero rows are
-	// inserted and the function returns 0.
-	_, err := db.getWriter().Exec(
+	// affected and the function returns 0, nil.
+	res, err := db.getWriter().Exec(
 		`INSERT INTO pinned_messages (session_id, message_id, ordinal, note)
 		 SELECT ?, m.id, ?, ?
 		 FROM messages m
@@ -66,6 +66,12 @@ func (db *DB) PinMessage(
 	)
 	if err != nil {
 		return 0, fmt.Errorf("pinning message: %w", err)
+	}
+
+	// Check if ownership validation failed (zero rows affected).
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return 0, nil
 	}
 
 	// Retrieve the actual row ID (LastInsertId is unreliable on

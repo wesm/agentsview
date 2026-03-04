@@ -135,6 +135,10 @@ export interface PinnedMessage {
   content?: string | null;
   role?: string | null;
   created_at: string;
+  // Session metadata — populated for the "all pins" query.
+  session_project?: string | null;
+  session_agent?: string | null;
+  session_display_name?: string | null;
 }
 
 export interface PinsResponse {

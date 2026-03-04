@@ -33,8 +33,17 @@
     });
   }
 
-  function getSessionInfo(sessionId: string) {
-    const s = sessions.sessions.find((s) => s.id === sessionId);
+  function getSessionInfo(pin: import("../../api/types.js").PinnedMessage) {
+    // Use backend-provided session metadata (available for all-pins
+    // query). Fall back to the sessions store for older data.
+    if (pin.session_project || pin.session_agent) {
+      return {
+        project: pin.session_project ?? "unknown",
+        agent: pin.session_agent ?? "unknown",
+        name: pin.session_display_name ?? pin.session_project ?? pin.session_id.slice(0, 12),
+      };
+    }
+    const s = sessions.sessions.find((s) => s.id === pin.session_id);
     return s
       ? {
           project: s.project,
@@ -44,7 +53,7 @@
       : {
           project: "unknown",
           agent: "unknown",
-          name: sessionId.slice(0, 12) + "...",
+          name: pin.session_id.slice(0, 12) + "...",
         };
   }
 
@@ -96,7 +105,7 @@
   {:else}
     <div class="pin-list">
       {#each pins.pins as pin (pin.id)}
-        {@const info = getSessionInfo(pin.session_id)}
+        {@const info = getSessionInfo(pin)}
         {@const isExpanded = expanded.has(pin.id)}
         {@const preview = previewContent(pin.content)}
         {@const hasMore = (pin.content?.length ?? 0) > 300}

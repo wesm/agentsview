@@ -82,6 +82,8 @@
   }
 
   async function submitRename() {
+    // Guard against blur firing after Escape already cancelled.
+    if (!renaming) return;
     renaming = false;
     const name = renameValue.trim() || null;
     try {
