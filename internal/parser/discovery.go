@@ -1102,6 +1102,9 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 		if !isDirOrSymlink(agentEntry, agentsDir) {
 			continue
 		}
+		if !IsValidSessionID(agentEntry.Name()) {
+			continue
+		}
 
 		sessionsDir := filepath.Join(
 			agentsDir, agentEntry.Name(), "sessions",
@@ -1167,6 +1170,12 @@ func bestOpenClawEntry(a, b os.DirEntry) os.DirEntry {
 			return b
 		}
 		return a
+	}
+	if !aTime.IsZero() {
+		return a
+	}
+	if !bTime.IsZero() {
+		return b
 	}
 	ai, errA := a.Info()
 	bi, errB := b.Info()
