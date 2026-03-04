@@ -366,6 +366,40 @@ export function setGithubConfig(
   });
 }
 
+/* Openers — Conductor-style "Open in" */
+
+export interface Opener {
+  id: string;
+  name: string;
+  kind: "editor" | "terminal" | "files" | "action";
+  bin: string;
+}
+
+export interface OpenersResponse {
+  openers: Opener[];
+}
+
+export function listOpeners(): Promise<OpenersResponse> {
+  return fetchJSON("/openers");
+}
+
+export interface OpenResponse {
+  launched: boolean;
+  opener: string;
+  path: string;
+}
+
+export function openSession(
+  sessionId: string,
+  openerId: string,
+): Promise<OpenResponse> {
+  return fetchJSON(`/sessions/${sessionId}/open`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ opener_id: openerId }),
+  });
+}
+
 /* Terminal config */
 
 export interface TerminalConfig {

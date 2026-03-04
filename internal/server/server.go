@@ -133,6 +133,8 @@ func (s *Server) routes() {
 	s.mux.Handle(
 		"POST /api/v1/sessions/{id}/resume", s.withTimeout(s.handleResumeSession),
 	)
+	s.mux.Handle("GET /api/v1/openers", s.withTimeout(s.handleListOpeners))
+	s.mux.Handle("POST /api/v1/sessions/{id}/open", s.withTimeout(s.handleOpenSession))
 	s.mux.Handle(
 		"POST /api/v1/sessions/upload", s.withTimeout(s.handleUploadSession),
 	)
