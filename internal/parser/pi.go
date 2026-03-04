@@ -136,36 +136,8 @@ func ParsePiSession(
 				// skip silently
 			}
 
-		case "model_change":
-			provider := gjson.Get(line, "provider").Str
-			modelID := gjson.Get(line, "modelId").Str
-			content := fmt.Sprintf(
-				"Model changed to %s/%s", provider, modelID,
-			)
-			ts := parseTimestamp(gjson.Get(line, "timestamp").Str)
-			messages = append(messages, ParsedMessage{
-				Ordinal:       ordinal,
-				Role:          RoleUser,
-				Content:       content,
-				Timestamp:     ts,
-				ContentLength: len(content),
-			})
-			ordinal++
-
-		case "compaction":
-			summary := gjson.Get(line, "summary").Str
-			if summary == "" {
-				summary = "[session compacted]"
-			}
-			ts := parseTimestamp(gjson.Get(line, "timestamp").Str)
-			messages = append(messages, ParsedMessage{
-				Ordinal:       ordinal,
-				Role:          RoleUser,
-				Content:       summary,
-				Timestamp:     ts,
-				ContentLength: len(summary),
-			})
-			ordinal++
+		case "model_change", "compaction":
+			continue
 
 		default:
 			// skip silently (e.g., thinking_level_change)

@@ -16,6 +16,7 @@ describe("KNOWN_AGENTS", () => {
       "opencode",
       "cursor",
       "amp",
+      "vscode-copilot",
       "pi",
     ]);
   });
@@ -52,8 +53,12 @@ describe("agentColor", () => {
     );
   });
 
+  it("returns correct color for vscode-copilot", () => {
+    expect(agentColor("vscode-copilot")).toBe("var(--accent-teal)");
+  });
+
   it("returns correct color for pi", () => {
-    expect(agentColor("pi")).toBe("var(--accent-teal)");
+    expect(agentColor("pi")).toBe("var(--accent-red)");
   });
 
   it("falls back to blue for unknown agents", () => {

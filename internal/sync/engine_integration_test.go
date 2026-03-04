@@ -2806,6 +2806,12 @@ func TestPiSessionIntegration(t *testing.T) {
 			if sess.Agent != "pi" {
 				t.Errorf("agent = %q, want %q", sess.Agent, "pi")
 			}
+			// The fixture has 2 real user messages. model_change and
+			// compaction entries must not inflate the count after
+			// postFilterCounts re-counts role="user" messages.
+			if sess.UserMessageCount != 2 {
+				t.Errorf("UserMessageCount = %d, want 2", sess.UserMessageCount)
+			}
 		},
 	)
 

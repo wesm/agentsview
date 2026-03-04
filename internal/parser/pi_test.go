@@ -168,62 +168,8 @@ func TestParsePiSession_ThinkingBlocks(t *testing.T) {
 	})
 }
 
-// TestParsePiSession_ModelChange verifies that model_change entries produce a
-// synthetic user message (PRSR-07).
-func TestParsePiSession_ModelChange(t *testing.T) {
-	fixturePath := createTestFile(
-		t, "pi-session.jsonl",
-		loadFixture(t, "pi/session.jsonl"),
-	)
-	_, msgs, err := ParsePiSession(fixturePath, "", "local")
-	require.NoError(t, err)
-
-	var modelChangeMsg *ParsedMessage
-	for i := range msgs {
-		if strings.Contains(msgs[i].Content, "Model changed to") {
-			modelChangeMsg = &msgs[i]
-			break
-		}
-	}
-	require.NotNil(t, modelChangeMsg, "expected model_change synthetic message")
-	assert.Equal(t, RoleUser, modelChangeMsg.Role, "PRSR-07: model_change message role is RoleUser")
-	assert.Contains(
-		t,
-		modelChangeMsg.Content,
-		"Model changed to anthropic/claude-opus-4-5",
-		"PRSR-07: model change content",
-	)
-}
-
-// TestParsePiSession_Compaction verifies that compaction entries produce a
-// synthetic user message containing the summary text (PRSR-08).
-func TestParsePiSession_Compaction(t *testing.T) {
-	fixturePath := createTestFile(
-		t, "pi-session.jsonl",
-		loadFixture(t, "pi/session.jsonl"),
-	)
-	_, msgs, err := ParsePiSession(fixturePath, "", "local")
-	require.NoError(t, err)
-
-	var compactionMsg *ParsedMessage
-	for i := range msgs {
-		if strings.Contains(msgs[i].Content, "Context Checkpoint") {
-			compactionMsg = &msgs[i]
-			break
-		}
-	}
-	require.NotNil(t, compactionMsg, "expected compaction synthetic message")
-	assert.Equal(t, RoleUser, compactionMsg.Role, "PRSR-08: compaction message role is RoleUser")
-	assert.Contains(
-		t,
-		compactionMsg.Content,
-		"Context Checkpoint",
-		"PRSR-08: compaction summary in content",
-	)
-}
-
-// TestParsePiSession_UserMessageCount verifies that synthetic entries
-// (model_change, compaction) are not counted as user messages.
+// TestParsePiSession_UserMessageCount verifies that model_change and
+// compaction entries are skipped entirely and do not inflate user counts.
 func TestParsePiSession_UserMessageCount(t *testing.T) {
 	fixturePath := createTestFile(
 		t, "pi-session.jsonl",
@@ -232,11 +178,10 @@ func TestParsePiSession_UserMessageCount(t *testing.T) {
 	sess, _, err := ParsePiSession(fixturePath, "", "local")
 	require.NoError(t, err)
 
-	// The fixture has 2 real user messages plus model_change and compaction
-	// entries that are stored as RoleUser. Only real user messages should be
-	// counted.
+	// The fixture has 2 real user messages. model_change and compaction
+	// entries are skipped entirely and never enter the messages slice.
 	assert.Equal(t, 2, sess.UserMessageCount,
-		"UserMessageCount must exclude synthetic model_change/compaction entries")
+		"UserMessageCount must only count real user messages")
 }
 
 // TestParsePiSession_UserMessageCountEmptyContent verifies that user messages
