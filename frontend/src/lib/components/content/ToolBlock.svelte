@@ -21,6 +21,11 @@
 
   let { content, label, toolCall }: Props = $props();
   let collapsed: boolean = $state(true);
+  let outputCollapsed: boolean = $state(true);
+
+  let outputPreviewLine = $derived(
+    toolCall?.result_content?.split("\n")[0]?.slice(0, 100) ?? "",
+  );
 
   let previewLine = $derived(
     content.split("\n")[0]?.slice(0, 100) ?? "",
@@ -161,6 +166,28 @@
     {:else if fallbackContent}
       <pre class="tool-content">{fallbackContent}</pre>
     {/if}
+    {#if toolCall?.result_content}
+      <button
+        class="output-header"
+        onclick={(e) => {
+          e.stopPropagation();
+          const sel = window.getSelection();
+          if (sel && sel.toString().length > 0) return;
+          outputCollapsed = !outputCollapsed;
+        }}
+      >
+        <span class="tool-chevron" class:open={!outputCollapsed}>
+          &#9656;
+        </span>
+        <span class="output-label">output</span>
+        {#if outputCollapsed && outputPreviewLine}
+          <span class="tool-preview">{outputPreviewLine}</span>
+        {/if}
+      </button>
+      {#if !outputCollapsed}
+        <pre class="tool-content output-content">{toolCall.result_content}</pre>
+      {/if}
+    {/if}
   {/if}
   {#if subagentSessionId}
     <SubagentInline sessionId={subagentSessionId} />
@@ -256,5 +283,39 @@
     line-height: 1.5;
     overflow-x: auto;
     border-top: 1px solid var(--border-muted);
+  }
+
+  .output-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    width: 100%;
+    text-align: left;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 0;
+    border-top: 1px solid var(--border-muted);
+    transition: background 0.1s;
+    user-select: text;
+  }
+
+  .output-header:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+
+  .output-label {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .output-content {
+    max-height: 300px;
+    overflow-y: auto;
   }
 </style>
