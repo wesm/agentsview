@@ -266,19 +266,22 @@ func extractToolResultText(content gjson.Result) string {
 	return strings.Join(parts, "\n")
 }
 
-// isOpenClawSessionFile reports whether a filename is an OpenClaw
-// session file. It matches active files (*.jsonl) and archived
-// files (*.jsonl.deleted.*, *.jsonl.full.bak, *.jsonl.reset.*).
+// IsOpenClawSessionFile reports whether a filename is an OpenClaw
+// session file. It matches active files (*.jsonl) and the known
+// archive suffixes: .jsonl.deleted.<ts>, .jsonl.reset.<ts>, and
+// .jsonl.full.bak.
 func IsOpenClawSessionFile(name string) bool {
 	if strings.HasSuffix(name, ".jsonl") {
 		return true
 	}
-	// Archived files: <uuid>.jsonl.<reason>.<timestamp>
-	// e.g. abc.jsonl.deleted.2026-02-19T08-59-24.951Z
-	//      abc.jsonl.full.bak
-	//      abc.jsonl.reset.2026-02-17T09-39-39.691Z
 	idx := strings.Index(name, ".jsonl.")
-	return idx > 0
+	if idx <= 0 {
+		return false
+	}
+	suffix := name[idx+len(".jsonl."):]
+	return strings.HasPrefix(suffix, "deleted.") ||
+		strings.HasPrefix(suffix, "reset.") ||
+		suffix == "full.bak"
 }
 
 // OpenClawSessionID extracts the session UUID from an OpenClaw

@@ -214,6 +214,61 @@ func TestParseOpenClawSession_AgentIDInSessionID(t *testing.T) {
 	}
 }
 
+func TestIsOpenClawSessionFile(t *testing.T) {
+	accepted := []string{
+		"abc.jsonl",
+		"abc.jsonl.deleted.2026-02-19T08-59-24.951Z",
+		"abc.jsonl.reset.2026-02-17T09-39-39.691Z",
+		"abc.jsonl.full.bak",
+	}
+	rejected := []string{
+		"abc.jsonl.tmp",
+		"abc.jsonl.lock",
+		"abc.jsonl.partial",
+		"abc.json",
+		"sessions.json",
+	}
+	for _, name := range accepted {
+		if !IsOpenClawSessionFile(name) {
+			t.Errorf("expected %q to be accepted", name)
+		}
+	}
+	for _, name := range rejected {
+		if IsOpenClawSessionFile(name) {
+			t.Errorf("expected %q to be rejected", name)
+		}
+	}
+}
+
+func TestBestOpenClawEntry_CrossSuffix(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// reset is newer (March) than deleted (January), even though
+	// "deleted" > "reset" would be wrong lexicographically within
+	// the suffix family.
+	older := "abc.jsonl.deleted.2026-01-15T00-00-00.000Z"
+	newer := "abc.jsonl.reset.2026-03-01T00-00-00.000Z"
+	for _, name := range []string{older, newer} {
+		if err := os.WriteFile(
+			filepath.Join(sessDir, name), []byte("{}"), 0644,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files := DiscoverOpenClawSessions(root)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 (deduplicated), got %d", len(files))
+	}
+	if filepath.Base(files[0].Path) != newer {
+		t.Errorf("expected %q, got %q", newer, filepath.Base(files[0].Path))
+	}
+}
+
 func TestDiscoverOpenClawSessions(t *testing.T) {
 	// Build a mock directory structure:
 	// <root>/main/sessions/sess1.jsonl

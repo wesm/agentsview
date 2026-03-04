@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -1148,9 +1149,8 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 
 // bestOpenClawEntry returns the preferred entry when two files
 // share the same logical session ID. Active .jsonl files always
-// win. Among archived files, the one with the lexicographically
-// greater name (which embeds ISO timestamps) is preferred; if
-// names compare equal, the newer mtime wins.
+// win. Among archived files, the one with the newest embedded
+// timestamp wins; when no timestamp is parseable, mtime is used.
 func bestOpenClawEntry(a, b os.DirEntry) os.DirEntry {
 	aActive := strings.HasSuffix(a.Name(), ".jsonl")
 	bActive := strings.HasSuffix(b.Name(), ".jsonl")
@@ -1160,15 +1160,14 @@ func bestOpenClawEntry(a, b os.DirEntry) os.DirEntry {
 	if bActive && !aActive {
 		return b
 	}
-	// Both archived (or theoretically both active). Pick the
-	// lexicographically greater name (timestamps sort naturally).
-	if b.Name() > a.Name() {
-		return b
-	}
-	if a.Name() > b.Name() {
+	aTime := openClawArchiveTime(a)
+	bTime := openClawArchiveTime(b)
+	if !aTime.IsZero() && !bTime.IsZero() {
+		if bTime.After(aTime) {
+			return b
+		}
 		return a
 	}
-	// Identical names — fall back to mtime.
 	ai, errA := a.Info()
 	bi, errB := b.Info()
 	if errA == nil && errB == nil &&
@@ -1176,6 +1175,42 @@ func bestOpenClawEntry(a, b os.DirEntry) os.DirEntry {
 		return b
 	}
 	return a
+}
+
+// openClawArchiveTime extracts the timestamp embedded in an
+// OpenClaw archive filename suffix (e.g. ".deleted.2026-02-19T08-59-24.951Z").
+func openClawArchiveTime(e os.DirEntry) time.Time {
+	name := e.Name()
+	idx := strings.Index(name, ".jsonl.")
+	if idx <= 0 {
+		return time.Time{}
+	}
+	suffix := name[idx+len(".jsonl."):]
+	// suffix is e.g. "deleted.2026-02-19T08-59-24.951Z" or "full.bak"
+	dotIdx := strings.IndexByte(suffix, '.')
+	if dotIdx < 0 {
+		return time.Time{}
+	}
+	tsStr := suffix[dotIdx+1:]
+	// OpenClaw uses dashes instead of colons: 2026-02-19T08-59-24.951Z
+	tsStr = strings.Replace(tsStr, "T", "T", 1)
+	// Convert dash-separated time back to colons: 08-59-24 → 08:59:24
+	if tIdx := strings.IndexByte(tsStr, 'T'); tIdx >= 0 {
+		datePart := tsStr[:tIdx+1]
+		timePart := tsStr[tIdx+1:]
+		// Only replace first two dashes in time portion (hh-mm-ss)
+		timePart = strings.Replace(timePart, "-", ":", 1)
+		timePart = strings.Replace(timePart, "-", ":", 1)
+		tsStr = datePart + timePart
+	}
+	t, err := time.Parse("2006-01-02T15:04:05.000Z", tsStr)
+	if err != nil {
+		t, err = time.Parse("2006-01-02T15:04:05Z", tsStr)
+	}
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // FindOpenClawSourceFile locates an OpenClaw session file by its
