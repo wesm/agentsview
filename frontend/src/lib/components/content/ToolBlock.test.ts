@@ -1,0 +1,136 @@
+// @vitest-environment jsdom
+// ABOUTME: Unit tests for ToolBlock's output section behavior.
+// ABOUTME: Covers visibility, collapse/expand, and preview of result_content.
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mount, unmount, tick } from "svelte";
+import type { ToolCall } from "../../api/types.js";
+
+vi.mock("./SubagentInline.svelte", () => ({
+  default: {},
+}));
+
+// @ts-ignore
+import ToolBlock from "./ToolBlock.svelte";
+
+describe("ToolBlock output section", () => {
+  let component: ReturnType<typeof mount>;
+
+  afterEach(() => {
+    if (component) unmount(component);
+    document.body.innerHTML = "";
+  });
+
+  it("does not render output-header when toolCall has no result_content", async () => {
+    const toolCall: ToolCall = {
+      tool_name: "Read",
+      category: "file",
+    };
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "some input", toolCall },
+    });
+    await tick();
+
+    expect(document.querySelector(".output-header")).toBeNull();
+  });
+
+  it("does not render output-header when toolCall is absent", async () => {
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "some input" },
+    });
+    await tick();
+
+    expect(document.querySelector(".output-header")).toBeNull();
+  });
+
+  it("renders output-header after expanding the tool block when result_content is set", async () => {
+    const toolCall: ToolCall = {
+      tool_name: "Read",
+      category: "file",
+      result_content: "line one\nline two",
+    };
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "some input", toolCall },
+    });
+    await tick();
+
+    // Output section is inside the collapsed block — not visible yet.
+    expect(document.querySelector(".output-header")).toBeNull();
+
+    // Expand the main tool block.
+    const toolHeader = document.querySelector<HTMLButtonElement>(".tool-header");
+    expect(toolHeader).not.toBeNull();
+    toolHeader!.click();
+    await tick();
+
+    expect(document.querySelector(".output-header")).not.toBeNull();
+  });
+
+  it("output starts collapsed after expanding the tool block", async () => {
+    const toolCall: ToolCall = {
+      tool_name: "Read",
+      category: "file",
+      result_content: "line one\nline two",
+    };
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "some input", toolCall },
+    });
+    await tick();
+
+    document.querySelector<HTMLButtonElement>(".tool-header")!.click();
+    await tick();
+
+    // Output content pre block should not be present when output is collapsed.
+    expect(document.querySelector(".output-content")).toBeNull();
+  });
+
+  it("expands output content on clicking output-header", async () => {
+    const resultText = "line one\nline two\nline three";
+    const toolCall: ToolCall = {
+      tool_name: "Read",
+      category: "file",
+      result_content: resultText,
+    };
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "some input", toolCall },
+    });
+    await tick();
+
+    document.querySelector<HTMLButtonElement>(".tool-header")!.click();
+    await tick();
+
+    document.querySelector<HTMLButtonElement>(".output-header")!.click();
+    await tick();
+
+    const outputContent = document.querySelector(".output-content");
+    expect(outputContent).not.toBeNull();
+    expect(outputContent!.textContent).toBe(resultText);
+  });
+
+  it("shows first line as preview when output is collapsed", async () => {
+    const toolCall: ToolCall = {
+      tool_name: "Read",
+      category: "file",
+      result_content: "first line\nsecond line",
+    };
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "some input", toolCall },
+    });
+    await tick();
+
+    document.querySelector<HTMLButtonElement>(".tool-header")!.click();
+    await tick();
+
+    // Output is collapsed — preview should show first line.
+    const outputHeader = document.querySelector(".output-header");
+    expect(outputHeader).not.toBeNull();
+    const preview = outputHeader!.querySelector(".tool-preview");
+    expect(preview).not.toBeNull();
+    expect(preview!.textContent).toBe("first line");
+  });
+});
