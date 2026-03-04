@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { pins } from "../../stores/pins.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { router } from "../../stores/router.svelte.js";
@@ -22,15 +22,11 @@
     expanded = next;
   }
 
-  function navigateToPin(sessionId: string, ordinal: number) {
-    // Set scroll target before navigating — the route effect will
-    // reset activeSessionId, but the pending scroll is preserved.
-    ui.scrollToOrdinal(ordinal, sessionId);
+  async function navigateToPin(sessionId: string, ordinal: number) {
     router.navigate("sessions");
-    // Select session after route effect clears activeSessionId
-    requestAnimationFrame(() => {
-      sessions.selectSession(sessionId);
-    });
+    await tick();
+    sessions.selectSession(sessionId);
+    ui.scrollToOrdinal(ordinal, sessionId);
   }
 
   function getSessionInfo(pin: import("../../api/types.js").PinnedMessage) {
