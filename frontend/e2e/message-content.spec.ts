@@ -224,8 +224,14 @@ test.describe("Mixed content rendering", () => {
     const sid = await selectSession(page, project, count);
     await expectSessionLoaded(page, sid, displayRows);
 
-    // Toggle thinking off with keyboard shortcut
-    await page.keyboard.press("t");
+    // Open block filter dropdown and toggle thinking off
+    await page
+      .locator('button[aria-label="Filter block types"]')
+      .click();
+    await page
+      .locator(".block-filter-item")
+      .filter({ hasText: "Thinking blocks" })
+      .click();
 
     // Thinking blocks should be hidden
     const thinkingBlocks = page.locator(".thinking-block");
