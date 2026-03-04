@@ -94,18 +94,15 @@ export function registerShortcuts(
       c: () => {
         const session = sessions.activeSession;
         if (session && supportsResume(session.agent)) {
-          // Try launching terminal via backend; fall back to clipboard.
+          // Copy resume command to clipboard. Use backend-built command
+          // (includes cd to project dir) with local fallback.
           resumeSession(session.id).then((resp) => {
-            if (!resp.launched) {
-              // Prefer the backend-built command to avoid frontend/backend drift.
-              const cmd = resp.command || buildResumeCommand(
-                session.agent,
-                session.id,
-              );
-              if (cmd) copyToClipboard(cmd);
-            }
+            const cmd = resp.command || buildResumeCommand(
+              session.agent,
+              session.id,
+            );
+            if (cmd) copyToClipboard(cmd);
           }).catch(() => {
-            // Request failed entirely; rebuild locally as last resort.
             const cmd = buildResumeCommand(
               session.agent,
               session.id,

@@ -54,6 +54,38 @@
     }, 2500);
   }
 
+  async function handleResumeCopy() {
+    if (!session) return;
+    showResumeMenu = false;
+
+    // Try the backend first — it builds the full command including
+    // cd to the project directory. Fall back to local build.
+    try {
+      const resp = await resumeSession(session.id, {
+        skip_permissions: skipPermissions,
+      });
+      const cmd = resp.command;
+      if (cmd) {
+        const ok = await copyToClipboard(cmd);
+        resumeState = ok ? "copied" : "error";
+        resumeMessage = ok ? "Copied!" : "Failed";
+        resetResumeState();
+        return;
+      }
+    } catch {
+      // Backend unavailable — build locally.
+    }
+
+    const cmd = buildResumeCommand(session.agent, session.id, {
+      skipPermissions,
+    });
+    if (!cmd) return;
+    const ok = await copyToClipboard(cmd);
+    resumeState = ok ? "copied" : "error";
+    resumeMessage = ok ? "Copied!" : "Failed";
+    resetResumeState();
+  }
+
   async function handleResumeLaunch() {
     if (!session) return;
     showResumeMenu = false;
@@ -70,20 +102,12 @@
           ? `Launched in ${resp.terminal.split("/").pop()}`
           : "Launched!";
       } else {
-        // Terminal not found — fall back to clipboard.
+        // Terminal not found — copy instead.
         const ok = await copyToClipboard(resp.command);
-        if (ok) {
-          resumeState = "copied";
-          resumeMessage = resp.error
-            ? "No terminal — copied"
-            : "Copied!";
-        } else {
-          resumeState = "error";
-          resumeMessage = "Failed to copy";
-        }
+        resumeState = ok ? "copied" : "error";
+        resumeMessage = ok ? "No terminal — copied" : "Failed";
       }
     } catch {
-      // API error — fall back to building command locally.
       const cmd = buildResumeCommand(session.agent, session.id, {
         skipPermissions,
       });
@@ -96,19 +120,6 @@
         resumeMessage = "Not supported";
       }
     }
-    resetResumeState();
-  }
-
-  async function handleResumeCopy() {
-    if (!session) return;
-    showResumeMenu = false;
-    const cmd = buildResumeCommand(session.agent, session.id, {
-      skipPermissions,
-    });
-    if (!cmd) return;
-    const ok = await copyToClipboard(cmd);
-    resumeState = ok ? "copied" : "error";
-    resumeMessage = ok ? "Copied!" : "Failed";
     resetResumeState();
   }
 
@@ -197,9 +208,9 @@
             class:copied={resumeState === "copied"}
             class:error={resumeState === "error"}
             class:launching={resumeState === "launching"}
-            onclick={handleResumeLaunch}
-            title="Launch this session in a terminal"
-            aria-label="Resume in terminal"
+            onclick={handleResumeCopy}
+            title="Copy resume command to clipboard"
+            aria-label="Copy resume command"
             disabled={resumeState === "launching"}
           >
             {#if resumeState === "launching"}
@@ -217,10 +228,10 @@
                 <path d="M3.5 4.5h5v1h-5zm0 2h5v1h-5zm0 2h3v1h-3z"/>
               </svg>
             {:else}
-              <!-- Terminal icon -->
+              <!-- Clipboard icon -->
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25H1.75z"/>
-                <path d="M3.17 5.47a.75.75 0 011.06 0L6.53 7.77a.75.75 0 010 1.06L4.23 11.13a.75.75 0 01-1.06-1.06L5.44 7.8 3.17 6.53a.75.75 0 010-1.06zM7 10.25a.75.75 0 01.75-.75h3.5a.75.75 0 010 1.5h-3.5a.75.75 0 01-.75-.75z"/>
+                <path d="M0 2.75C0 1.784.784 1 1.75 1h8.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0110.25 12h-8.5A1.75 1.75 0 010 10.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-8.5z"/>
+                <path d="M3.5 4.5h5v1h-5zm0 2h5v1h-5zm0 2h3v1h-3z"/>
               </svg>
             {/if}
             {resumeMessage || "Resume"}
@@ -237,19 +248,19 @@
           </button>
           {#if showResumeMenu}
             <div class="resume-menu">
-              <button class="resume-menu-item" onclick={handleResumeLaunch}>
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25H1.75z"/>
-                  <path d="M3.17 5.47a.75.75 0 011.06 0L6.53 7.77a.75.75 0 010 1.06L4.23 11.13a.75.75 0 01-1.06-1.06L5.44 7.8 3.17 6.53a.75.75 0 010-1.06z"/>
-                </svg>
-                Launch in terminal
-              </button>
               <button class="resume-menu-item" onclick={handleResumeCopy}>
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M0 2.75C0 1.784.784 1 1.75 1h8.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0110.25 12h-8.5A1.75 1.75 0 010 10.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-8.5z"/>
                   <path d="M3.5 4.5h5v1h-5zm0 2h5v1h-5zm0 2h3v1h-3z"/>
                 </svg>
                 Copy command
+              </button>
+              <button class="resume-menu-item" onclick={handleResumeLaunch}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25H1.75z"/>
+                  <path d="M3.17 5.47a.75.75 0 011.06 0L6.53 7.77a.75.75 0 010 1.06L4.23 11.13a.75.75 0 01-1.06-1.06L5.44 7.8 3.17 6.53a.75.75 0 010-1.06z"/>
+                </svg>
+                Open in terminal
               </button>
               {#if isClaude}
                 <div class="resume-menu-divider"></div>
