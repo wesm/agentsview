@@ -147,6 +147,9 @@ func runServe(args []string) {
 	defer database.Close()
 
 	for _, def := range parser.Registry {
+		if !cfg.IsUserConfigured(def.Type) {
+			continue
+		}
 		warnMissingDirs(
 			cfg.ResolveDirs(def.Type),
 			string(def.Type),
@@ -161,7 +164,11 @@ func runServe(args []string) {
 		Machine:   "local",
 	})
 
-	runInitialSync(engine)
+	if database.NeedsResync() {
+		runInitialResync(engine)
+	} else {
+		runInitialSync(engine)
+	}
 
 	stopWatcher, unwatchedDirs := startFileWatcher(cfg, engine)
 	defer stopWatcher()
@@ -295,10 +302,37 @@ func runInitialSync(engine *sync.Engine) {
 	fmt.Println("Running initial sync...")
 	t := time.Now()
 	stats := engine.SyncAll(printSyncProgress)
+	printSyncSummary(stats, t)
+}
+
+func runInitialResync(engine *sync.Engine) {
+	fmt.Println("Data version changed, running full resync...")
+	t := time.Now()
+	stats := engine.ResyncAll(printSyncProgress)
+	printSyncSummary(stats, t)
+
+	// If resync was aborted (swap didn't happen), fall back
+	// to a normal incremental sync so the server starts with
+	// current file data rather than a potentially stale DB.
+	if stats.Aborted {
+		fmt.Println("Resync incomplete, running incremental sync...")
+		t = time.Now()
+		fallback := engine.SyncAll(printSyncProgress)
+		printSyncSummary(fallback, t)
+	}
+}
+
+func printSyncSummary(stats sync.SyncStats, t time.Time) {
 	summary := fmt.Sprintf(
 		"\nSync complete: %d sessions synced",
 		stats.Synced,
 	)
+	if stats.OrphanedCopied > 0 {
+		summary += fmt.Sprintf(
+			", %d archived sessions preserved",
+			stats.OrphanedCopied,
+		)
+	}
 	if stats.Failed > 0 {
 		summary += fmt.Sprintf(", %d failed", stats.Failed)
 	}
@@ -306,6 +340,9 @@ func runInitialSync(engine *sync.Engine) {
 		" in %s\n", time.Since(t).Round(time.Millisecond),
 	)
 	fmt.Print(summary)
+	for _, w := range stats.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
 }
 
 func printSyncProgress(p sync.Progress) {

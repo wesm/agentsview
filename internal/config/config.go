@@ -40,6 +40,7 @@ type dirSource int
 
 const (
 	dirDefault dirSource = iota
+	dirFile
 	dirEnv
 )
 
@@ -48,6 +49,15 @@ func (c *Config) ResolveDirs(
 	agent parser.AgentType,
 ) []string {
 	return c.AgentDirs[agent]
+}
+
+// IsUserConfigured reports whether the agent's directories
+// were explicitly set by the user (via env var or config file)
+// rather than populated from defaults.
+func (c *Config) IsUserConfigured(
+	agent parser.AgentType,
+) bool {
+	return c.agentDirSource[agent] != dirDefault
 }
 
 // Default returns a Config with default values.
@@ -168,6 +178,7 @@ func (c *Config) loadFile() error {
 		}
 		if len(dirs) > 0 {
 			c.AgentDirs[def.Type] = dirs
+			c.agentDirSource[def.Type] = dirFile
 		}
 	}
 	return nil

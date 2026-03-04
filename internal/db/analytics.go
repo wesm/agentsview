@@ -127,7 +127,7 @@ func (f AnalyticsFilter) buildWhere(
 
 	if f.ActiveSince != "" {
 		preds = append(preds,
-			"COALESCE(ended_at, started_at, created_at) >= ?")
+			"COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at) >= ?")
 		args = append(args, f.ActiveSince)
 	}
 
@@ -167,7 +167,7 @@ func (db *DB) filteredSessionIDs(
 	ctx context.Context, f AnalyticsFilter,
 ) (map[string]bool, error) {
 	loc := f.location()
-	dateCol := "COALESCE(s.started_at, s.created_at)"
+	dateCol := "COALESCE(NULLIF(s.started_at, ''), s.created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	query := `SELECT s.id, m.timestamp
@@ -297,7 +297,7 @@ func (db *DB) GetAnalyticsSummary(
 	ctx context.Context, f AnalyticsFilter,
 ) (AnalyticsSummary, error) {
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -482,7 +482,7 @@ func (db *DB) GetAnalyticsActivity(
 		granularity = "day"
 	}
 	loc := f.location()
-	dateCol := "COALESCE(s.started_at, s.created_at)"
+	dateCol := "COALESCE(NULLIF(s.started_at, ''), s.created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -653,9 +653,10 @@ type HeatmapLevels struct {
 
 // HeatmapResponse wraps the heatmap data.
 type HeatmapResponse struct {
-	Metric  string         `json:"metric"`
-	Entries []HeatmapEntry `json:"entries"`
-	Levels  HeatmapLevels  `json:"levels"`
+	Metric      string         `json:"metric"`
+	Entries     []HeatmapEntry `json:"entries"`
+	Levels      HeatmapLevels  `json:"levels"`
+	EntriesFrom string         `json:"entries_from"`
 }
 
 // GetAnalyticsHeatmap returns daily counts with intensity levels.
@@ -668,7 +669,7 @@ func (db *DB) GetAnalyticsHeatmap(
 	}
 
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -721,10 +722,14 @@ func (db *DB) GetAnalyticsHeatmap(
 		source = daySessions
 	}
 
-	// Collect non-zero values for quartile computation
+	// Determine effective date range (clamped to MaxHeatmapDays)
+	entriesFrom := clampFrom(f.From, f.To)
+
+	// Collect non-zero values from the displayed range only,
+	// so outliers outside the window don't skew intensity.
 	var values []int
-	for _, v := range source {
-		if v > 0 {
+	for date, v := range source {
+		if v > 0 && date >= entriesFrom && date <= f.To {
 			values = append(values, v)
 		}
 	}
@@ -732,13 +737,16 @@ func (db *DB) GetAnalyticsHeatmap(
 
 	levels := computeQuartileLevels(values)
 
-	// Build entries for each day in range
-	entries := buildDateEntries(f.From, f.To, source, levels)
+	// Build entries for each day in the clamped range
+	entries := buildDateEntries(
+		entriesFrom, f.To, source, levels,
+	)
 
 	return HeatmapResponse{
-		Metric:  metric,
-		Entries: entries,
-		Levels:  levels,
+		Metric:      metric,
+		Entries:     entries,
+		Levels:      levels,
+		EntriesFrom: entriesFrom,
 	}, nil
 }
 
@@ -773,7 +781,33 @@ func assignLevel(value int, levels HeatmapLevels) int {
 	return 4
 }
 
-// buildDateEntries creates a HeatmapEntry for each day in [from, to].
+// MaxHeatmapDays is the maximum number of day entries the
+// heatmap will return. Ranges exceeding this are clamped to
+// the most recent MaxHeatmapDays from the end date.
+const MaxHeatmapDays = 366
+
+// clampFrom returns from clamped so that [from, to] spans at
+// most MaxHeatmapDays. If the range is already within bounds,
+// from is returned unchanged.
+func clampFrom(from, to string) string {
+	start, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return from
+	}
+	end, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		return from
+	}
+	earliest := end.AddDate(0, 0, -(MaxHeatmapDays - 1))
+	if start.Before(earliest) {
+		return earliest.Format("2006-01-02")
+	}
+	return from
+}
+
+// buildDateEntries creates a HeatmapEntry for each day in
+// [from, to]. The caller is responsible for clamping the
+// range via clampFrom before calling this function.
 func buildDateEntries(
 	from, to string,
 	values map[string]int,
@@ -826,7 +860,7 @@ func (db *DB) GetAnalyticsProjects(
 	ctx context.Context, f AnalyticsFilter,
 ) (ProjectsAnalyticsResponse, error) {
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -972,7 +1006,7 @@ func (db *DB) GetAnalyticsHourOfWeek(
 	ctx context.Context, f AnalyticsFilter,
 ) (HourOfWeekResponse, error) {
 	loc := f.location()
-	dateCol := "COALESCE(s.started_at, s.created_at)"
+	dateCol := "COALESCE(NULLIF(s.started_at, ''), s.created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	query := `SELECT ` + dateCol + `, m.timestamp
@@ -1144,7 +1178,7 @@ func (db *DB) GetAnalyticsSessionShape(
 	ctx context.Context, f AnalyticsFilter,
 ) (SessionShapeResponse, error) {
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -1308,7 +1342,7 @@ func (db *DB) GetAnalyticsTools(
 	ctx context.Context, f AnalyticsFilter,
 ) (ToolsAnalyticsResponse, error) {
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -1654,7 +1688,7 @@ func (db *DB) GetAnalyticsVelocity(
 	ctx context.Context, f AnalyticsFilter,
 ) (VelocityResponse, error) {
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool
@@ -1954,7 +1988,7 @@ func (db *DB) GetAnalyticsTopSessions(
 		metric = "messages"
 	}
 	loc := f.location()
-	dateCol := "COALESCE(started_at, created_at)"
+	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhere(dateCol)
 
 	var timeIDs map[string]bool

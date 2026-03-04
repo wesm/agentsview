@@ -85,6 +85,7 @@ export interface Stats {
   message_count: number;
   project_count: number;
   machine_count: number;
+  earliest_session: string | null;
 }
 
 export interface MessagesResponse {

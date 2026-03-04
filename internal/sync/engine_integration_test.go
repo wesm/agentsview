@@ -2022,6 +2022,10 @@ func TestResyncAllAbortsOnFailures(t *testing.T) {
 		t.Fatal("expected TotalSessions > 0")
 	}
 
+	if !stats.Aborted {
+		t.Error("expected Aborted = true")
+	}
+
 	hasAbortWarning := false
 	for _, w := range stats.Warnings {
 		if strings.Contains(w, "resync aborted") {
@@ -2180,6 +2184,9 @@ func TestResyncAllPostReopenAvailability(t *testing.T) {
 	stats := env.engine.ResyncAll(nil)
 	if stats.Synced != 1 {
 		t.Fatalf("resync: synced = %d, want 1", stats.Synced)
+	}
+	if stats.Aborted {
+		t.Error("unexpected Aborted = true on successful resync")
 	}
 	for _, w := range stats.Warnings {
 		t.Errorf("unexpected warning: %s", w)

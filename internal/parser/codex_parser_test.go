@@ -77,6 +77,22 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		content := loadFixture(t, "codex/fc_args_1.jsonl")
 		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
 		assert.Equal(t, "[Bash]\n$ rg --files", msgs[1].Content)
+		assert.Equal(t, `{"cmd":"rg --files","workdir":"/tmp"}`, msgs[1].ToolCalls[0].InputJSON)
+	})
+
+	t.Run("multi-line command truncated to first line", func(t *testing.T) {
+		multiLineCmd := "cat > file.toml <<'EOF'\n[package]\nname = \"foo\"\nEOF"
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("fc-ml", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "create file", tsEarlyS1),
+			testjsonl.CodexFunctionCallArgsJSON("exec_command", map[string]any{
+				"cmd": multiLineCmd,
+			}, tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "[Bash]\n$ cat > file.toml <<'EOF'", msgs[1].Content)
+		assert.Contains(t, msgs[1].ToolCalls[0].InputJSON, "cmd")
+		assert.Contains(t, msgs[1].ToolCalls[0].InputJSON, "[package]")
 	})
 
 	t.Run("apply_patch arguments summarize edited files", func(t *testing.T) {
@@ -84,6 +100,8 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
 		want := "[Edit: internal/parser/codex.go (+1 more)]\ninternal/parser/codex.go\ninternal/parser/parser_test.go"
 		assert.Equal(t, want, msgs[1].Content)
+		assert.NotEmpty(t, msgs[1].ToolCalls[0].InputJSON)
+		assert.Contains(t, msgs[1].ToolCalls[0].InputJSON, "Begin Patch")
 	})
 
 	t.Run("write_stdin formats with session and chars", func(t *testing.T) {
@@ -172,6 +190,90 @@ func TestParseCodexSession_FunctionCalls(t *testing.T) {
 		assert.Equal(t, "codex:fc-empty-arr", sess.ID)
 		assert.Equal(t, 2, len(msgs))
 		assert.Equal(t, "[Bash]\n$ echo hello", msgs[1].Content)
+	})
+}
+
+func TestParseCodexSession_InputJSON(t *testing.T) {
+	t.Run("object arguments populates InputJSON", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("ij-1", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "do it", tsEarlyS1),
+			testjsonl.CodexFunctionCallArgsJSON("shell_command", map[string]any{
+				"cmd": "ls -la",
+			}, tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{
+			ToolName:  "shell_command",
+			Category:  "Bash",
+			InputJSON: `{"cmd":"ls -la"}`,
+		}})
+	})
+
+	t.Run("string-encoded JSON arguments", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("ij-2", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "do it", tsEarlyS1),
+			testjsonl.CodexFunctionCallArgsJSON("exec_command",
+				`{"cmd":"rg foo","workdir":"/tmp"}`, tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{
+			ToolName:  "exec_command",
+			Category:  "Bash",
+			InputJSON: `{"cmd":"rg foo","workdir":"/tmp"}`,
+		}})
+	})
+
+	t.Run("non-JSON string arguments preserved", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("ij-3", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "do it", tsEarlyS1),
+			testjsonl.CodexFunctionCallArgsJSON("shell_command",
+				"echo hello world", tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Equal(t, "echo hello world", msgs[1].ToolCalls[0].InputJSON)
+	})
+
+	t.Run("input field used when arguments empty", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("ij-4", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "run", tsEarlyS1),
+			testjsonl.CodexFunctionCallFieldsJSON("exec_command",
+				map[string]any{}, `{"cmd":"echo hi"}`, tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{
+			ToolName:  "exec_command",
+			Category:  "Bash",
+			InputJSON: `{"cmd":"echo hi"}`,
+		}})
+	})
+
+	t.Run("string-encoded empty JSON falls through to input", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("ij-str-empty", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "run", tsEarlyS1),
+			testjsonl.CodexFunctionCallFieldsJSON("exec_command",
+				`{}`, `{"cmd":"echo fallback"}`, tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assertToolCalls(t, msgs[1].ToolCalls, []ParsedToolCall{{
+			ToolName:  "exec_command",
+			Category:  "Bash",
+			InputJSON: `{"cmd":"echo fallback"}`,
+		}})
+	})
+
+	t.Run("no arguments yields empty InputJSON", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.CodexSessionMetaJSON("ij-5", "/tmp", "user", tsEarly),
+			testjsonl.CodexMsgJSON("user", "do it", tsEarlyS1),
+			testjsonl.CodexFunctionCallJSON("exec_command", "", tsEarlyS5),
+		)
+		_, msgs := runCodexParserTest(t, "test.jsonl", content, false)
+		assert.Empty(t, msgs[1].ToolCalls[0].InputJSON)
 	})
 }
 

@@ -157,6 +157,9 @@
       </button>
     </div>
   {:else if grid.cols.length > 0}
+    {#if analytics.heatmap?.entries_from && analytics.heatmap.entries_from > analytics.from}
+      <div class="clamp-note">Showing most recent year</div>
+    {/if}
     <div class="heatmap-scroll">
       <svg
         width={svgWidth}
@@ -320,6 +323,12 @@
     white-space: nowrap;
     pointer-events: none;
     z-index: 100;
+  }
+
+  .clamp-note {
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-bottom: 4px;
   }
 
   .loading, .empty {

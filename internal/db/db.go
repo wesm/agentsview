@@ -17,6 +17,14 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// dataVersion tracks parser changes that require a full
+// re-sync. Increment this when parsing logic changes in ways
+// that affect stored data (e.g. new fields extracted, content
+// formatting changes). Old databases with a lower user_version
+// trigger a non-destructive re-sync (mtime reset + skip cache
+// clear) so existing session data is preserved.
+const dataVersion = 1
+
 //go:embed schema.sql
 var schemaSQL string
 
@@ -49,11 +57,12 @@ END;
 // concurrent HTTP handler goroutines can safely read while
 // Reopen/CloseConnections swap the underlying *sql.DB.
 type DB struct {
-	path    string
-	writer  atomic.Pointer[sql.DB]
-	reader  atomic.Pointer[sql.DB]
-	mu      sync.Mutex // serializes writes
-	retired []*sql.DB  // old pools kept open for in-flight reads
+	path      string
+	writer    atomic.Pointer[sql.DB]
+	reader    atomic.Pointer[sql.DB]
+	mu        sync.Mutex // serializes writes
+	retired   []*sql.DB  // old pools kept open for in-flight reads
+	dataStale bool       // set by Open when user_version < dataVersion
 
 	cursorMu     sync.RWMutex
 	cursorSecret []byte
@@ -97,20 +106,22 @@ func makeDSN(path string, readOnly bool) string {
 // It configures WAL mode, mmap, and returns a DB with separate
 // writer and reader connections.
 //
-// If an existing database has an outdated schema, it is deleted
-// and recreated from scratch. Session data is re-synced from
-// the source files on the next sync cycle.
+// If an existing database has an outdated schema (missing
+// columns), it is deleted and recreated from scratch.
+// If the schema is current but the data version is stale,
+// the database is preserved and file mtimes are reset to
+// trigger a re-sync on the next cycle.
 func Open(path string) (*DB, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
 
-	rebuild, err := needsRebuild(path)
+	schemaStale, dataStale, err := probeDatabase(path)
 	if err != nil {
 		return nil, fmt.Errorf("checking schema: %w", err)
 	}
-	if rebuild {
+	if schemaStale {
 		if err := dropDatabase(path); err != nil {
 			return nil, fmt.Errorf(
 				"rebuilding database: %w", err,
@@ -118,110 +129,129 @@ func Open(path string) (*DB, error) {
 		}
 	}
 
-	return openAndInit(path)
+	d, err := openAndInit(path)
+	if err != nil {
+		return nil, err
+	}
+
+	if dataStale && !schemaStale {
+		d.dataStale = true
+		log.Printf(
+			"data version outdated; full resync required",
+		)
+	} else {
+		// Only stamp user_version when data is current.
+		// When data is stale, preserve the old version so
+		// the "needs resync" state survives process restarts
+		// until ResyncAll completes successfully.
+		if err := d.setDataVersion(); err != nil {
+			d.Close()
+			return nil, fmt.Errorf(
+				"setting data version: %w", err,
+			)
+		}
+	}
+
+	return d, nil
 }
 
-// needsRebuild checks whether an existing database has an
-// outdated schema that requires a full rebuild. Returns an
-// error on probe failures so callers can surface them.
-func needsRebuild(path string) (bool, error) {
+// probeDatabase checks an existing database for schema and
+// data staleness. Returns (schemaStale, dataStale, err).
+// schemaStale means required columns are missing and the DB
+// must be dropped and recreated. dataStale means the schema
+// is fine but user_version < dataVersion, requiring a
+// non-destructive re-sync.
+func probeDatabase(
+	path string,
+) (schemaStale, dataStale bool, err error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return false, nil // no existing DB
+			return false, false, nil
 		}
-		return false, fmt.Errorf(
+		return false, false, fmt.Errorf(
 			"checking database file: %w", err,
 		)
 	}
 	conn, err := sql.Open("sqlite3", makeDSN(path, true))
 	if err != nil {
-		return false, fmt.Errorf(
+		return false, false, fmt.Errorf(
 			"probing schema: %w", err,
 		)
 	}
 	defer conn.Close()
 
-	var count int
-	err = conn.QueryRow(
-		`SELECT count(*) FROM pragma_table_info('sessions')
-		 WHERE name = 'parent_session_id'`,
-	).Scan(&count)
+	schema, err := needsSchemaRebuild(conn)
 	if err != nil {
-		return false, fmt.Errorf(
-			"probing schema: %w", err,
-		)
+		return false, false, err
 	}
-	if count == 0 {
-		return true, nil
+	if schema {
+		return true, false, nil
 	}
 
-	var insightCount int
-	err = conn.QueryRow(
-		`SELECT count(*) FROM pragma_table_info('insights')
-		 WHERE name = 'date_from'`,
-	).Scan(&insightCount)
+	data, err := needsDataResync(conn)
 	if err != nil {
-		return false, fmt.Errorf(
-			"probing schema: %w", err,
-		)
+		return false, false, err
 	}
-	if insightCount == 0 {
-		return true, nil
-	}
+	return false, data, nil
+}
 
-	var toolCount int
-	err = conn.QueryRow(
-		`SELECT count(*) FROM pragma_table_info('tool_calls')
-		 WHERE name = 'tool_use_id'`,
-	).Scan(&toolCount)
-	if err != nil {
-		return false, fmt.Errorf(
-			"probing schema: %w", err,
-		)
+// needsSchemaRebuild probes for required columns that may be
+// missing in databases created by older releases. If any are
+// absent, the DB must be dropped and recreated.
+func needsSchemaRebuild(conn *sql.DB) (bool, error) {
+	probes := []struct {
+		table  string
+		column string
+	}{
+		{"sessions", "parent_session_id"},
+		{"insights", "date_from"},
+		{"tool_calls", "tool_use_id"},
+		{"sessions", "user_message_count"},
+		{"sessions", "relationship_type"},
+		{"tool_calls", "subagent_session_id"},
 	}
-	if toolCount == 0 {
-		return true, nil
+	for _, p := range probes {
+		var count int
+		err := conn.QueryRow(fmt.Sprintf(
+			"SELECT count(*) FROM pragma_table_info('%s')"+
+				" WHERE name = '%s'",
+			p.table, p.column,
+		)).Scan(&count)
+		if err != nil {
+			return false, fmt.Errorf(
+				"probing schema (%s.%s): %w",
+				p.table, p.column, err,
+			)
+		}
+		if count == 0 {
+			return true, nil
+		}
 	}
+	return false, nil
+}
 
-	var umcCount int
-	err = conn.QueryRow(
-		`SELECT count(*) FROM pragma_table_info('sessions')
-		 WHERE name = 'user_message_count'`,
-	).Scan(&umcCount)
+// needsDataResync checks whether user_version is behind the
+// current dataVersion, indicating parser changes that require
+// re-processing existing files.
+func needsDataResync(conn *sql.DB) (bool, error) {
+	var version int
+	err := conn.QueryRow(
+		"PRAGMA user_version",
+	).Scan(&version)
 	if err != nil {
 		return false, fmt.Errorf(
-			"probing schema: %w", err,
+			"probing data version: %w", err,
 		)
 	}
-	if umcCount == 0 {
-		return true, nil
-	}
+	return version < dataVersion, nil
+}
 
-	var relTypeCount int
-	err = conn.QueryRow(
-		`SELECT count(*) FROM pragma_table_info('sessions')
-		 WHERE name = 'relationship_type'`,
-	).Scan(&relTypeCount)
-	if err != nil {
-		return false, fmt.Errorf(
-			"probing schema: %w", err,
-		)
-	}
-	if relTypeCount == 0 {
-		return true, nil
-	}
-
-	var subagentColCount int
-	err = conn.QueryRow(
-		`SELECT count(*) FROM pragma_table_info('tool_calls')
-		 WHERE name = 'subagent_session_id'`,
-	).Scan(&subagentColCount)
-	if err != nil {
-		return false, fmt.Errorf(
-			"probing schema: %w", err,
-		)
-	}
-	return subagentColCount == 0, nil
+// NeedsResync reports whether the database was opened with a
+// stale data version, indicating the caller should trigger a
+// full resync (build fresh DB, copy orphaned data, swap)
+// rather than an incremental sync.
+func (db *DB) NeedsResync() bool {
+	return db.dataStale
 }
 
 func dropDatabase(path string) error {
@@ -319,6 +349,34 @@ func (db *DB) HasFTS() bool {
 		"SELECT 1 FROM messages_fts LIMIT 1",
 	)
 	return err == nil
+}
+
+// setDataVersion stamps the current dataVersion into
+// user_version, but never downgrades a higher version left
+// by a newer build. Called by Open() only when data is
+// current (not stale), so the marker survives until
+// ResyncAll completes.
+func (db *DB) setDataVersion() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	var current int
+	if err := db.getWriter().QueryRow(
+		"PRAGMA user_version",
+	).Scan(&current); err != nil {
+		return fmt.Errorf("reading data version: %w", err)
+	}
+	if current >= dataVersion {
+		return nil
+	}
+
+	_, err := db.getWriter().Exec(
+		fmt.Sprintf("PRAGMA user_version = %d", dataVersion),
+	)
+	if err != nil {
+		return fmt.Errorf("setting data version: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) init() error {

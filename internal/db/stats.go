@@ -7,10 +7,11 @@ import (
 
 // Stats holds database-wide statistics.
 type Stats struct {
-	SessionCount int `json:"session_count"`
-	MessageCount int `json:"message_count"`
-	ProjectCount int `json:"project_count"`
-	MachineCount int `json:"machine_count"`
+	SessionCount    int     `json:"session_count"`
+	MessageCount    int     `json:"message_count"`
+	ProjectCount    int     `json:"project_count"`
+	MachineCount    int     `json:"machine_count"`
+	EarliestSession *string `json:"earliest_session"`
 }
 
 // rootSessionFilter is the WHERE clause shared by session list
@@ -51,6 +52,10 @@ func (db *DB) GetStats(ctx context.Context) (Stats, error) {
 			(SELECT COUNT(DISTINCT project) FROM sessions
 			 WHERE ` + rootSessionFilter + `),
 			(SELECT COUNT(DISTINCT machine) FROM sessions
+			 WHERE ` + rootSessionFilter + `),
+			(SELECT MIN(COALESCE(
+				NULLIF(started_at, ''), created_at
+			 )) FROM sessions
 			 WHERE ` + rootSessionFilter + `)`
 
 	var s Stats
@@ -59,6 +64,7 @@ func (db *DB) GetStats(ctx context.Context) (Stats, error) {
 		&s.MessageCount,
 		&s.ProjectCount,
 		&s.MachineCount,
+		&s.EarliestSession,
 	)
 	if err != nil {
 		return Stats{}, fmt.Errorf("fetching stats: %w", err)

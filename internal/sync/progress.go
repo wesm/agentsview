@@ -38,11 +38,13 @@ type SyncResult struct {
 // produced at least one session — used by ResyncAll to compare
 // against Failed on the same unit.
 type SyncStats struct {
-	TotalSessions int      `json:"total_sessions"`
-	Synced        int      `json:"synced"`
-	Skipped       int      `json:"skipped"`
-	Failed        int      `json:"failed"`
-	Warnings      []string `json:"warnings,omitempty"`
+	TotalSessions  int      `json:"total_sessions"`
+	Synced         int      `json:"synced"`
+	Skipped        int      `json:"skipped"`
+	Failed         int      `json:"failed"`
+	OrphanedCopied int      `json:"orphaned_copied,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
+	Aborted        bool     `json:"aborted,omitempty"`
 
 	filesOK         int // unexported: file-level success counter
 	filesDiscovered int // file-based total, excludes OpenCode

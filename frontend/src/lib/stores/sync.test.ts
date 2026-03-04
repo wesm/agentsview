@@ -35,6 +35,7 @@ function mockResyncSuccess(): void {
     message_count: 100,
     project_count: 3,
     machine_count: 1,
+    earliest_session: null,
   });
 }
 

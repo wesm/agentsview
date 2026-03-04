@@ -283,6 +283,193 @@ func TestOpenCreatesFile(t *testing.T) {
 	}
 }
 
+func TestOpenDataVersionBump_PreservesData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a valid DB (sets user_version = dataVersion).
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+
+	err = d.UpsertSession(Session{
+		ID:           "s1",
+		Project:      "proj",
+		Machine:      "local",
+		Agent:        "codex",
+		MessageCount: 1,
+		FileMtime:    Ptr(int64(12345)),
+	})
+	requireNoError(t, err, "insert session")
+	insertMessages(t, d,
+		userMsg("s1", 0, "hello"),
+		asstMsg("s1", 1, "world"),
+	)
+
+	// Add a skipped file entry.
+	err = d.ReplaceSkippedFiles(map[string]int64{
+		"/tmp/skip.jsonl": 99999,
+	})
+	requireNoError(t, err, "add skipped file")
+	d.Close()
+
+	// Set user_version to 0 to simulate stale data version.
+	conn, err := sql.Open("sqlite3", path)
+	requireNoError(t, err, "raw open")
+	_, err = conn.Exec("PRAGMA user_version = 0")
+	requireNoError(t, err, "reset version")
+	conn.Close()
+
+	// Re-open: should detect stale version but preserve data.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen")
+	defer d2.Close()
+
+	// NeedsResync should be true.
+	if !d2.NeedsResync() {
+		t.Fatal("expected NeedsResync()=true after version bump")
+	}
+
+	// Session and messages must still exist.
+	page, err := d2.ListSessions(
+		context.Background(),
+		SessionFilter{Limit: 100},
+	)
+	requireNoError(t, err, "list sessions")
+	if len(page.Sessions) != 1 {
+		t.Fatalf("expected 1 session preserved, got %d",
+			len(page.Sessions))
+	}
+
+	msgs, err := d2.GetMessages(
+		context.Background(), "s1", 0, 100, true,
+	)
+	requireNoError(t, err, "get messages")
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages preserved, got %d",
+			len(msgs))
+	}
+
+	// user_version must stay stale — it is only bumped
+	// after a successful ResyncAll, not at Open() time.
+	var ver int
+	err = d2.getReader().QueryRow(
+		"PRAGMA user_version",
+	).Scan(&ver)
+	requireNoError(t, err, "read version")
+	if ver != 0 {
+		t.Fatalf("expected user_version=0 (stale), got %d",
+			ver)
+	}
+}
+
+func TestOpenDataVersionBump_SurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a DB and downgrade its version.
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+	insertSession(t, d, "s1", "proj")
+	d.Close()
+
+	conn, err := sql.Open("sqlite3", path)
+	requireNoError(t, err, "raw open")
+	_, err = conn.Exec("PRAGMA user_version = 0")
+	requireNoError(t, err, "reset version")
+	conn.Close()
+
+	// First reopen: detects stale, does NOT bump version.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen 1")
+	if !d2.NeedsResync() {
+		t.Fatal("first reopen: expected NeedsResync=true")
+	}
+	d2.Close() // simulate process exit without resync
+
+	// Second reopen: must still detect stale because the
+	// version was not bumped.
+	d3, err := Open(path)
+	requireNoError(t, err, "reopen 2")
+	defer d3.Close()
+	if !d3.NeedsResync() {
+		t.Fatal("second reopen: expected NeedsResync=true")
+	}
+}
+
+func TestOpenPreservesDataAtCurrentVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+	err = d.UpsertSession(Session{
+		ID:           "s1",
+		Project:      "proj",
+		Machine:      "local",
+		Agent:        "codex",
+		MessageCount: 1,
+	})
+	requireNoError(t, err, "insert session")
+	d.Close()
+
+	// Re-open without changing user_version: data survives.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen")
+	defer d2.Close()
+
+	if d2.NeedsResync() {
+		t.Fatal("expected NeedsResync()=false at current version")
+	}
+
+	page, err := d2.ListSessions(
+		context.Background(),
+		SessionFilter{Limit: 100},
+	)
+	requireNoError(t, err, "list sessions")
+	if len(page.Sessions) != 1 {
+		t.Fatalf("expected 1 session preserved, got %d",
+			len(page.Sessions))
+	}
+}
+
+func TestOpenDoesNotDowngradeUserVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+
+	// Simulate a newer build by setting user_version higher
+	// than our dataVersion.
+	futureVersion := dataVersion + 10
+	_, err = d.getWriter().Exec(
+		fmt.Sprintf("PRAGMA user_version = %d", futureVersion),
+	)
+	requireNoError(t, err, "set future version")
+	d.Close()
+
+	// Reopen with current (lower) dataVersion.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen")
+	defer d2.Close()
+
+	var version int
+	err = d2.getWriter().QueryRow(
+		"PRAGMA user_version",
+	).Scan(&version)
+	requireNoError(t, err, "read version")
+
+	if version != futureVersion {
+		t.Errorf(
+			"user_version = %d, want %d (should not downgrade)",
+			version, futureVersion,
+		)
+	}
+	if d2.NeedsResync() {
+		t.Error("NeedsResync should be false for higher version")
+	}
+}
+
 func TestOpenProbeErrorPropagates(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping: chmod semantics differ on Windows")
@@ -627,6 +814,53 @@ func TestListSessionsPaginationNoDuplicates(t *testing.T) {
 	}
 }
 
+func TestListSessionsPaginationEmptyTimestamps(t *testing.T) {
+	d := testDB(t)
+
+	// Mix of normal, NULL, and empty-string timestamps.
+	// Empty-string ended_at/started_at should sort by
+	// created_at, same as NULL.
+	insertSession(t, d, "s-normal", "proj", func(s *Session) {
+		s.EndedAt = Ptr("2024-06-01T12:00:00Z")
+		s.StartedAt = Ptr("2024-06-01T10:00:00Z")
+	})
+	insertSession(t, d, "s-empty-ended", "proj", func(s *Session) {
+		s.EndedAt = Ptr("")
+		s.StartedAt = Ptr("2024-05-01T10:00:00Z")
+	})
+	insertSession(t, d, "s-both-empty", "proj", func(s *Session) {
+		s.EndedAt = Ptr("")
+		s.StartedAt = Ptr("")
+	})
+	insertSession(t, d, "s-null-ts", "proj")
+
+	// Paginate 1 at a time to exercise cursor encoding.
+	seen := make(map[string]bool)
+	cursor := ""
+	for {
+		page, err := d.ListSessions(
+			context.Background(),
+			SessionFilter{Limit: 1, Cursor: cursor},
+		)
+		if err != nil {
+			t.Fatalf("ListSessions: %v", err)
+		}
+		for _, s := range page.Sessions {
+			if seen[s.ID] {
+				t.Errorf("duplicate session %s", s.ID)
+			}
+			seen[s.ID] = true
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if len(seen) != 4 {
+		t.Errorf("saw %d sessions, want 4", len(seen))
+	}
+}
+
 func TestListSessionsProjectFilter(t *testing.T) {
 	d := testDB(t)
 
@@ -814,17 +1048,32 @@ func TestCanceledContext(t *testing.T) {
 func TestStats(t *testing.T) {
 	d := testDB(t)
 
-	insertSession(t, d, "s1", "p1")
+	// Empty DB returns nil EarliestSession
+	stats, err := d.GetStats(context.Background())
+	requireNoError(t, err, "GetStats empty")
+	if stats.EarliestSession != nil {
+		t.Errorf(
+			"earliest_session = %v, want nil",
+			*stats.EarliestSession,
+		)
+	}
+
+	early := "2024-01-15T09:00:00Z"
+	late := "2024-06-01T14:00:00Z"
+	insertSession(t, d, "s1", "p1", func(s *Session) {
+		s.StartedAt = &late
+	})
 	insertSession(t, d, "s2", "p2", func(s *Session) {
 		s.Machine = "remote"
 		s.Agent = "codex"
+		s.StartedAt = &early
 	})
 	insertMessages(t, d,
 		userMsg("s1", 0, "hi"),
 		userMsg("s2", 0, "bye"),
 	)
 
-	stats, err := d.GetStats(context.Background())
+	stats, err = d.GetStats(context.Background())
 	requireNoError(t, err, "GetStats")
 	if stats.SessionCount != 2 {
 		t.Errorf("session_count = %d, want 2", stats.SessionCount)
@@ -837,6 +1086,75 @@ func TestStats(t *testing.T) {
 	}
 	if stats.MachineCount != 2 {
 		t.Errorf("machine_count = %d, want 2", stats.MachineCount)
+	}
+	if stats.EarliestSession == nil {
+		t.Fatal("earliest_session is nil, want non-nil")
+	}
+	if *stats.EarliestSession != early {
+		t.Errorf(
+			"earliest_session = %q, want %q",
+			*stats.EarliestSession, early,
+		)
+	}
+}
+
+func TestStatsEarliestFallsBackToCreatedAt(t *testing.T) {
+	d := testDB(t)
+
+	// Session with NULL started_at — earliest should fall
+	// back to created_at instead of being nil.
+	insertSession(t, d, "s-null-start", "proj")
+	insertMessages(t, d, userMsg("s-null-start", 0, "hi"))
+
+	stats, err := d.GetStats(context.Background())
+	requireNoError(t, err, "GetStats null started_at")
+	if stats.EarliestSession == nil {
+		t.Fatal(
+			"earliest_session nil when started_at is NULL;" +
+				" should fall back to created_at",
+		)
+	}
+
+	// Session with empty-string started_at — NULLIF should
+	// treat it the same as NULL.
+	insertSession(t, d, "s-empty-start", "proj", func(s *Session) {
+		s.StartedAt = Ptr("")
+	})
+	insertMessages(t, d, userMsg("s-empty-start", 0, "hey"))
+
+	stats, err = d.GetStats(context.Background())
+	requireNoError(t, err, "GetStats empty started_at")
+	if stats.EarliestSession == nil {
+		t.Fatal(
+			"earliest_session nil when started_at is '';" +
+				" should fall back to created_at",
+		)
+	}
+	if *stats.EarliestSession == "" {
+		t.Fatal(
+			"earliest_session is empty string;" +
+				" NULLIF should have converted '' to NULL",
+		)
+	}
+
+	// Add a session with an explicit started_at that is
+	// older than the auto-generated created_at.
+	old := "2020-01-01T00:00:00Z"
+	insertSession(t, d, "s-old", "proj", func(s *Session) {
+		s.StartedAt = &old
+	})
+	insertMessages(t, d, userMsg("s-old", 0, "hello"))
+
+	stats, err = d.GetStats(context.Background())
+	requireNoError(t, err, "GetStats with old session")
+	if stats.EarliestSession == nil {
+		t.Fatal("earliest_session nil")
+	}
+	if *stats.EarliestSession != old {
+		t.Errorf(
+			"earliest_session = %q, want %q",
+			*stats.EarliestSession, old,
+		)
 	}
 }
 
@@ -2567,6 +2885,245 @@ func TestCopyInsightsFrom(t *testing.T) {
 		t.Errorf(
 			"content = %q, want %q",
 			insights[0].Content, "test insight content",
+		)
+	}
+}
+
+func TestCopyOrphanedDataFrom(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source (old) DB with two sessions: s1 and s2.
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj", func(s *Session) {
+		s.Agent = "claude"
+	})
+	insertSession(t, srcDB, "s2", "proj", func(s *Session) {
+		s.Agent = "codex"
+	})
+	insertMessages(t, srcDB,
+		userMsg("s1", 0, "hello from s1"),
+		asstMsg("s1", 1, "reply from s1"),
+		userMsg("s2", 0, "hello from s2"),
+	)
+	// Insert tool_calls for s1 via raw SQL since
+	// insertToolCallsTx is unexported.
+	_, err = srcDB.getWriter().Exec(`
+		INSERT INTO tool_calls
+			(message_id, session_id, tool_name, category)
+		SELECT id, session_id, 'Read', 'file'
+		FROM messages
+		WHERE session_id = 's1' AND ordinal = 1`,
+	)
+	requireNoError(t, err, "insert tool_call")
+	srcDB.Close()
+
+	// Destination (new) DB: only has s1 (re-synced from
+	// file). s2 is orphaned (file gone).
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj", func(s *Session) {
+		s.Agent = "claude"
+	})
+	insertMessages(t, dstDB,
+		userMsg("s1", 0, "hello from s1"),
+		asstMsg("s1", 1, "reply from s1"),
+	)
+
+	// Copy orphaned data from source.
+	count, err := dstDB.CopyOrphanedDataFrom(srcPath)
+	requireNoError(t, err, "CopyOrphanedDataFrom")
+	if count != 1 {
+		t.Fatalf("expected 1 orphaned session, got %d", count)
+	}
+
+	// s2 should now exist in dst.
+	s, err := dstDB.GetSession(
+		context.Background(), "s2",
+	)
+	requireNoError(t, err, "GetSession s2")
+	if s == nil {
+		t.Fatal("orphaned session s2 not found in dst")
+	}
+	if s.Agent != "codex" {
+		t.Errorf("s2 agent = %q, want %q", s.Agent, "codex")
+	}
+
+	// s2 messages should be copied.
+	ctx := context.Background()
+	msgs, err := dstDB.GetMessages(ctx, "s2", 0, 100, true)
+	requireNoError(t, err, "GetMessages s2")
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message for s2, got %d",
+			len(msgs))
+	}
+	if msgs[0].Content != "hello from s2" {
+		t.Errorf("s2 message content = %q, want %q",
+			msgs[0].Content, "hello from s2")
+	}
+
+	// s1 should still exist and not be duplicated.
+	s1msgs, err := dstDB.GetMessages(ctx, "s1", 0, 100, true)
+	requireNoError(t, err, "GetMessages s1")
+	if len(s1msgs) != 2 {
+		t.Fatalf("expected 2 messages for s1, got %d",
+			len(s1msgs))
+	}
+
+	// Tool calls for s1 should NOT be copied (s1 exists in
+	// dst, so it's not orphaned). Only verify s2's tool_calls
+	// aren't present (s2 had no tool_calls on ordinal 0).
+	var tcCount int
+	err = dstDB.getReader().QueryRow(
+		"SELECT count(*) FROM tool_calls " +
+			"WHERE session_id = 's2'",
+	).Scan(&tcCount)
+	requireNoError(t, err, "count s2 tool_calls")
+	if tcCount != 0 {
+		t.Errorf("expected 0 tool_calls for s2, got %d",
+			tcCount)
+	}
+}
+
+func TestCopyOrphanedDataFrom_NoOrphans(t *testing.T) {
+	dir := t.TempDir()
+
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	srcDB.Close()
+
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj")
+
+	count, err := dstDB.CopyOrphanedDataFrom(srcPath)
+	requireNoError(t, err, "CopyOrphanedDataFrom")
+	if count != 0 {
+		t.Fatalf("expected 0 orphaned sessions, got %d",
+			count)
+	}
+}
+
+func TestCopyOrphanedDataFrom_WithToolCalls(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source DB with session s1 that has tool_calls.
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	insertMessages(t, srcDB,
+		userMsg("s1", 0, "hello"),
+		asstMsg("s1", 1, "used a tool"),
+	)
+	_, err = srcDB.getWriter().Exec(`
+		INSERT INTO tool_calls
+			(message_id, session_id, tool_name, category,
+			 tool_use_id)
+		SELECT id, session_id, 'Bash', 'command',
+			'tu_123'
+		FROM messages
+		WHERE session_id = 's1' AND ordinal = 1`,
+	)
+	requireNoError(t, err, "insert tool_call")
+	srcDB.Close()
+
+	// Empty destination DB.
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	count, err := dstDB.CopyOrphanedDataFrom(srcPath)
+	requireNoError(t, err, "CopyOrphanedDataFrom")
+	if count != 1 {
+		t.Fatalf("expected 1 orphaned, got %d", count)
+	}
+
+	// Verify tool_call was copied with correct message_id
+	// mapping.
+	var toolName, toolUseID string
+	var msgID int
+	err = dstDB.getReader().QueryRow(`
+		SELECT tc.message_id, tc.tool_name, tc.tool_use_id
+		FROM tool_calls tc
+		WHERE tc.session_id = 's1'`,
+	).Scan(&msgID, &toolName, &toolUseID)
+	requireNoError(t, err, "query tool_call")
+	if toolName != "Bash" {
+		t.Errorf("tool_name = %q, want %q", toolName, "Bash")
+	}
+	if toolUseID != "tu_123" {
+		t.Errorf(
+			"tool_use_id = %q, want %q",
+			toolUseID, "tu_123",
+		)
+	}
+
+	// Verify the message_id FK is valid.
+	var ordinal int
+	err = dstDB.getReader().QueryRow(
+		"SELECT ordinal FROM messages WHERE id = ?", msgID,
+	).Scan(&ordinal)
+	requireNoError(t, err, "verify FK")
+	if ordinal != 1 {
+		t.Errorf("tool_call message ordinal = %d, want 1",
+			ordinal)
+	}
+}
+
+func TestCopyOrphanedDataFrom_AtomicOnFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create source DB with a session and messages.
+	srcPath := filepath.Join(dir, "old.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	insertMessages(t, srcDB, userMsg("s1", 0, "hello"))
+	srcDB.Close()
+
+	// Corrupt source: drop the messages table so the
+	// message-copy step fails.
+	raw, err := sql.Open("sqlite3", srcPath)
+	requireNoError(t, err, "raw open")
+	_, err = raw.Exec("PRAGMA foreign_keys = OFF")
+	requireNoError(t, err, "disable fk")
+	_, err = raw.Exec("DROP TABLE messages")
+	requireNoError(t, err, "drop messages")
+	raw.Close()
+
+	// Empty destination.
+	dstPath := filepath.Join(dir, "new.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	// CopyOrphanedDataFrom should fail on the message
+	// copy step.
+	_, err = dstDB.CopyOrphanedDataFrom(srcPath)
+	if err == nil {
+		t.Fatal("expected error from corrupted source")
+	}
+
+	// The session insert must have been rolled back — no
+	// partial data in the destination.
+	page, err := dstDB.ListSessions(
+		context.Background(),
+		SessionFilter{Limit: 100},
+	)
+	requireNoError(t, err, "list sessions")
+	if len(page.Sessions) != 0 {
+		t.Fatalf(
+			"expected 0 sessions after failed copy, got %d",
+			len(page.Sessions),
 		)
 	}
 }

@@ -12,6 +12,9 @@
     buildDisplayItems,
     type DisplayItem,
   } from "../../utils/display-items.js";
+  import {
+    hasVisibleSegments,
+  } from "../../utils/content-parser.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollRaf: number | null = $state(null);
@@ -41,13 +44,12 @@
     // Filter system-injected user messages
     msgs = msgs.filter((m) => !isSystemMessage(m));
 
-    // Filter thinking-only messages
-    if (!ui.showThinking) {
-      msgs = msgs.filter(
-        (m) => !(m.has_thinking && !m.content
-          .replace(/\[Thinking\]\n?[\s\S]*?\n?\[\/Thinking\]/g, "")
-          .replace(/\[Thinking\]\n?[\s\S]*?(?:\n\[|\n\n|$)/g, "")
-          .trim()),
+    // Hide messages where all segments are filtered out
+    // (e.g. hiding "Assistant text" still shows code/tool/thinking
+    // nested inside assistant messages, but hides pure-text ones)
+    if (ui.hasBlockFilters) {
+      msgs = msgs.filter((m) =>
+        hasVisibleSegments(m, (type) => ui.isBlockVisible(type)),
       );
     }
 
@@ -55,7 +57,9 @@
   });
 
   let displayItemsAsc = $derived(
-    buildDisplayItems(filteredMessages),
+    buildDisplayItems(filteredMessages, {
+      skipToolGrouping: !ui.isBlockVisible("tool"),
+    }),
   );
 
   function itemAt(index: number) {

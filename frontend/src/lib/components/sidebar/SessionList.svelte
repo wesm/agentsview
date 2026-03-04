@@ -3,10 +3,19 @@
   import { sessions } from "../../stores/sessions.svelte.js";
   import SessionItem from "./SessionItem.svelte";
   import { formatNumber } from "../../utils/format.js";
-  import { KNOWN_AGENTS } from "../../utils/agents.js";
-
-  const ITEM_HEIGHT = 40;
-  const OVERSCAN = 10;
+  import {
+    KNOWN_AGENTS,
+    agentColor,
+  } from "../../utils/agents.js";
+  import {
+    ITEM_HEIGHT,
+    OVERSCAN,
+    STORAGE_KEY,
+    buildAgentSections,
+    buildDisplayItems,
+    computeTotalSize,
+    findStart,
+  } from "./session-list-utils.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollTop = $state(0);
@@ -18,6 +27,20 @@
   let dropdownRef: HTMLDivElement | undefined =
     $state(undefined);
 
+  let groupByAgent = $state(
+    typeof localStorage !== "undefined" &&
+      localStorage.getItem(STORAGE_KEY) === "true",
+  );
+  let manualExpanded: Set<string> = $state(new Set());
+  // Start all collapsed when grouping is first enabled.
+  let collapseAll = $state(true);
+
+  $effect(() => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, String(groupByAgent));
+    }
+  });
+
   let hasFilters = $derived(sessions.hasActiveFilters);
   let isRecentlyActiveOn = $derived(
     sessions.filters.recentlyActive,
@@ -27,42 +50,70 @@
   );
 
   let groups = $derived(sessions.groupedSessions);
-  let totalCount = $derived(groups.length);
 
-  let startIndex = $derived(
-    Math.max(
-      0,
-      Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN,
-    ),
+  // Build agent-grouped structure when groupByAgent is on.
+  let agentSections = $derived.by(() =>
+    buildAgentSections(groups, groupByAgent),
   );
 
-  let endIndex = $derived.by(() => {
-    if (totalCount === 0) return -1;
-    const visibleCount = Math.ceil(
-      viewportHeight / ITEM_HEIGHT,
-    );
-    const last = startIndex + visibleCount + OVERSCAN * 2;
-    return Math.max(
-      startIndex,
-      Math.min(totalCount - 1, last),
-    );
-  });
-
-  let virtualRows = $derived.by(() => {
-    if (totalCount === 0 || endIndex < startIndex) return [];
-    const rows = [];
-    for (let i = startIndex; i <= endIndex; i++) {
-      rows.push({
-        index: i,
-        key: i,
-        size: ITEM_HEIGHT,
-        start: i * ITEM_HEIGHT,
-      });
+  // Derive effective collapsed set synchronously so the first
+  // render is already collapsed (no flicker).
+  let collapsedAgents = $derived.by(() => {
+    if (!groupByAgent) return new Set<string>();
+    if (collapseAll) {
+      return new Set(agentSections.map((s) => s.agent));
     }
-    return rows;
+    // Invert: all agents minus the manually expanded ones.
+    const all = new Set(agentSections.map((s) => s.agent));
+    for (const a of manualExpanded) all.delete(a);
+    return all;
   });
 
-  let totalSize = $derived(totalCount * ITEM_HEIGHT);
+  // Build flat display items for virtual scrolling.
+  let displayItems = $derived.by(() =>
+    buildDisplayItems(groups, agentSections, groupByAgent, collapsedAgents),
+  );
+
+  let totalCount = $derived(groups.length);
+  let totalSize = $derived(computeTotalSize(displayItems));
+
+  let visibleItems = $derived.by(() => {
+    if (displayItems.length === 0) return [];
+    const start = findStart(displayItems, scrollTop);
+    const end = scrollTop + viewportHeight + OVERSCAN * ITEM_HEIGHT;
+    const result: typeof displayItems = [];
+    for (let i = start; i < displayItems.length; i++) {
+      const item = displayItems[i]!;
+      if (item.top > end) break;
+      result.push(item);
+    }
+    return result;
+  });
+
+  function toggleGroupByAgent() {
+    groupByAgent = !groupByAgent;
+    if (groupByAgent) {
+      collapseAll = true;
+      manualExpanded = new Set();
+    }
+  }
+
+  function toggleAgent(agent: string) {
+    if (collapseAll) {
+      // First toggle after fresh group-enable: switch to
+      // manual mode, expanding only the clicked agent.
+      collapseAll = false;
+      manualExpanded = new Set([agent]);
+    } else {
+      const next = new Set(manualExpanded);
+      if (next.has(agent)) {
+        next.delete(agent);
+      } else {
+        next.add(agent);
+      }
+      manualExpanded = next;
+    }
+  }
 
   $effect(() => {
     if (!containerRef) return;
@@ -75,7 +126,7 @@
     return () => ro.disconnect();
   });
 
-  // Clamp stale scrollTop when count shrinks (e.g. project filter).
+  // Clamp stale scrollTop when count shrinks.
   $effect(() => {
     if (!containerRef) return;
     const maxTop = Math.max(
@@ -109,7 +160,6 @@
       );
   });
 
-  // Throttle scroll position updates to one per frame.
   function handleScroll() {
     if (!containerRef) return;
     if (scrollRaf !== null) return;
@@ -156,12 +206,26 @@
           points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
         />
       </svg>
-      {#if hasFilters}
+      {#if hasFilters || groupByAgent}
         <span class="filter-indicator"></span>
       {/if}
     </button>
     {#if showFilterDropdown}
       <div class="filter-dropdown" bind:this={dropdownRef}>
+        <div class="filter-section">
+          <div class="filter-section-label">Display</div>
+          <button
+            class="filter-toggle"
+            class:active={groupByAgent}
+            onclick={toggleGroupByAgent}
+          >
+            <span
+              class="toggle-check"
+              class:on={groupByAgent}
+            ></span>
+            Group by agent
+          </button>
+        </div>
         <div class="filter-section">
           <div class="filter-section-label">Activity</div>
           <button
@@ -254,22 +318,44 @@
   <div
     style="height: {totalSize}px; width: 100%; position: relative;"
   >
-    {#each virtualRows as row (row.key)}
-      {@const group = groups[row.index]}
+    {#each visibleItems as item (item.id)}
       <div
-        style="position: absolute; top: 0; left: 0; width: 100%; height: {row.size}px; transform: translateY({row.start}px);"
+        style="position: absolute; top: 0; left: 0; width: 100%; height: {item.height}px; transform: translateY({item.top}px);"
       >
-        {#if group}
-          {@const primary = group.sessions.find(
-            (s) => s.id === group.primarySessionId,
-          ) ?? group.sessions[0]}
+        {#if item.type === "header"}
+          <button
+            class="agent-group-header"
+            onclick={() => toggleAgent(item.agent)}
+          >
+            <svg
+              class="chevron"
+              class:expanded={!collapsedAgents.has(item.agent)}
+              width="10"
+              height="10"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+            >
+              <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z"/>
+            </svg>
+            <span
+              class="agent-group-dot"
+              style:background={agentColor(item.agent)}
+            ></span>
+            <span class="agent-group-name">{item.agent}</span>
+            <span class="agent-group-count">{item.count}</span>
+          </button>
+        {:else if item.group}
+          {@const primary = item.group.sessions.find(
+            (s) => s.id === item.group!.primarySessionId,
+          ) ?? item.group.sessions[0]}
           {#if primary}
             <SessionItem
               session={primary}
-              continuationCount={group.sessions.length}
-              groupSessionIds={group.sessions.length > 1
-                ? group.sessions.map((s) => s.id)
+              continuationCount={item.group.sessions.length}
+              groupSessionIds={item.group.sessions.length > 1
+                ? item.group.sessions.map((s) => s.id)
                 : undefined}
+              hideAgent={groupByAgent}
             />
           {/if}
         {/if}
@@ -480,5 +566,65 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
+  }
+
+  /* Agent group headers */
+  .agent-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: 28px;
+    padding: 0 10px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: capitalize;
+    letter-spacing: 0.02em;
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--border-muted);
+    cursor: pointer;
+    transition: color 0.1s, background 0.1s;
+    user-select: none;
+  }
+
+  .agent-group-header:hover {
+    color: var(--text-secondary);
+    background: var(--bg-surface-hover);
+  }
+
+  .chevron {
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+  }
+
+  .chevron.expanded {
+    transform: rotate(90deg);
+  }
+
+  .agent-group-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .agent-group-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agent-group-count {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    padding: 0 5px;
+    border-radius: 8px;
+    line-height: 16px;
   }
 </style>

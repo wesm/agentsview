@@ -1,5 +1,6 @@
 <script lang="ts">
   import { analytics } from "../../stores/analytics.svelte.js";
+  import { sync } from "../../stores/sync.svelte.js";
 
   interface Preset {
     label: string;
@@ -31,18 +32,24 @@
     return localDateStr(new Date());
   }
 
-  const ALL_FROM = "1970-01-01";
+  function allFrom(): string {
+    const ts = sync.stats?.earliest_session;
+    if (ts && ts.length >= 10) {
+      return ts.slice(0, 10);
+    }
+    return daysAgo(365);
+  }
 
   function applyPreset(days: number) {
     if (days === 0) {
-      analytics.setDateRange(ALL_FROM, todayStr());
+      analytics.setDateRange(allFrom(), todayStr());
     } else {
       analytics.setDateRange(daysAgo(days), todayStr());
     }
   }
 
   function isActive(days: number): boolean {
-    const from = days === 0 ? ALL_FROM : daysAgo(days);
+    const from = days === 0 ? allFrom() : daysAgo(days);
     return analytics.from === from &&
       analytics.to === todayStr();
   }

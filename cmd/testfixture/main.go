@@ -62,7 +62,10 @@ func main() {
 	}
 	defer database.Close()
 
-	base := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	// Use a recent base date so fixture data stays within the
+	// default 1-year analytics window.
+	base := time.Now().UTC().AddDate(0, 0, -30).
+		Truncate(24 * time.Hour).Add(10 * time.Hour)
 
 	for i, spec := range specs {
 		if err := createSessionFixture(

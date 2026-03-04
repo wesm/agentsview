@@ -15,6 +15,9 @@ export interface SyncStats {
   synced: number;
   skipped: number;
   failed: number;
+  orphaned_copied?: number;
+  warnings?: string[];
+  aborted?: boolean;
 }
 
 export interface SyncStatus {

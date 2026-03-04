@@ -56,6 +56,7 @@ function makeHeatmap(): HeatmapResponse {
     metric: "messages",
     entries: [],
     levels: { l1: 1, l2: 5, l3: 10, l4: 20 },
+    entries_from: "2024-01-01",
   };
 }
 

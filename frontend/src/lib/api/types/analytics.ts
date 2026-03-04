@@ -55,6 +55,7 @@ export interface HeatmapResponse {
   metric: string;
   entries: HeatmapEntry[];
   levels: HeatmapLevels;
+  entries_from: string;
 }
 
 export interface ProjectAnalytics {

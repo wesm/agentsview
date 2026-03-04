@@ -28,3 +28,7 @@ Instructions for autonomous coding agents working in this repository.
 
 - Do not revert user-authored or unrelated local changes unless explicitly requested.
 - Avoid destructive git commands unless explicitly requested.
+
+## Data Safety
+
+The SQLite database is a persistent archive. Never delete or recreate it to handle data version changes. Schema changes use ALTER TABLE; parser changes trigger a full resync (build fresh DB, sync files, copy orphaned sessions from old DB, atomic swap). Existing session data must be preserved even when source files no longer exist on disk.

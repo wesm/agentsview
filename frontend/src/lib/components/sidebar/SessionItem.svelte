@@ -8,12 +8,14 @@
     session: Session;
     continuationCount?: number;
     groupSessionIds?: string[];
+    hideAgent?: boolean;
   }
 
   let {
     session,
     continuationCount = 1,
     groupSessionIds,
+    hideAgent = false,
   }: Props = $props();
 
   let isActive = $derived(
@@ -47,13 +49,17 @@
   data-session-id={session.id}
   onclick={() => sessions.selectSession(session.id)}
 >
-  <div class="agent-indicator" style:--agent-c={agentColor}>
-    <span
-      class="agent-dot"
-      class:recently-active={recentlyActive}
-    ></span>
-    <span class="agent-label">{session.agent}</span>
-  </div>
+  {#if !hideAgent}
+    <div class="agent-indicator" style:--agent-c={agentColor}>
+      <span
+        class="agent-dot"
+        class:recently-active={recentlyActive}
+      ></span>
+      <span class="agent-label">{session.agent}</span>
+    </div>
+  {:else if recentlyActive}
+    <span class="agent-dot recently-active" style:background={agentColor}></span>
+  {/if}
   <div class="session-info">
     <div class="session-name">{displayName}</div>
     <div class="session-meta">

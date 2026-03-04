@@ -55,6 +55,10 @@ export function registerShortcuts(
       return;
     }
 
+    // All remaining shortcuts are plain single-key — skip if any modifier is held.
+    // (Shift is allowed because "?" requires Shift on most layouts.)
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
     // All other shortcuts: skip when modal open or input focused
     if (ui.activeModal !== null || isInputFocused()) return;
 

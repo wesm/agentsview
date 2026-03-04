@@ -57,7 +57,7 @@ type Panel =
   | "topSessions";
 
 class AnalyticsStore {
-  from: string = $state("1970-01-01");
+  from: string = $state(daysAgo(365));
   to: string = $state(today());
   granularity: Granularity = $state("day");
   metric: HeatmapMetric = $state("messages");

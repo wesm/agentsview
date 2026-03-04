@@ -224,11 +224,12 @@ func TestLoadFile_ReadsDirArrays(t *testing.T) {
 
 func TestResolveDirs(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        map[string]any
-		envValue      string
-		expectDefault bool
-		wantDirs      []string
+		name           string
+		config         map[string]any
+		envValue       string
+		expectDefault  bool
+		wantDirs       []string
+		wantUserConfig bool
 	}{
 		{
 			"DefaultOnly",
@@ -236,6 +237,7 @@ func TestResolveDirs(t *testing.T) {
 			"",
 			true,
 			nil,
+			false,
 		},
 		{
 			"ConfigOverrides",
@@ -245,6 +247,7 @@ func TestResolveDirs(t *testing.T) {
 			"",
 			false,
 			[]string{"/a", "/b"},
+			true,
 		},
 		{
 			"EnvOverrides",
@@ -254,6 +257,7 @@ func TestResolveDirs(t *testing.T) {
 			"/env/override",
 			false,
 			[]string{"/env/override"},
+			true,
 		},
 	}
 
@@ -291,6 +295,14 @@ func TestResolveDirs(t *testing.T) {
 						i, v, want[i],
 					)
 				}
+			}
+
+			got := cfg.IsUserConfigured(parser.AgentClaude)
+			if got != tt.wantUserConfig {
+				t.Errorf(
+					"IsUserConfigured = %v, want %v",
+					got, tt.wantUserConfig,
+				)
 			}
 		})
 	}

@@ -212,22 +212,22 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 	}
 	if f.Date != "" {
 		preds = append(preds,
-			"date(COALESCE(started_at, created_at)) = ?")
+			"date(COALESCE(NULLIF(started_at, ''), created_at)) = ?")
 		args = append(args, f.Date)
 	}
 	if f.DateFrom != "" {
 		preds = append(preds,
-			"date(COALESCE(started_at, created_at)) >= ?")
+			"date(COALESCE(NULLIF(started_at, ''), created_at)) >= ?")
 		args = append(args, f.DateFrom)
 	}
 	if f.DateTo != "" {
 		preds = append(preds,
-			"date(COALESCE(started_at, created_at)) <= ?")
+			"date(COALESCE(NULLIF(started_at, ''), created_at)) <= ?")
 		args = append(args, f.DateTo)
 	}
 	if f.ActiveSince != "" {
 		preds = append(preds,
-			"COALESCE(ended_at, started_at, created_at) >= ?")
+			"COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at) >= ?")
 		args = append(args, f.ActiveSince)
 	}
 	if f.MinMessages > 0 {
@@ -284,7 +284,7 @@ func (db *DB) ListSessions(
 	cursorWhere := where
 	if f.Cursor != "" {
 		cursorWhere += ` AND (
-				COALESCE(ended_at, started_at, created_at), id
+				COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at), id
 			) < (?, ?)`
 		cursorArgs = append(cursorArgs, cur.EndedAt, cur.ID)
 	}
@@ -292,7 +292,9 @@ func (db *DB) ListSessions(
 	query := "SELECT " + sessionBaseCols +
 		" FROM sessions WHERE " + cursorWhere + `
 		ORDER BY COALESCE(
-			ended_at, started_at, created_at
+			NULLIF(ended_at, ''),
+			NULLIF(started_at, ''),
+			created_at
 		) DESC, id DESC
 		LIMIT ?`
 	cursorArgs = append(cursorArgs, f.Limit+1)
@@ -313,13 +315,12 @@ func (db *DB) ListSessions(
 	if len(sessions) > f.Limit {
 		page.Sessions = sessions[:f.Limit]
 		last := page.Sessions[f.Limit-1]
-		ea := ""
-		if last.EndedAt != nil {
-			ea = *last.EndedAt
-		} else if last.StartedAt != nil {
+		ea := last.CreatedAt
+		if last.StartedAt != nil && *last.StartedAt != "" {
 			ea = *last.StartedAt
-		} else {
-			ea = last.CreatedAt
+		}
+		if last.EndedAt != nil && *last.EndedAt != "" {
+			ea = *last.EndedAt
 		}
 		page.NextCursor = db.EncodeCursor(ea, last.ID, total)
 	}
@@ -644,7 +645,7 @@ func (db *DB) FindPruneCandidates(
 		args = append(args, *f.MaxMessages)
 	}
 	if f.Before != "" {
-		where += " AND COALESCE(ended_at, started_at, created_at) < ?"
+		where += " AND COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at) < ?"
 		args = append(args, f.Before)
 	}
 	if f.FirstMessage != "" {
@@ -660,7 +661,9 @@ func (db *DB) FindPruneCandidates(
 	query := "SELECT " + sessionPruneCols +
 		" FROM sessions WHERE " + where + `
 		ORDER BY COALESCE(
-			ended_at, started_at, created_at
+			NULLIF(ended_at, ''),
+			NULLIF(started_at, ''),
+			created_at
 		) DESC`
 
 	rows, err := db.getReader().Query(query, args...)

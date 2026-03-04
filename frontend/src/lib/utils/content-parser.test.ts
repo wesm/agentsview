@@ -3,6 +3,7 @@ import {
   parseContent,
   isToolOnly,
   enrichSegments,
+  hasVisibleSegments,
 } from "./content-parser.js";
 import type { Message, ToolCall } from "../api/types.js";
 
@@ -528,6 +529,22 @@ describe("enrichSegments", () => {
     }
   });
 
+  it("replaces truncated Codex Bash content with full cmd", () => {
+    const firstLine = "cat > file.toml <<'EOF'";
+    const fullCmd = `${firstLine}\n[package]\nname = "foo"\nEOF`;
+    // Backend truncates to first line; regex sees [Bash]\n$ first-line
+    const segments = parseContent(`[exec_command]\n$ ${firstLine}`);
+
+    const tc: ToolCall = {
+      tool_name: "exec_command",
+      category: "Bash",
+      input_json: JSON.stringify({ cmd: fullCmd }),
+    };
+    const result = enrichSegments(segments, [tc]);
+    expect(result[0]!.content).toBe(`$ ${fullCmd}`);
+    expect(result[0]!.toolCall).toBe(tc);
+  });
+
   it("does not replace single-line Bash content", () => {
     const segments = parseContent("[Bash]\n$ echo hi");
     const tc: ToolCall = {
@@ -879,5 +896,260 @@ describe("enrichSegments - Read path preview", () => {
     };
     const result = enrichSegments(segments, [tc]);
     expect(result[0]!.content).toBe("");
+  });
+});
+
+describe("parseContent + enrichSegments segment typing pipeline", () => {
+  it("correctly types thinking segments", () => {
+    const segs = parseContent("[Thinking]\ndeep thoughts\n[/Thinking]", false);
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.type).toBe("thinking");
+  });
+
+  it("correctly types tool segments", () => {
+    const segs = parseContent("[Bash]\n$ echo hi", true);
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.type).toBe("tool");
+  });
+
+  it("correctly types code segments", () => {
+    const segs = parseContent("```js\nconst x = 1;\n```", false);
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.type).toBe("code");
+  });
+
+  it("correctly types plain text segments", () => {
+    const segs = parseContent("Hello world", false);
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.type).toBe("text");
+  });
+
+  it("produces all four segment types from mixed content", () => {
+    const text =
+      "[Thinking]\nhmm\n[/Thinking]\n\n" +
+      "Here is my analysis.\n\n" +
+      "```ts\nconst x = 1;\n```\n\n" +
+      "[Bash]\n$ echo done";
+    const segs = parseContent(text, true);
+    const types = segs.map((s) => s.type);
+    expect(types).toContain("thinking");
+    expect(types).toContain("text");
+    expect(types).toContain("code");
+    expect(types).toContain("tool");
+  });
+
+  it("enrichSegments preserves segment types through enrichment", () => {
+    const segs = parseContent("Some text\n[Bash]\n$ echo hi", true);
+    const tc: ToolCall = {
+      tool_name: "Bash",
+      category: "Bash",
+      input_json: '{"command":"echo hi"}',
+    };
+    const enriched = enrichSegments(segs, [tc]);
+    expect(enriched[0]!.type).toBe("text");
+    expect(enriched[1]!.type).toBe("tool");
+    expect(enriched[1]!.toolCall).toBe(tc);
+  });
+});
+
+describe("hasVisibleSegments", () => {
+  /** Helper: create a visibility predicate from a set of visible types */
+  function visibilityFrom(
+    visible: Set<string>,
+  ): (type: string) => boolean {
+    return (type: string) => visible.has(type);
+  }
+
+  const allBlocksVisible = visibilityFrom(
+    new Set(["user", "assistant", "thinking", "tool", "code"]),
+  );
+
+  it("tool-only message hidden when tool filter is off", () => {
+    const m = makeMsg({
+      content: "[Bash]\n$ echo hi",
+      has_tool_use: true,
+    });
+    const noTool = visibilityFrom(
+      new Set(["user", "assistant", "thinking", "code"]),
+    );
+    expect(hasVisibleSegments(m, noTool)).toBe(false);
+  });
+
+  it("tool-only message visible when tool filter is on", () => {
+    const m = makeMsg({
+      content: "[Bash]\n$ echo hi",
+      has_tool_use: true,
+    });
+    expect(hasVisibleSegments(m, allBlocksVisible)).toBe(true);
+  });
+
+  it("assistant text message hidden when assistant filter is off", () => {
+    const m = makeMsg({
+      content: "Here is my response.",
+    });
+    const noAssistant = visibilityFrom(
+      new Set(["user", "thinking", "tool", "code"]),
+    );
+    expect(hasVisibleSegments(m, noAssistant)).toBe(false);
+  });
+
+  it("assistant text hidden but code/tool segments still visible", () => {
+    const m = makeMsg({
+      content: "Let me explain.\n\n[Bash]\n$ ls",
+      has_tool_use: true,
+    });
+    const noAssistant = visibilityFrom(
+      new Set(["user", "thinking", "tool", "code"]),
+    );
+    // The tool segment should keep the message visible
+    expect(hasVisibleSegments(m, noAssistant)).toBe(true);
+  });
+
+  it("thinking-only message hidden when thinking filter is off", () => {
+    const m = makeMsg({
+      content: "[Thinking]\ndeep thoughts\n[/Thinking]",
+      has_thinking: true,
+    });
+    const noThinking = visibilityFrom(
+      new Set(["user", "assistant", "tool", "code"]),
+    );
+    expect(hasVisibleSegments(m, noThinking)).toBe(false);
+  });
+
+  it("thinking-only message visible when thinking filter is on", () => {
+    const m = makeMsg({
+      content: "[Thinking]\ndeep thoughts\n[/Thinking]",
+      has_thinking: true,
+    });
+    expect(hasVisibleSegments(m, allBlocksVisible)).toBe(true);
+  });
+
+  it("message with mixed segments (text + tool) partially visible when only tool hidden", () => {
+    const m = makeMsg({
+      content: "Let me check.\n\n[Bash]\n$ ls",
+      has_tool_use: true,
+    });
+    const noTool = visibilityFrom(
+      new Set(["user", "assistant", "thinking", "code"]),
+    );
+    // Text segment maps to "assistant" which is visible
+    expect(hasVisibleSegments(m, noTool)).toBe(true);
+  });
+
+  it("message with mixed segments (text + tool) partially visible when only assistant hidden", () => {
+    const m = makeMsg({
+      content: "Let me check.\n\n[Bash]\n$ ls",
+      has_tool_use: true,
+    });
+    const noAssistant = visibilityFrom(
+      new Set(["user", "thinking", "tool", "code"]),
+    );
+    // Tool segment is still visible
+    expect(hasVisibleSegments(m, noAssistant)).toBe(true);
+  });
+
+  it("user message hidden when user filter is off", () => {
+    const m = makeMsg({
+      role: "user",
+      content: "Please help me with this.",
+    });
+    const noUser = visibilityFrom(
+      new Set(["assistant", "thinking", "tool", "code"]),
+    );
+    expect(hasVisibleSegments(m, noUser)).toBe(false);
+  });
+
+  it("user message visible when user filter is on", () => {
+    const m = makeMsg({
+      role: "user",
+      content: "Please help me with this.",
+    });
+    expect(hasVisibleSegments(m, allBlocksVisible)).toBe(true);
+  });
+
+  it("empty assistant message stays visible when role filter allows", () => {
+    const m = makeMsg({
+      content: "",
+    });
+    expect(hasVisibleSegments(m, allBlocksVisible)).toBe(true);
+  });
+
+  it("empty assistant message hidden when assistant filter is off", () => {
+    const m = makeMsg({
+      content: "",
+    });
+    const noAssistant = visibilityFrom(
+      new Set(["user", "thinking", "tool", "code"]),
+    );
+    expect(hasVisibleSegments(m, noAssistant)).toBe(false);
+  });
+
+  it("empty user message stays visible when user role filter allows", () => {
+    const m = makeMsg({
+      role: "user",
+      content: "",
+    });
+    const onlyUser = visibilityFrom(new Set(["user"]));
+    expect(hasVisibleSegments(m, onlyUser)).toBe(true);
+  });
+
+  it("message with thinking + tool visible when either is visible", () => {
+    const m = makeMsg({
+      content: "[Thinking]\nhmm\n[Bash]\n$ echo hi",
+      has_tool_use: true,
+      has_thinking: true,
+    });
+    const onlyThinking = visibilityFrom(new Set(["thinking"]));
+    expect(hasVisibleSegments(m, onlyThinking)).toBe(true);
+    const onlyTool = visibilityFrom(new Set(["tool"]));
+    expect(hasVisibleSegments(m, onlyTool)).toBe(true);
+  });
+
+  it("message with thinking + tool hidden when neither is visible", () => {
+    const m = makeMsg({
+      content: "[Thinking]\nhmm\n[Bash]\n$ echo hi",
+      has_tool_use: true,
+      has_thinking: true,
+    });
+    const noThinkingNoTool = visibilityFrom(
+      new Set(["user", "assistant", "code"]),
+    );
+    expect(hasVisibleSegments(m, noThinkingNoTool)).toBe(false);
+  });
+
+  it("code block message visible when code filter is on", () => {
+    const m = makeMsg({
+      content: "```js\nconst x = 1;\n```",
+    });
+    const onlyCode = visibilityFrom(new Set(["code"]));
+    expect(hasVisibleSegments(m, onlyCode)).toBe(true);
+  });
+
+  it("code block message hidden when code filter is off", () => {
+    const m = makeMsg({
+      content: "```js\nconst x = 1;\n```",
+    });
+    const noCode = visibilityFrom(
+      new Set(["user", "assistant", "thinking", "tool"]),
+    );
+    expect(hasVisibleSegments(m, noCode)).toBe(false);
+  });
+
+  it("message with text + code visible when only code is visible", () => {
+    const m = makeMsg({
+      content: "Here is the code:\n\n```ts\nconst x = 1;\n```",
+    });
+    const onlyCode = visibilityFrom(new Set(["code"]));
+    expect(hasVisibleSegments(m, onlyCode)).toBe(true);
+  });
+
+  it("everything hidden returns false for all segment types", () => {
+    const m = makeMsg({
+      content: "Hello\n[Thinking]\nhmm\n[Bash]\n$ ls",
+      has_tool_use: true,
+      has_thinking: true,
+    });
+    const nothingVisible = visibilityFrom(new Set<string>());
+    expect(hasVisibleSegments(m, nothingVisible)).toBe(false);
   });
 });

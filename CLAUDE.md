@@ -96,6 +96,7 @@ make vet        # go vet
 - Prefer stdlib over external dependencies
 - Tests should be fast and isolated
 - No emojis in code or output
+- **The database is a persistent archive** — never drop, truncate, or recreate the database to handle data version changes. Use non-destructive migrations (ALTER TABLE, UPDATE) and full resync (build fresh DB, copy orphaned data, swap) instead. Session data must survive even when the original source files are gone.
 
 ## Git Workflow
 
