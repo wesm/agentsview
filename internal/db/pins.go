@@ -15,6 +15,11 @@ type PinnedMessage struct {
 	Content   *string `json:"content,omitempty"`
 	Role      *string `json:"role,omitempty"`
 	CreatedAt string  `json:"created_at"`
+
+	// Session metadata — populated only for the "all pins" query.
+	SessionProject     *string `json:"session_project,omitempty"`
+	SessionAgent       *string `json:"session_agent,omitempty"`
+	SessionDisplayName *string `json:"session_display_name,omitempty"`
 }
 
 const pinnedBaseCols = `id, session_id, message_id, ordinal, note, created_at`
@@ -34,27 +39,46 @@ func scanPinnedRowWithContent(rs rowScanner) (PinnedMessage, error) {
 		&p.ID, &p.SessionID, &p.MessageID,
 		&p.Ordinal, &p.Note, &p.CreatedAt,
 		&p.Content, &p.Role,
+		&p.SessionProject, &p.SessionAgent, &p.SessionDisplayName,
 	)
 	return p, err
 }
 
 // PinMessage creates a pin for a message. If the message is
-// already pinned, the note is updated.
+// already pinned, the note is updated. The message must belong to
+// the specified session (enforced via INSERT ... SELECT).
 func (db *DB) PinMessage(
 	sessionID string, messageID int64, ordinal int, note *string,
 ) (int64, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	res, err := db.getWriter().Exec(
+
+	// Use INSERT ... SELECT to enforce session-message ownership.
+	// If the message doesn't belong to the session, zero rows are
+	// inserted and the function returns 0.
+	_, err := db.getWriter().Exec(
 		`INSERT INTO pinned_messages (session_id, message_id, ordinal, note)
-		 VALUES (?, ?, ?, ?)
+		 SELECT ?, m.id, ?, ?
+		 FROM messages m
+		 WHERE m.id = ? AND m.session_id = ?
 		 ON CONFLICT(session_id, message_id) DO UPDATE SET note = excluded.note`,
-		sessionID, messageID, ordinal, note,
+		sessionID, ordinal, note, messageID, sessionID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("pinning message: %w", err)
 	}
-	return res.LastInsertId()
+
+	// Retrieve the actual row ID (LastInsertId is unreliable on
+	// upsert in SQLite).
+	var id int64
+	err = db.getWriter().QueryRow(
+		"SELECT id FROM pinned_messages WHERE session_id = ? AND message_id = ?",
+		sessionID, messageID,
+	).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("retrieving pin id: %w", err)
+	}
+	return id, nil
 }
 
 // UnpinMessage removes a pin.
@@ -82,9 +106,14 @@ func (db *DB) ListPinnedMessages(
 			" ORDER BY created_at DESC"
 		args = []any{sessionID}
 	} else {
+		// Join sessions to exclude trashed sessions and include
+		// session metadata (project, agent, display_name) so the
+		// frontend doesn't need a separate lookup.
 		query = `SELECT p.id, p.session_id, p.message_id, p.ordinal,
-				p.note, p.created_at, m.content, m.role
+				p.note, p.created_at, m.content, m.role,
+				s.project, s.agent, s.display_name
 			FROM pinned_messages p
+			JOIN sessions s ON p.session_id = s.id AND s.deleted_at IS NULL
 			LEFT JOIN messages m ON p.message_id = m.id
 			ORDER BY p.created_at DESC LIMIT 500`
 	}

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import type { Session } from "../../api/types.js";
   import * as api from "../../api/client.js";
+  import { sessions } from "../../stores/sessions.svelte.js";
   import { formatRelativeTime, truncate } from "../../utils/format.js";
 
   let trashedSessions: Session[] = $state([]);
@@ -26,6 +27,9 @@
     try {
       await api.restoreSession(id);
       trashedSessions = trashedSessions.filter((s) => s.id !== id);
+      // Reload the main sessions list so the sidebar reflects
+      // the restored session immediately.
+      sessions.load();
     } catch {
       // silently fail
     }

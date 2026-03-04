@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -32,7 +33,13 @@ func (s *Server) handlePinMessage(
 
 	id, err := s.db.PinMessage(sessionID, messageID, req.Ordinal, req.Note)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("pin message: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if id == 0 {
+		writeError(w, http.StatusBadRequest,
+			"message does not belong to this session")
 		return
 	}
 
@@ -51,7 +58,8 @@ func (s *Server) handleUnpinMessage(
 	}
 
 	if err := s.db.UnpinMessage(sessionID, messageID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("unpin message: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -66,7 +74,8 @@ func (s *Server) handleListPins(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list pins: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if pins == nil {
@@ -84,7 +93,8 @@ func (s *Server) handleListSessionPins(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list session pins: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if pins == nil {

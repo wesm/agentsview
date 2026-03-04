@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -21,7 +22,8 @@ func (s *Server) handleRenameSession(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("rename session lookup: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if session == nil {
@@ -41,7 +43,8 @@ func (s *Server) handleRenameSession(
 	}
 
 	if err := s.db.RenameSession(id, req.DisplayName); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("rename session: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -67,7 +70,8 @@ func (s *Server) handleDeleteSession(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("delete session lookup: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if session == nil {
@@ -76,7 +80,8 @@ func (s *Server) handleDeleteSession(
 	}
 
 	if err := s.db.SoftDeleteSession(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("soft delete session: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -91,7 +96,8 @@ func (s *Server) handleRestoreSession(
 	id := r.PathValue("id")
 
 	if err := s.db.RestoreSession(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("restore session: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -105,8 +111,31 @@ func (s *Server) handlePermanentDeleteSession(
 ) {
 	id := r.PathValue("id")
 
+	// Only allow permanent deletion of sessions that are already
+	// in the trash (deleted_at IS NOT NULL). This prevents
+	// accidental hard-deletion of active sessions.
+	session, err := s.db.GetSessionFull(r.Context(), id)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		log.Printf("permanent delete lookup: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if session == nil {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if session.DeletedAt == nil {
+		writeError(w, http.StatusConflict,
+			"session must be in trash before permanent deletion")
+		return
+	}
+
 	if err := s.db.DeleteSession(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("permanent delete session: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -123,7 +152,8 @@ func (s *Server) handleListTrash(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list trashed sessions: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
@@ -136,7 +166,8 @@ func (s *Server) handleEmptyTrash(
 ) {
 	count, err := s.db.EmptyTrash()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("empty trash: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"deleted": count})
