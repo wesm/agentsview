@@ -23,7 +23,7 @@ import (
 // formatting changes). Old databases with a lower user_version
 // trigger a non-destructive re-sync (mtime reset + skip cache
 // clear) so existing session data is preserved.
-const dataVersion = 1
+const dataVersion = 2
 
 //go:embed schema.sql
 var schemaSQL string
@@ -385,6 +385,23 @@ func (db *DB) init() error {
 	w := db.getWriter()
 	if _, err := w.Exec(schemaSQL); err != nil {
 		return err
+	}
+
+	// Add result_content column to tool_calls if not present
+	// (non-destructive migration for existing databases).
+	var rcCount int
+	if err := w.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')` +
+			` WHERE name = 'result_content'`,
+	).Scan(&rcCount); err != nil {
+		return fmt.Errorf("probing result_content column: %w", err)
+	}
+	if rcCount == 0 {
+		if _, err := w.Exec(
+			`ALTER TABLE tool_calls ADD COLUMN result_content TEXT`,
+		); err != nil {
+			return fmt.Errorf("adding result_content column: %w", err)
+		}
 	}
 
 	// Check if FTS table exists before trying to create it

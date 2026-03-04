@@ -285,19 +285,19 @@ func TestExtractToolResults(t *testing.T) {
 		{
 			"single tool_result",
 			`[{"type":"tool_result","tool_use_id":"toolu_123","content":"file contents here"}]`,
-			[]ParsedToolResult{{ToolUseID: "toolu_123", ContentLength: 18}},
+			[]ParsedToolResult{{ToolUseID: "toolu_123", ContentLength: 18, Content: "file contents here"}},
 		},
 		{
 			"tool_result with array content",
 			`[{"type":"tool_result","tool_use_id":"toolu_456","content":[{"type":"text","text":"output data"}]}]`,
-			[]ParsedToolResult{{ToolUseID: "toolu_456", ContentLength: 11}},
+			[]ParsedToolResult{{ToolUseID: "toolu_456", ContentLength: 11, Content: "output data"}},
 		},
 		{
 			"multiple tool_results",
 			`[{"type":"tool_result","tool_use_id":"toolu_1","content":"abc"},{"type":"tool_result","tool_use_id":"toolu_2","content":"defgh"}]`,
 			[]ParsedToolResult{
-				{ToolUseID: "toolu_1", ContentLength: 3},
-				{ToolUseID: "toolu_2", ContentLength: 5},
+				{ToolUseID: "toolu_1", ContentLength: 3, Content: "abc"},
+				{ToolUseID: "toolu_2", ContentLength: 5, Content: "defgh"},
 			},
 		},
 	}
@@ -317,6 +317,10 @@ func TestExtractToolResults(t *testing.T) {
 				if trs[i].ContentLength != tt.wantResults[i].ContentLength {
 					t.Errorf("[%d].ContentLength = %d, want %d",
 						i, trs[i].ContentLength, tt.wantResults[i].ContentLength)
+				}
+				if trs[i].Content != tt.wantResults[i].Content {
+					t.Errorf("[%d].Content = %q, want %q",
+						i, trs[i].Content, tt.wantResults[i].Content)
 				}
 			}
 		})

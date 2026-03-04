@@ -154,7 +154,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := pairAndFilter(tt.msgs)
+			got := pairAndFilter(tt.msgs, nil)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("pairAndFilter() mismatch (-want +got):\n%s", diff)
 			}
@@ -294,7 +294,88 @@ func TestPairToolResults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pairToolResults(tt.msgs)
+			pairToolResults(tt.msgs, nil)
+			if diff := cmp.Diff(tt.want, tt.msgs); diff != "" {
+				t.Errorf("pairToolResults() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPairToolResultsContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		msgs    []db.Message
+		blocked map[string]bool
+		want    []db.Message
+	}{
+		{
+			name: "content stored for non-blocked category",
+			msgs: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Bash", Category: "Bash"},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 42, Content: "[main abc1234] feat\n"},
+				}},
+			},
+			blocked: map[string]bool{"Read": true, "Glob": true},
+			want: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Bash", Category: "Bash",
+						ResultContentLength: 42, ResultContent: "[main abc1234] feat\n"},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 42, Content: "[main abc1234] feat\n"},
+				}},
+			},
+		},
+		{
+			name: "content blocked for Read category",
+			msgs: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", Category: "Read"},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 5000, Content: "package main\n..."},
+				}},
+			},
+			blocked: map[string]bool{"Read": true, "Glob": true},
+			want: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", Category: "Read",
+						ResultContentLength: 5000, ResultContent: ""},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 5000, Content: "package main\n..."},
+				}},
+			},
+		},
+		{
+			name: "nil blocked map stores all content",
+			msgs: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", Category: "Read"},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 100, Content: "file content"},
+				}},
+			},
+			blocked: nil,
+			want: []db.Message{
+				{ToolCalls: []db.ToolCall{
+					{ToolUseID: "t1", ToolName: "Read", Category: "Read",
+						ResultContentLength: 100, ResultContent: "file content"},
+				}},
+				{ToolResults: []db.ToolResult{
+					{ToolUseID: "t1", ContentLength: 100, Content: "file content"},
+				}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pairToolResults(tt.msgs, tt.blocked)
 			if diff := cmp.Diff(tt.want, tt.msgs); diff != "" {
 				t.Errorf("pairToolResults() mismatch (-want +got):\n%s", diff)
 			}

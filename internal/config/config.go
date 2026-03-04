@@ -34,6 +34,8 @@ type Config struct {
 	// agentDirSource tracks how each agent's dirs were
 	// set so loadFile doesn't override env-set values.
 	agentDirSource map[parser.AgentType]dirSource
+
+	ResultContentBlockedCategories []string `json:"result_content_blocked_categories,omitempty"`
 }
 
 type dirSource int
@@ -82,13 +84,14 @@ func Default() (Config, error) {
 	}
 
 	return Config{
-		Host:           "127.0.0.1",
-		Port:           8080,
-		DataDir:        dataDir,
-		DBPath:         filepath.Join(dataDir, "sessions.db"),
-		WriteTimeout:   30 * time.Second,
-		AgentDirs:      agentDirs,
-		agentDirSource: agentDirSource,
+		Host:                           "127.0.0.1",
+		Port:                           8080,
+		DataDir:                        dataDir,
+		DBPath:                         filepath.Join(dataDir, "sessions.db"),
+		WriteTimeout:                   30 * time.Second,
+		AgentDirs:                      agentDirs,
+		agentDirSource:                 agentDirSource,
+		ResultContentBlockedCategories: []string{"Read", "Glob"},
 	}, nil
 }
 
@@ -138,8 +141,9 @@ func (c *Config) loadFile() error {
 	}
 
 	var file struct {
-		GithubToken  string `json:"github_token"`
-		CursorSecret string `json:"cursor_secret"`
+		GithubToken                    string   `json:"github_token"`
+		CursorSecret                   string   `json:"cursor_secret"`
+		ResultContentBlockedCategories []string `json:"result_content_blocked_categories"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parsing config: %w", err)
@@ -149,6 +153,9 @@ func (c *Config) loadFile() error {
 	}
 	if file.CursorSecret != "" {
 		c.CursorSecret = file.CursorSecret
+	}
+	if file.ResultContentBlockedCategories != nil {
+		c.ResultContentBlockedCategories = file.ResultContentBlockedCategories
 	}
 
 	// Parse config-file dir arrays for agents that have a

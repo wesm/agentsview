@@ -160,8 +160,9 @@ func runServe(args []string) {
 	cleanResyncTemp(cfg.DBPath)
 
 	engine := sync.NewEngine(database, sync.EngineConfig{
-		AgentDirs: cfg.AgentDirs,
-		Machine:   "local",
+		AgentDirs:               cfg.AgentDirs,
+		Machine:                 "local",
+		BlockedResultCategories: cfg.ResultContentBlockedCategories,
 	})
 
 	if database.NeedsResync() {

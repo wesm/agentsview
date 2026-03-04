@@ -72,6 +72,7 @@ func ExtractTextContent(
 				toolResults = append(toolResults, ParsedToolResult{
 					ToolUseID:     tuid,
 					ContentLength: cl,
+					Content:       toolResultContent(rc),
 				})
 			}
 		}
@@ -95,6 +96,23 @@ func toolResultContentLength(content gjson.Result) int {
 		return total
 	}
 	return 0
+}
+
+func toolResultContent(content gjson.Result) string {
+	if content.Type == gjson.String {
+		return content.Str
+	}
+	if content.IsArray() {
+		var parts []string
+		content.ForEach(func(_, block gjson.Result) bool {
+			if t := block.Get("text").Str; t != "" {
+				parts = append(parts, t)
+			}
+			return true
+		})
+		return strings.Join(parts, "")
+	}
+	return ""
 }
 
 var todoIcons = map[string]string{

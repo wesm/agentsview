@@ -2374,6 +2374,49 @@ func TestGetMessagesReturnsToolCalls(t *testing.T) {
 	}
 }
 
+func TestToolCallResultContent(t *testing.T) {
+	database := testDB(t)
+	sess := Session{
+		ID: "sess-rc", Project: "p", Machine: "m", Agent: "claude",
+	}
+	if err := database.UpsertSession(sess); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	msgs := []Message{
+		{
+			SessionID: "sess-rc",
+			Ordinal:   0,
+			Role:      "assistant",
+			Content:   "ok",
+			ToolCalls: []ToolCall{
+				{
+					SessionID:     "sess-rc",
+					ToolName:      "Bash",
+					Category:      "Bash",
+					ToolUseID:     "tu-rc",
+					ResultContent: "[main abc1234] Add feature\n 1 file changed",
+				},
+			},
+		},
+	}
+	if err := database.InsertMessages(msgs); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	retrieved, err := database.GetMessages(
+		context.Background(), "sess-rc", 0, 10, true,
+	)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(retrieved) != 1 || len(retrieved[0].ToolCalls) != 1 {
+		t.Fatalf("expected 1 msg with 1 tool call")
+	}
+	tc := retrieved[0].ToolCalls[0]
+	if tc.ResultContent != "[main abc1234] Add feature\n 1 file changed" {
+		t.Errorf("ResultContent = %q", tc.ResultContent)
+	}
+}
+
 func TestGetAllMessagesReturnsToolCallsAcrossBatches(t *testing.T) {
 	d := testDB(t)
 	insertSession(t, d, "s1", "proj")

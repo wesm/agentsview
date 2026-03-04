@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     input_json  TEXT,
     skill_name  TEXT,
     result_content_length INTEGER,
+    result_content        TEXT,
     subagent_session_id TEXT
 );
 
