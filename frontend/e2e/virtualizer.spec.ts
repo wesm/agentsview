@@ -127,7 +127,7 @@ async function verifyNoVerticalGaps(rows: Locator) {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(
-    page.locator(`button${LOC.sessionItem}`).first(),
+    page.locator(LOC.sessionItem).first(),
   ).toBeVisible({ timeout: 5_000 });
 });
 

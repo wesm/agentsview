@@ -20,7 +20,7 @@ export class SessionsPage {
   readonly exportBtn: Locator;
 
   constructor(readonly page: Page) {
-    this.sessionItems = page.locator("button.session-item");
+    this.sessionItems = page.locator(".session-item");
     this.sessionListScroll = page.locator(".session-list-scroll");
     this.messageRows = page.locator(".virtual-row");
     this.scroller = page.locator(".message-list-scroll");

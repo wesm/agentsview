@@ -53,6 +53,8 @@ describe("agentColor", () => {
     );
     expect(agentColor("pi")).toBe(
       "var(--accent-indigo)"
+    expect(agentColor("vscode-copilot")).toBe(
+      "var(--accent-teal)",
     );
   });
 

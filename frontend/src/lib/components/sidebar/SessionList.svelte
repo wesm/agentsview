@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { sessions } from "../../stores/sessions.svelte.js";
+  import { starred } from "../../stores/starred.svelte.js";
   import SessionItem from "./SessionItem.svelte";
   import { formatNumber } from "../../utils/format.js";
   import {
@@ -41,7 +42,9 @@
     }
   });
 
-  let hasFilters = $derived(sessions.hasActiveFilters);
+  let hasFilters = $derived(
+    sessions.hasActiveFilters || starred.filterOnly,
+  );
   let isRecentlyActiveOn = $derived(
     sessions.filters.recentlyActive,
   );
@@ -49,7 +52,18 @@
     sessions.filters.hideUnknownProject,
   );
 
-  let groups = $derived(sessions.groupedSessions);
+  let groups = $derived.by(() => {
+    const all = sessions.groupedSessions;
+    if (!starred.filterOnly) return all;
+    return all
+      .map((g) => ({
+        ...g,
+        sessions: g.sessions.filter((s) =>
+          starred.isStarred(s.id),
+        ),
+      }))
+      .filter((g) => g.sessions.length > 0);
+  });
 
   // Build agent-grouped structure when groupByAgent is on.
   let agentSections = $derived.by(() =>
@@ -227,6 +241,23 @@
           </button>
         </div>
         <div class="filter-section">
+          <div class="filter-section-label">Starred</div>
+          <button
+            class="filter-toggle"
+            class:active={starred.filterOnly}
+            onclick={() => (starred.filterOnly = !starred.filterOnly)}
+          >
+            <span
+              class="toggle-check"
+              class:on={starred.filterOnly}
+            ></span>
+            Starred only
+            {#if starred.count > 0}
+              <span class="starred-count">{starred.count}</span>
+            {/if}
+          </button>
+        </div>
+        <div class="filter-section">
           <div class="filter-section-label">Activity</div>
           <button
             class="filter-toggle"
@@ -300,7 +331,16 @@
         {#if hasFilters}
           <button
             class="clear-filters-btn"
-            onclick={() => sessions.clearSessionFilters()}
+            onclick={() => {
+              if (sessions.hasActiveFilters && starred.filterOnly) {
+                starred.filterOnly = false;
+                sessions.clearSessionFilters();
+              } else if (sessions.hasActiveFilters) {
+                sessions.clearSessionFilters();
+              } else {
+                starred.filterOnly = false;
+              }
+            }}
           >
             Clear filters
           </button>
@@ -556,6 +596,15 @@
     border-top: 1px solid var(--border-muted);
     padding-top: 8px;
     transition: color 0.1s;
+  }
+
+  .starred-count {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--accent-amber);
+    min-width: 14px;
+    text-align: center;
   }
 
   .clear-filters-btn:hover {

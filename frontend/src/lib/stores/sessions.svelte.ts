@@ -266,11 +266,25 @@ class SessionsStore {
     this.activeSessionId = null;
   }
 
-  navigateSession(delta: number) {
-    const idx = this.sessions.findIndex((s) => s.id === this.activeSessionId);
+  navigateSession(delta: number, filter?: (s: Session) => boolean) {
+    const list = filter
+      ? this.sessions.filter(filter)
+      : this.sessions;
+    if (list.length === 0) return;
+    const idx = list.findIndex((s) => s.id === this.activeSessionId);
+    if (idx === -1) {
+      // No active session at all — do nothing (preserve no-op behavior).
+      if (this.activeSessionId === null) return;
+      // Active session exists but isn't in the filtered list (e.g. viewing
+      // an unstarred session while starred-only filter is on) — jump to
+      // an edge so the keyboard shortcut doesn't silently fail.
+      const edge = delta > 0 ? 0 : list.length - 1;
+      this.activeSessionId = list[edge]!.id;
+      return;
+    }
     const next = idx + delta;
-    if (next >= 0 && next < this.sessions.length) {
-      this.activeSessionId = this.sessions[next]!.id;
+    if (next >= 0 && next < list.length) {
+      this.activeSessionId = list[next]!.id;
     }
   }
 

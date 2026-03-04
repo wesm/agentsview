@@ -1,4 +1,5 @@
 type Theme = "light" | "dark";
+export type MessageLayout = "default" | "compact" | "stream";
 type ModalType =
   | "commandPalette"
   | "shortcuts"
@@ -43,6 +44,12 @@ function readBlockFilters(): Set<BlockType> {
   return new Set(ALL_BLOCK_TYPES);
 }
 
+const LAYOUT_KEY = "agentsview-message-layout";
+const VALID_LAYOUTS: MessageLayout[] = [
+  "default",
+  "compact",
+  "stream",
+];
 function readStoredTheme(): Theme | null {
   if (
     typeof localStorage !== "undefined" &&
@@ -54,9 +61,25 @@ function readStoredTheme(): Theme | null {
   return null;
 }
 
+function readStoredLayout(): MessageLayout {
+  try {
+    const raw = localStorage?.getItem(LAYOUT_KEY);
+    if (
+      raw &&
+      VALID_LAYOUTS.includes(raw as MessageLayout)
+    ) {
+      return raw as MessageLayout;
+    }
+  } catch {
+    // ignore
+  }
+  return "default";
+}
+
 class UIStore {
   theme: Theme = $state(readStoredTheme() || "light");
   sortNewestFirst: boolean = $state(false);
+  messageLayout: MessageLayout = $state(readStoredLayout());
   activeModal: ModalType = $state(null);
   selectedOrdinal: number | null = $state(null);
   pendingScrollOrdinal: number | null = $state(null);
@@ -84,6 +107,17 @@ class UIStore {
           typeof localStorage.setItem === "function"
         ) {
           localStorage.setItem("theme", this.theme);
+        }
+      });
+
+      $effect(() => {
+        try {
+          localStorage?.setItem(
+            LAYOUT_KEY,
+            this.messageLayout,
+          );
+        } catch {
+          // ignore
         }
       });
     });
@@ -162,6 +196,16 @@ class UIStore {
 
   toggleSort() {
     this.sortNewestFirst = !this.sortNewestFirst;
+  }
+
+  cycleLayout() {
+    const idx = VALID_LAYOUTS.indexOf(this.messageLayout);
+    this.messageLayout =
+      VALID_LAYOUTS[(idx + 1) % VALID_LAYOUTS.length]!;
+  }
+
+  setLayout(layout: MessageLayout) {
+    this.messageLayout = layout;
   }
 
   selectOrdinal(ordinal: number) {
