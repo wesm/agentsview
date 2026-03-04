@@ -6,21 +6,36 @@ class StarredStore {
   ids: Set<string> = $state(new Set());
   filterOnly: boolean = $state(false);
   private loaded: boolean = false;
+  private loading: Promise<void> | null = null;
 
   /** Load starred IDs from the server. Migrates localStorage data on first load. */
   async load() {
     if (this.loaded) return;
+    if (this.loading) return this.loading;
+    this.loading = this.doLoad();
+    return this.loading;
+  }
+
+  private async doLoad() {
     try {
       const res = await api.listStarred();
-      this.ids = new Set(res.session_ids);
+      // Merge with any optimistic changes made before load completed
+      const merged = new Set(res.session_ids);
+      for (const id of this.ids) merged.add(id);
+      this.ids = merged;
       this.loaded = true;
 
       // Migrate any localStorage stars to the database
       await this.migrateLocalStorage();
     } catch {
       // Fallback: read from localStorage if server unreachable
-      this.ids = readLocalStorage();
+      const local = readLocalStorage();
+      const merged = new Set(local);
+      for (const id of this.ids) merged.add(id);
+      this.ids = merged;
       this.loaded = true;
+    } finally {
+      this.loading = null;
     }
   }
 

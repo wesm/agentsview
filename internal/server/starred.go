@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -19,7 +20,8 @@ func (s *Server) handleStarSession(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("star session: lookup error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if session == nil {
@@ -28,7 +30,8 @@ func (s *Server) handleStarSession(
 	}
 
 	if err := s.db.StarSession(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("star session: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -44,7 +47,8 @@ func (s *Server) handleUnstarSession(
 	}
 
 	if err := s.db.UnstarSession(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("unstar session: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -58,7 +62,8 @@ func (s *Server) handleListStarred(
 		if handleContextError(w, err) {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list starred: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if ids == nil {
@@ -84,7 +89,8 @@ func (s *Server) handleBulkStar(
 		return
 	}
 	if err := s.db.BulkStarSessions(body.SessionIDs); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("bulk star: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
