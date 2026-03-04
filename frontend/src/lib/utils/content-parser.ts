@@ -358,11 +358,6 @@ export function enrichSegments(
 ): ContentSegment[] {
   if (!toolCalls?.length) return segments;
 
-  // Track whether any tool segments came from text-marker parsing
-  // (Claude Code style). If none exist, all tool calls are from
-  // structured JSON (pi/omp style) and we create segments for them.
-  const hasTextBasedTools = segments.some((s) => s.type === "tool");
-
   const result: ContentSegment[] = [];
   let tcIdx = 0;
 
@@ -403,12 +398,11 @@ export function enrichSegments(
     }
   }
 
-  // For agents that store tool calls as structured JSON (e.g. pi/omp)
-  // rather than as text markers, the regex pass above finds no "tool"
-  // segments to pair with. Append the full tool_calls list as segments.
-  // Skip this when text-based tool markers were present (Claude Code style)
-  // to avoid appending duplicate/extra entries.
-  if (!hasTextBasedTools) {
+  // Append any remaining tool calls that weren't paired with text-based
+  // tool segments. This covers both structured-only agents (pi/omp) where
+  // no text markers exist, and mixed/edge cases where there are more
+  // tool calls than text-based segments (e.g. false-positive text matches).
+  if (tcIdx < toolCalls.length) {
     while (tcIdx < toolCalls.length) {
       const tc = toolCalls[tcIdx]!;
       tcIdx++;

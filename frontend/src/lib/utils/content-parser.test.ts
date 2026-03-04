@@ -607,7 +607,7 @@ describe("enrichSegments", () => {
     expect(result[1]!.toolCall).toBe(tc);
   });
 
-  it("handles more tool_calls than tool segments gracefully", () => {
+  it("appends remaining tool_calls when more exist than tool segments", () => {
     const segments = parseContent("[Bash]\n$ echo hi");
     const tc1: ToolCall = {
       tool_name: "Bash",
@@ -620,7 +620,9 @@ describe("enrichSegments", () => {
     };
     const result = enrichSegments(segments, [tc1, tc2]);
     expect(result[0]!.toolCall).toBe(tc1);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
+    expect(result[1]!.toolCall).toBe(tc2);
+    expect(result[1]!.type).toBe("tool");
   });
 
   it("creates tool segments from structured tool_calls when no text markers exist (pi/omp style)", () => {
