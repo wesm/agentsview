@@ -1108,7 +1108,7 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 				continue
 			}
 			name := entry.Name()
-			if !strings.HasSuffix(name, ".jsonl") {
+			if !IsOpenClawSessionFile(name) {
 				continue
 			}
 			files = append(files, DiscoveredFile{

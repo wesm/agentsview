@@ -208,7 +208,7 @@ func ParseOpenClawSession(
 	// Build session ID with prefix, including the agent
 	// subdirectory to avoid collisions across agents.
 	if sessionID == "" {
-		sessionID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
+		sessionID = OpenClawSessionID(filepath.Base(path))
 	}
 	agentID := openClawAgentIDFromPath(path)
 	fullID := "openclaw:" + agentID + ":" + sessionID
@@ -261,6 +261,33 @@ func extractToolResultText(content gjson.Result) string {
 		return true
 	})
 	return strings.Join(parts, "\n")
+}
+
+// isOpenClawSessionFile reports whether a filename is an OpenClaw
+// session file. It matches active files (*.jsonl) and archived
+// files (*.jsonl.deleted.*, *.jsonl.full.bak, *.jsonl.reset.*).
+func IsOpenClawSessionFile(name string) bool {
+	if strings.HasSuffix(name, ".jsonl") {
+		return true
+	}
+	// Archived files: <uuid>.jsonl.<reason>.<timestamp>
+	// e.g. abc.jsonl.deleted.2026-02-19T08-59-24.951Z
+	//      abc.jsonl.full.bak
+	//      abc.jsonl.reset.2026-02-17T09-39-39.691Z
+	idx := strings.Index(name, ".jsonl.")
+	return idx > 0
+}
+
+// OpenClawSessionID extracts the session UUID from an OpenClaw
+// session filename, stripping any archive suffix.
+// "abc.jsonl" → "abc"
+// "abc.jsonl.deleted.2026-02-19T08-59-24.951Z" → "abc"
+// "abc.jsonl.full.bak" → "abc"
+func OpenClawSessionID(name string) string {
+	if idx := strings.Index(name, ".jsonl"); idx > 0 {
+		return name[:idx]
+	}
+	return strings.TrimSuffix(name, ".jsonl")
 }
 
 // openClawAgentIDFromPath extracts the agent subdirectory name

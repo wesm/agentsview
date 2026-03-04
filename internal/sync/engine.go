@@ -417,6 +417,28 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// OpenClaw: <openclawDir>/<agentId>/sessions/<sessionId>.jsonl
+	//       or: <openclawDir>/<agentId>/sessions/<sessionId>.jsonl.<archiveSuffix>
+	for _, ocDir := range e.agentDirs[parser.AgentOpenClaw] {
+		if ocDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(ocDir, path); ok {
+			parts := strings.Split(rel, sep)
+			// Expect: <agentId>/sessions/<file>
+			if len(parts) != 3 || parts[1] != "sessions" {
+				continue
+			}
+			if !parser.IsOpenClawSessionFile(parts[2]) {
+				continue
+			}
+			return parser.DiscoveredFile{
+				Path:  path,
+				Agent: parser.AgentOpenClaw,
+			}, true
+		}
+	}
+
 	return parser.DiscoveredFile{}, false
 }
 

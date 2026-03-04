@@ -3,6 +3,7 @@ package parser
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,10 +20,12 @@ func writeOpenClawTestFile(
 		t.Fatal(err)
 	}
 	path = filepath.Join(sessDir, "test-session.jsonl")
-	var content string
+	var b strings.Builder
 	for _, line := range lines {
-		content += line + "\n"
+		b.WriteString(line)
+		b.WriteByte('\n')
 	}
+	content := b.String()
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
