@@ -350,6 +350,45 @@ class SessionsStore {
     this.resetPagination();
     this.load();
   }
+
+  /** Recently deleted session IDs for undo toast. */
+  recentlyDeleted: { id: string; timer: ReturnType<typeof setTimeout> }[] =
+    $state([]);
+
+  async deleteSession(id: string) {
+    await api.deleteSession(id);
+    this.sessions = this.sessions.filter((s) => s.id !== id);
+    this.total = Math.max(0, this.total - 1);
+    if (this.activeSessionId === id) {
+      this.activeSessionId = null;
+    }
+    const timer = setTimeout(() => {
+      this.recentlyDeleted = this.recentlyDeleted.filter(
+        (d) => d.id !== id,
+      );
+    }, 10_000);
+    this.recentlyDeleted = [...this.recentlyDeleted, { id, timer }];
+  }
+
+  async restoreSession(id: string) {
+    await api.restoreSession(id);
+    this.recentlyDeleted = this.recentlyDeleted.filter((d) => {
+      if (d.id === id) {
+        clearTimeout(d.timer);
+        return false;
+      }
+      return true;
+    });
+    await this.load();
+  }
+
+  async renameSession(id: string, displayName: string | null) {
+    const updated = await api.renameSession(id, displayName);
+    const idx = this.sessions.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      this.sessions[idx] = { ...this.sessions[idx]!, ...updated };
+    }
+  }
 }
 
 export function createSessionsStore(): SessionsStore {

@@ -1,8 +1,10 @@
-type Route = "sessions" | "insights";
+type Route = "sessions" | "insights" | "pinned" | "trash";
 
 const VALID_ROUTES: ReadonlySet<string> = new Set<Route>([
   "sessions",
   "insights",
+  "pinned",
+  "trash",
 ]);
 
 const DEFAULT_ROUTE: Route = "sessions";

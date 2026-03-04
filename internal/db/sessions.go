@@ -18,24 +18,25 @@ var ErrInvalidCursor = errors.New("invalid cursor")
 // sessionBaseCols is the column list for standard session queries
 // (list, get). Keep in sync with scanSessionRow.
 const sessionBaseCols = `id, project, machine, agent,
-	first_message, started_at, ended_at,
+	first_message, display_name, started_at, ended_at,
 	message_count, user_message_count,
-	parent_session_id, relationship_type, created_at`
+	parent_session_id, relationship_type,
+	deleted_at, created_at`
 
 // sessionPruneCols extends sessionBaseCols with file metadata
 // needed by FindPruneCandidates.
 const sessionPruneCols = `id, project, machine, agent,
-	first_message, started_at, ended_at,
+	first_message, display_name, started_at, ended_at,
 	message_count, user_message_count,
 	parent_session_id, relationship_type,
-	file_path, file_size, created_at`
+	deleted_at, file_path, file_size, created_at`
 
 // sessionFullCols includes all columns for a complete session record.
 const sessionFullCols = `id, project, machine, agent,
-	first_message, started_at, ended_at,
+	first_message, display_name, started_at, ended_at,
 	message_count, user_message_count,
 	parent_session_id, relationship_type,
-	file_path, file_size, file_mtime,
+	deleted_at, file_path, file_size, file_mtime,
 	file_hash, created_at`
 
 const (
@@ -56,10 +57,10 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 	var s Session
 	err := rs.Scan(
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
-		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
+		&s.FirstMessage, &s.DisplayName, &s.StartedAt, &s.EndedAt,
 		&s.MessageCount, &s.UserMessageCount,
 		&s.ParentSessionID, &s.RelationshipType,
-		&s.CreatedAt,
+		&s.DeletedAt, &s.CreatedAt,
 	)
 	return s, err
 }
@@ -71,12 +72,14 @@ type Session struct {
 	Machine          string  `json:"machine"`
 	Agent            string  `json:"agent"`
 	FirstMessage     *string `json:"first_message"`
+	DisplayName      *string `json:"display_name,omitempty"`
 	StartedAt        *string `json:"started_at"`
 	EndedAt          *string `json:"ended_at"`
 	MessageCount     int     `json:"message_count"`
 	UserMessageCount int     `json:"user_message_count"`
 	ParentSessionID  *string `json:"parent_session_id,omitempty"`
 	RelationshipType string  `json:"relationship_type,omitempty"`
+	DeletedAt        *string `json:"deleted_at,omitempty"`
 	FilePath         *string `json:"file_path,omitempty"`
 	FileSize         *int64  `json:"file_size,omitempty"`
 	FileMtime        *int64  `json:"file_mtime,omitempty"`
@@ -191,6 +194,7 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 	preds := []string{
 		"message_count > 0",
 		"relationship_type NOT IN ('subagent', 'fork')",
+		"deleted_at IS NULL",
 	}
 	var args []any
 
@@ -361,10 +365,10 @@ func (db *DB) GetSessionFull(
 	var s Session
 	err := row.Scan(
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
-		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
+		&s.FirstMessage, &s.DisplayName, &s.StartedAt, &s.EndedAt,
 		&s.MessageCount, &s.UserMessageCount,
 		&s.ParentSessionID, &s.RelationshipType,
-		&s.FilePath, &s.FileSize,
+		&s.DeletedAt, &s.FilePath, &s.FileSize,
 		&s.FileMtime, &s.FileHash, &s.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -677,10 +681,10 @@ func (db *DB) FindPruneCandidates(
 		var s Session
 		err := rows.Scan(
 			&s.ID, &s.Project, &s.Machine, &s.Agent,
-			&s.FirstMessage, &s.StartedAt, &s.EndedAt,
+			&s.FirstMessage, &s.DisplayName, &s.StartedAt, &s.EndedAt,
 			&s.MessageCount, &s.UserMessageCount,
 			&s.ParentSessionID, &s.RelationshipType,
-			&s.FilePath, &s.FileSize, &s.CreatedAt,
+			&s.DeletedAt, &s.FilePath, &s.FileSize, &s.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scanning prune candidate: %w", err)
@@ -688,6 +692,69 @@ func (db *DB) FindPruneCandidates(
 		sessions = append(sessions, s)
 	}
 	return sessions, rows.Err()
+}
+
+// SoftDeleteSession marks a session as deleted by setting deleted_at.
+func (db *DB) SoftDeleteSession(id string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(
+		`UPDATE sessions SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+		 WHERE id = ? AND deleted_at IS NULL`, id,
+	)
+	return err
+}
+
+// RestoreSession clears deleted_at, making the session visible again.
+func (db *DB) RestoreSession(id string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(
+		"UPDATE sessions SET deleted_at = NULL WHERE id = ?", id,
+	)
+	return err
+}
+
+// RenameSession sets or clears the display_name for a session.
+// Pass nil to clear a custom name (reverts to first_message).
+func (db *DB) RenameSession(id string, displayName *string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(
+		"UPDATE sessions SET display_name = ? WHERE id = ?",
+		displayName, id,
+	)
+	return err
+}
+
+// ListTrashedSessions returns sessions that have been soft-deleted.
+func (db *DB) ListTrashedSessions(
+	ctx context.Context,
+) ([]Session, error) {
+	query := "SELECT " + sessionBaseCols +
+		" FROM sessions WHERE deleted_at IS NOT NULL" +
+		" ORDER BY deleted_at DESC LIMIT 500"
+	rows, err := db.getReader().QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying trashed sessions: %w", err)
+	}
+	defer rows.Close()
+	return scanSessionRows(rows)
+}
+
+// EmptyTrash permanently deletes all soft-deleted sessions.
+// Returns the count of deleted rows.
+func (db *DB) EmptyTrash() (int, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	res, err := db.getWriter().Exec(
+		"DELETE FROM sessions WHERE deleted_at IS NOT NULL",
+	)
+	if err != nil {
+		return 0, fmt.Errorf("emptying trash: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // DeleteSessions removes multiple sessions by ID in a single
