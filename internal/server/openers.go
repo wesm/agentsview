@@ -164,12 +164,7 @@ func (s *Server) handleOpenSession(
 	}
 
 	// Find the project directory.
-	projectDir := session.Project
-	if session.FilePath != nil {
-		if cwd := readSessionCwd(*session.FilePath); cwd != "" {
-			projectDir = cwd
-		}
-	}
+	projectDir := resolveSessionDir(session)
 	if projectDir == "" {
 		writeError(w, http.StatusBadRequest, "session has no project directory")
 		return

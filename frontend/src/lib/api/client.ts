@@ -331,6 +331,7 @@ export interface ResumeResponse {
   launched: boolean;
   terminal?: string;
   command: string;
+  cwd?: string;
   error?: string;
 }
 

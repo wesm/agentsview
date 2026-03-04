@@ -68,15 +68,23 @@
   async function handleCopyPath() {
     if (!session) return;
     showOpenMenu = false;
-    // Use the project directory; backend resume endpoint returns the
-    // full command but for "copy path" we want just the directory.
-    const path = session.project || "";
-    if (!path) {
-      showFeedback("No project path");
-      return;
+    try {
+      const resp = await resumeSession(session.id, { command_only: true });
+      if (resp.cwd) {
+        const ok = await copyToClipboard(resp.cwd);
+        showFeedback(ok ? "Path copied!" : "Failed");
+        return;
+      }
+    } catch {
+      // Fall through to project field.
     }
-    const ok = await copyToClipboard(path);
-    showFeedback(ok ? "Path copied!" : "Failed");
+    const fallback = session.project || "";
+    if (fallback.startsWith("/")) {
+      const ok = await copyToClipboard(fallback);
+      showFeedback(ok ? "Path copied!" : "Failed");
+    } else {
+      showFeedback("No project path");
+    }
   }
 
   async function handleCopyResumeCommand() {

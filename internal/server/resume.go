@@ -18,6 +18,7 @@ import (
 	"github.com/google/shlex"
 	"github.com/tidwall/gjson"
 	"github.com/wesm/agentsview/internal/config"
+	"github.com/wesm/agentsview/internal/db"
 )
 
 // resumeRequest is the JSON body for POST /api/v1/sessions/{id}/resume.
@@ -32,6 +33,7 @@ type resumeResponse struct {
 	Launched bool   `json:"launched"`
 	Terminal string `json:"terminal,omitempty"`
 	Command  string `json:"command"`
+	Cwd      string `json:"cwd,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -119,14 +121,16 @@ func (s *Server) handleResumeSession(
 		}
 	}
 
+	// Resolve the project directory from the session file or
+	// project field for use in cd prefix and response metadata.
+	sessionDir := resolveSessionDir(session)
+
 	// Claude Code scopes sessions by the working directory the
 	// session was started from. Prepend cd <cwd> so the resume
 	// works from any terminal location. Only Claude uses this
 	// pattern — other agents handle directory scoping internally.
-	if string(session.Agent) == "claude" && session.FilePath != nil {
-		if cwd := readSessionCwd(*session.FilePath); cwd != "" {
-			cmd = fmt.Sprintf("cd %s && %s", shellQuote(cwd), cmd)
-		}
+	if string(session.Agent) == "claude" && sessionDir != "" {
+		cmd = fmt.Sprintf("cd %s && %s", shellQuote(sessionDir), cmd)
 	}
 
 	// If the caller only wants the command string (e.g. for
@@ -135,6 +139,7 @@ func (s *Server) handleResumeSession(
 		writeJSON(w, http.StatusOK, resumeResponse{
 			Launched: false,
 			Command:  cmd,
+			Cwd:      sessionDir,
 		})
 		return
 	}
@@ -154,13 +159,14 @@ func (s *Server) handleResumeSession(
 	}
 
 	// Detect and launch a terminal.
-	termBin, termArgs, termErr := detectTerminal(cmd, session.Project, termCfg)
+	termBin, termArgs, termErr := detectTerminal(cmd, sessionDir, termCfg)
 	if termErr != nil {
 		// Can't launch — return the command for clipboard fallback.
 		log.Printf("resume: terminal detection failed: %v", termErr)
 		writeJSON(w, http.StatusOK, resumeResponse{
 			Launched: false,
 			Command:  cmd,
+			Cwd:      sessionDir,
 			Error:    "no_terminal_found",
 		})
 		return
@@ -172,11 +178,8 @@ func (s *Server) handleResumeSession(
 	proc.Stdout = nil
 	proc.Stderr = nil
 	proc.Stdin = nil
-	// If we have a project directory, use it as the working dir.
-	if session.Project != "" {
-		if info, err := os.Stat(session.Project); err == nil && info.IsDir() {
-			proc.Dir = session.Project
-		}
+	if sessionDir != "" {
+		proc.Dir = sessionDir
 	}
 
 	if err := proc.Start(); err != nil {
@@ -184,6 +187,7 @@ func (s *Server) handleResumeSession(
 		writeJSON(w, http.StatusOK, resumeResponse{
 			Launched: false,
 			Command:  cmd,
+			Cwd:      sessionDir,
 			Error:    "terminal_launch_failed",
 		})
 		return
@@ -196,6 +200,7 @@ func (s *Server) handleResumeSession(
 		Launched: true,
 		Terminal: termBin,
 		Command:  cmd,
+		Cwd:      sessionDir,
 	})
 }
 
@@ -381,7 +386,8 @@ func (s *Server) handleSetTerminalConfig(
 
 // readSessionCwd reads the first few lines of a session JSONL file
 // and extracts the "cwd" field. Claude Code stores the working
-// directory in early conversation entries. Returns "" if not found.
+// directory in early conversation entries; some agents (e.g. Codex)
+// store it under payload.cwd. Returns "" if not found.
 func readSessionCwd(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -392,11 +398,39 @@ func readSessionCwd(path string) string {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 	for i := 0; i < 20 && scanner.Scan(); i++ {
-		if cwd := gjson.Get(scanner.Text(), "cwd").Str; cwd != "" {
+		line := scanner.Text()
+		if cwd := gjson.Get(line, "cwd").Str; cwd != "" {
+			return cwd
+		}
+		if cwd := gjson.Get(line, "payload.cwd").Str; cwd != "" {
 			return cwd
 		}
 	}
 	return ""
+}
+
+// resolveSessionDir determines the project directory for a session.
+// It tries the session file's embedded cwd first, then falls back to
+// the session's project field. Both candidates must be absolute paths
+// pointing to existing directories.
+func resolveSessionDir(session *db.Session) string {
+	if session.FilePath != nil {
+		if cwd := readSessionCwd(*session.FilePath); isDir(cwd) {
+			return cwd
+		}
+	}
+	if isDir(session.Project) {
+		return session.Project
+	}
+	return ""
+}
+
+func isDir(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func detectTerminalLinux(cmd string) (string, []string, error) {
