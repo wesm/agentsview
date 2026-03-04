@@ -1,5 +1,6 @@
 import { ui } from "../stores/ui.svelte.js";
 import { sessions } from "../stores/sessions.svelte.js";
+import { starred } from "../stores/starred.svelte.js";
 import { sync } from "../stores/sync.svelte.js";
 import { getExportUrl } from "../api/client.js";
 
@@ -67,8 +68,18 @@ export function registerShortcuts(
       ArrowDown: () => opts.navigateMessage(1),
       k: () => opts.navigateMessage(-1),
       ArrowUp: () => opts.navigateMessage(-1),
-      "]": () => sessions.navigateSession(1),
-      "[": () => sessions.navigateSession(-1),
+      "]": () => {
+        const filter = starred.filterOnly
+          ? (s: { id: string }) => starred.isStarred(s.id)
+          : undefined;
+        sessions.navigateSession(1, filter);
+      },
+      "[": () => {
+        const filter = starred.filterOnly
+          ? (s: { id: string }) => starred.isStarred(s.id)
+          : undefined;
+        sessions.navigateSession(-1, filter);
+      },
       o: () => ui.toggleSort(),
       t: () => ui.toggleThinking(),
       l: () => ui.cycleLayout(),
@@ -84,6 +95,11 @@ export function registerShortcuts(
       p: () => {
         if (sessions.activeSessionId) {
           ui.activeModal = "publish";
+        }
+      },
+      s: () => {
+        if (sessions.activeSessionId) {
+          starred.toggle(sessions.activeSessionId);
         }
       },
       "?": () => {

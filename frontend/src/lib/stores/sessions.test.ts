@@ -477,6 +477,152 @@ describe("SessionsStore", () => {
     });
   });
 
+  describe("hasActiveFilters", () => {
+    it("should be false with default filters", () => {
+      expect(sessions.hasActiveFilters).toBe(false);
+    });
+
+    it("should be true when agent filter is set", () => {
+      sessions.filters.agent = "claude";
+      expect(sessions.hasActiveFilters).toBe(true);
+    });
+
+    it("should be true when recentlyActive filter is set", () => {
+      sessions.filters.recentlyActive = true;
+      expect(sessions.hasActiveFilters).toBe(true);
+    });
+
+    it("should be true when minUserMessages filter is set", () => {
+      sessions.filters.minUserMessages = 3;
+      expect(sessions.hasActiveFilters).toBe(true);
+    });
+
+    it("should be false after clearSessionFilters", async () => {
+      sessions.filters.agent = "claude";
+      sessions.filters.recentlyActive = true;
+      sessions.filters.minUserMessages = 5;
+      expect(sessions.hasActiveFilters).toBe(true);
+
+      sessions.clearSessionFilters();
+      await vi.waitFor(() => {
+        expect(api.listSessions).toHaveBeenCalled();
+      });
+
+      expect(sessions.hasActiveFilters).toBe(false);
+    });
+
+    it("should preserve project filter after clearSessionFilters", async () => {
+      sessions.filters.project = "myproj";
+      sessions.filters.agent = "claude";
+      sessions.clearSessionFilters();
+      await vi.waitFor(() => {
+        expect(api.listSessions).toHaveBeenCalled();
+      });
+
+      expect(sessions.filters.project).toBe("myproj");
+      expect(sessions.hasActiveFilters).toBe(false);
+    });
+  });
+
+  describe("navigateSession", () => {
+    function seedSessions(store: typeof sessions) {
+      store.sessions = [
+        makeSession({ id: "s1" }),
+        makeSession({ id: "s2" }),
+        makeSession({ id: "s3" }),
+      ];
+    }
+
+    it("should navigate forward in the full list", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s1";
+      sessions.navigateSession(1);
+      expect(sessions.activeSessionId).toBe("s2");
+    });
+
+    it("should navigate backward in the full list", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s2";
+      sessions.navigateSession(-1);
+      expect(sessions.activeSessionId).toBe("s1");
+    });
+
+    it("should not go past the end of the list", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s3";
+      sessions.navigateSession(1);
+      expect(sessions.activeSessionId).toBe("s3");
+    });
+
+    it("should not go before the start of the list", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s1";
+      sessions.navigateSession(-1);
+      expect(sessions.activeSessionId).toBe("s1");
+    });
+
+    it("should be a no-op when no sessions are loaded", () => {
+      sessions.sessions = [];
+      sessions.activeSessionId = null;
+      sessions.navigateSession(1);
+      expect(sessions.activeSessionId).toBeNull();
+    });
+
+    it("should be a no-op when no session is selected (delta > 0)", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = null;
+      sessions.navigateSession(1);
+      expect(sessions.activeSessionId).toBeNull();
+    });
+
+    it("should be a no-op when no session is selected (delta < 0)", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = null;
+      sessions.navigateSession(-1);
+      expect(sessions.activeSessionId).toBeNull();
+    });
+
+    it("should jump to first when active session excluded by filter and delta > 0", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s2";
+      const filter = (s: { id: string }) => s.id !== "s2";
+      sessions.navigateSession(1, filter);
+      expect(sessions.activeSessionId).toBe("s1");
+    });
+
+    it("should jump to last when active session excluded by filter and delta < 0", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s2";
+      const filter = (s: { id: string }) => s.id !== "s2";
+      sessions.navigateSession(-1, filter);
+      expect(sessions.activeSessionId).toBe("s3");
+    });
+
+    it("should be a no-op when filtered list is empty", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s1";
+      const filter = () => false;
+      sessions.navigateSession(1, filter);
+      expect(sessions.activeSessionId).toBe("s1");
+    });
+
+    it("should be a no-op when no session selected and filter provided", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = null;
+      const filter = (s: { id: string }) => s.id === "s1";
+      sessions.navigateSession(1, filter);
+      expect(sessions.activeSessionId).toBeNull();
+    });
+
+    it("should navigate within filtered subset", () => {
+      seedSessions(sessions);
+      sessions.activeSessionId = "s1";
+      const filter = (s: { id: string }) => s.id !== "s2";
+      sessions.navigateSession(1, filter);
+      expect(sessions.activeSessionId).toBe("s3");
+    });
+  });
+
   describe("loadProjects dedup", () => {
     beforeEach(() => {
       mockGetProjects();

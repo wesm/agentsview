@@ -50,6 +50,9 @@ describe("agentColor", () => {
     expect(agentColor("amp")).toBe(
       "var(--accent-coral)",
     );
+    expect(agentColor("vscode-copilot")).toBe(
+      "var(--accent-teal)",
+    );
   });
 
   it("falls back to blue for unknown agents", () => {

@@ -12,6 +12,7 @@
     { key: "t", action: "Toggle thinking blocks" },
     { key: "l", action: "Cycle message layout" },
     { key: "r", action: "Trigger sync" },
+    { key: "s", action: "Star / unstar session" },
     { key: "e", action: "Export session" },
     { key: "p", action: "Publish to Gist" },
     { key: "?", action: "Show this modal" },

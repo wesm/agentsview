@@ -8,6 +8,7 @@ import {
 } from "vitest";
 import { ui } from "../stores/ui.svelte.js";
 import { sessions } from "../stores/sessions.svelte.js";
+import { starred } from "../stores/starred.svelte.js";
 import { registerShortcuts } from "./keyboard.js";
 
 function fireKey(
@@ -30,6 +31,11 @@ describe("registerShortcuts", () => {
     ui.activeModal = null;
     ui.selectedOrdinal = null;
     sessions.activeSessionId = null;
+    sessions.sessions = [];
+    starred.filterOnly = false;
+    for (const id of [...starred.ids]) {
+      starred.unstar(id);
+    }
     navigateMessage = vi.fn();
     cleanup = registerShortcuts({ navigateMessage });
   });
@@ -176,6 +182,108 @@ describe("registerShortcuts", () => {
     it("should still allow Cmd+K (modifier shortcut)", () => {
       fireKey("k", { metaKey: true });
       expect(ui.activeModal).toBe("commandPalette");
+    });
+  });
+
+  describe("s shortcut (star/unstar)", () => {
+    it("should toggle starred when activeSessionId exists", () => {
+      sessions.activeSessionId = "session-1";
+      expect(starred.isStarred("session-1")).toBe(false);
+
+      fireKey("s");
+      expect(starred.isStarred("session-1")).toBe(true);
+
+      fireKey("s");
+      expect(starred.isStarred("session-1")).toBe(false);
+    });
+
+    it("should not toggle starred when no activeSessionId", () => {
+      sessions.activeSessionId = null;
+      fireKey("s");
+      expect(starred.count).toBe(0);
+    });
+  });
+
+  describe("[ ] with starred-only filter", () => {
+    function makeSession(id: string) {
+      return {
+        id,
+        project: "proj",
+        machine: "local",
+        agent: "claude",
+        first_message: null,
+        started_at: null,
+        ended_at: null,
+        message_count: 1,
+        user_message_count: 1,
+        created_at: "2024-01-01T00:00:00Z",
+      };
+    }
+
+    it("should navigate forward skipping unstarred when filterOnly is enabled", () => {
+      sessions.sessions = [
+        makeSession("s1"),
+        makeSession("s2"),
+        makeSession("s3"),
+      ];
+      sessions.activeSessionId = "s1";
+      starred.star("s1");
+      starred.star("s3");
+      starred.filterOnly = true;
+
+      fireKey("]");
+
+      // Should skip s2 (unstarred) and land on s3
+      expect(sessions.activeSessionId).toBe("s3");
+    });
+
+    it("should navigate forward without filter when filterOnly is disabled", () => {
+      sessions.sessions = [
+        makeSession("s1"),
+        makeSession("s2"),
+        makeSession("s3"),
+      ];
+      sessions.activeSessionId = "s1";
+      starred.star("s1");
+      starred.star("s3");
+      starred.filterOnly = false;
+
+      fireKey("]");
+
+      // Should go to s2 (no filter applied)
+      expect(sessions.activeSessionId).toBe("s2");
+    });
+
+    it("should navigate backward skipping unstarred when filterOnly is enabled", () => {
+      sessions.sessions = [
+        makeSession("s1"),
+        makeSession("s2"),
+        makeSession("s3"),
+      ];
+      sessions.activeSessionId = "s3";
+      starred.star("s1");
+      starred.star("s3");
+      starred.filterOnly = true;
+
+      fireKey("[");
+
+      // Should skip s2 (unstarred) and land on s1
+      expect(sessions.activeSessionId).toBe("s1");
+    });
+
+    it("should be a no-op when filtered list is empty", () => {
+      sessions.sessions = [
+        makeSession("s1"),
+        makeSession("s2"),
+      ];
+      sessions.activeSessionId = "s1";
+      // No sessions are starred, so filtered list will be empty
+      starred.filterOnly = true;
+
+      fireKey("]");
+
+      // Should remain unchanged since filtered list is empty
+      expect(sessions.activeSessionId).toBe("s1");
     });
   });
 
