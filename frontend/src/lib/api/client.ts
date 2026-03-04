@@ -319,6 +319,31 @@ export function getExportUrl(sessionId: string): string {
   return `${BASE}/sessions/${sessionId}/export`;
 }
 
+/* Resume in terminal */
+
+export interface ResumeRequest {
+  skip_permissions?: boolean;
+  fork_session?: boolean;
+}
+
+export interface ResumeResponse {
+  launched: boolean;
+  terminal?: string;
+  command: string;
+  error?: string;
+}
+
+export function resumeSession(
+  sessionId: string,
+  flags: ResumeRequest = {},
+): Promise<ResumeResponse> {
+  return fetchJSON(`/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(flags),
+  });
+}
+
 /* Publish / GitHub config */
 
 export function publishSession(sessionId: string): Promise<PublishResponse> {
@@ -338,6 +363,28 @@ export function setGithubConfig(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
+  });
+}
+
+/* Terminal config */
+
+export interface TerminalConfig {
+  mode: "auto" | "custom" | "clipboard";
+  custom_bin?: string;
+  custom_args?: string;
+}
+
+export function getTerminalConfig(): Promise<TerminalConfig> {
+  return fetchJSON("/config/terminal");
+}
+
+export function setTerminalConfig(
+  cfg: TerminalConfig,
+): Promise<TerminalConfig> {
+  return fetchJSON("/config/terminal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
   });
 }
 

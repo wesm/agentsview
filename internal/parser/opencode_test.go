@@ -265,6 +265,7 @@ func TestParseOpenCodeSession_SingleSession(t *testing.T) {
 	}
 	if sess == nil {
 		t.Fatal("expected non-nil session")
+		return
 	}
 
 	assertEq(t, "ID", sess.ID, "opencode:ses_abc")
@@ -344,6 +345,7 @@ func TestParseOpenCodeDB_ParentSession(t *testing.T) {
 	}
 	if child == nil {
 		t.Fatal("child session not found")
+		return
 	}
 	assertEq(t, "ParentSessionID", child.Session.ParentSessionID, "opencode:ses_parent")
 }

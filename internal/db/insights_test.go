@@ -40,6 +40,7 @@ func TestInsights_InsertAndGet(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("expected insight, got nil")
+		return
 	}
 
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(Insight{}, "ID", "CreatedAt")); diff != "" {
@@ -73,6 +74,7 @@ func TestInsights_InsertDateRange(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("expected insight, got nil")
+		return
 	}
 
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(Insight{}, "ID", "CreatedAt")); diff != "" {

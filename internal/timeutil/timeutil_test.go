@@ -43,6 +43,7 @@ func TestPtr(t *testing.T) {
 			}
 			if got == nil {
 				t.Fatalf("Ptr() returned nil, want %q", *tt.want)
+				return
 			}
 			if *got != *tt.want {
 				t.Errorf("Ptr() = %q, want %q", *got, *tt.want)

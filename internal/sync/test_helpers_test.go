@@ -35,6 +35,7 @@ func assertSessionState(t *testing.T, database *db.DB, sessionID string, check f
 	}
 	if sess == nil {
 		t.Fatalf("Session %q not found", sessionID)
+		return
 	}
 	if check != nil {
 		check(sess)
@@ -195,6 +196,7 @@ func (e *testEnv) updateSessionProject(
 	}
 	if sess == nil {
 		t.Fatalf("session %q not found", sessionID)
+		return
 	}
 	sess.Project = project
 	if err := e.db.UpsertSession(*sess); err != nil {
