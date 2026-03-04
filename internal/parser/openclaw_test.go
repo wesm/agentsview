@@ -251,6 +251,98 @@ func TestDiscoverOpenClawSessions(t *testing.T) {
 	}
 }
 
+func TestDiscoverOpenClawSessions_DeduplicatesArchived(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Active file and two archived files for the same session.
+	for _, name := range []string{
+		"abc.jsonl",
+		"abc.jsonl.deleted.2026-02-19T08-59-24.951Z",
+		"abc.jsonl.reset.2026-02-17T09-39-39.691Z",
+	} {
+		if err := os.WriteFile(
+			filepath.Join(sessDir, name),
+			[]byte("{}"), 0644,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files := DiscoverOpenClawSessions(root)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file (deduplicated), got %d", len(files))
+	}
+	// Active file should win.
+	if !strings.HasSuffix(files[0].Path, "abc.jsonl") {
+		t.Errorf(
+			"expected active .jsonl to win, got %s",
+			filepath.Base(files[0].Path),
+		)
+	}
+}
+
+func TestDiscoverOpenClawSessions_ArchiveOnlyPicksNewest(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two archived files, no active — newest filename wins.
+	for _, name := range []string{
+		"xyz.jsonl.deleted.2026-01-01T00-00-00.000Z",
+		"xyz.jsonl.deleted.2026-03-01T00-00-00.000Z",
+	} {
+		if err := os.WriteFile(
+			filepath.Join(sessDir, name),
+			[]byte("{}"), 0644,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files := DiscoverOpenClawSessions(root)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file (deduplicated), got %d", len(files))
+	}
+	want := "xyz.jsonl.deleted.2026-03-01T00-00-00.000Z"
+	if filepath.Base(files[0].Path) != want {
+		t.Errorf("expected newest archive %q, got %q",
+			want, filepath.Base(files[0].Path))
+	}
+}
+
+func TestDiscoverOpenClawSessions_DifferentSessionsNotDeduped(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two different session IDs — should not be deduplicated.
+	for _, name := range []string{
+		"aaa.jsonl",
+		"bbb.jsonl.deleted.2026-01-01T00-00-00.000Z",
+	} {
+		if err := os.WriteFile(
+			filepath.Join(sessDir, name),
+			[]byte("{}"), 0644,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files := DiscoverOpenClawSessions(root)
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files (different sessions), got %d",
+			len(files))
+	}
+}
+
 func TestFindOpenClawSourceFile(t *testing.T) {
 	root := t.TempDir()
 	sessDir := filepath.Join(root, "main", "sessions")
@@ -284,5 +376,80 @@ func TestFindOpenClawSourceFile(t *testing.T) {
 	notFound3 := FindOpenClawSourceFile(root, "abc-123")
 	if notFound3 != "" {
 		t.Errorf("expected empty string for bare ID, got %s", notFound3)
+	}
+}
+
+func TestFindOpenClawSourceFile_ArchiveOnly(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only archived files exist — no active .jsonl.
+	archived := "def-456.jsonl.deleted.2026-02-19T08-59-24.951Z"
+	if err := os.WriteFile(
+		filepath.Join(sessDir, archived),
+		[]byte("{}"), 0644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	found := FindOpenClawSourceFile(root, "main:def-456")
+	want := filepath.Join(sessDir, archived)
+	if found != want {
+		t.Errorf("expected %s, got %s", want, found)
+	}
+}
+
+func TestFindOpenClawSourceFile_PrefersActiveOverArchive(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both active and archived files exist.
+	active := filepath.Join(sessDir, "ghi-789.jsonl")
+	if err := os.WriteFile(active, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	archived := "ghi-789.jsonl.deleted.2026-02-19T00-00-00.000Z"
+	if err := os.WriteFile(
+		filepath.Join(sessDir, archived),
+		[]byte("{}"), 0644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	found := FindOpenClawSourceFile(root, "main:ghi-789")
+	if found != active {
+		t.Errorf("expected active file %s, got %s", active, found)
+	}
+}
+
+func TestFindOpenClawSourceFile_ArchiveOnlyNewest(t *testing.T) {
+	root := t.TempDir()
+	sessDir := filepath.Join(root, "main", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two archived files — newest should be chosen.
+	old := "jkl.jsonl.deleted.2026-01-01T00-00-00.000Z"
+	newest := "jkl.jsonl.deleted.2026-03-01T00-00-00.000Z"
+	for _, name := range []string{old, newest} {
+		if err := os.WriteFile(
+			filepath.Join(sessDir, name),
+			[]byte("{}"), 0644,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	found := FindOpenClawSourceFile(root, "main:jkl")
+	want := filepath.Join(sessDir, newest)
+	if found != want {
+		t.Errorf("expected newest archive %s, got %s", want, found)
 	}
 }

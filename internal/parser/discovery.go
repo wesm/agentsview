@@ -1078,6 +1078,13 @@ func FindVSCodeCopilotSourceFile(
 // DiscoverOpenClawSessions finds all JSONL session files under the
 // OpenClaw agents directory. The directory structure is:
 // <agentsDir>/<agentId>/sessions/<sessionId>.jsonl
+//
+// When both active (.jsonl) and archived (.jsonl.deleted.*,
+// .jsonl.full.bak, .jsonl.reset.*) files exist for the same
+// logical session ID, only one file is returned per session:
+// the active .jsonl file is preferred; if absent, the newest
+// archived file (by filename, which embeds a timestamp, or by
+// file mtime as a fallback) is chosen.
 func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 	if agentsDir == "" {
 		return nil
@@ -1103,6 +1110,9 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 			continue
 		}
 
+		// Deduplicate by logical session ID within each
+		// agent's sessions directory.
+		best := make(map[string]os.DirEntry) // sessionID -> best entry
 		for _, entry := range entries {
 			if entry.IsDir() {
 				continue
@@ -1111,8 +1121,20 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 			if !IsOpenClawSessionFile(name) {
 				continue
 			}
+			sid := OpenClawSessionID(name)
+			prev, exists := best[sid]
+			if !exists {
+				best[sid] = entry
+				continue
+			}
+			best[sid] = bestOpenClawEntry(prev, entry)
+		}
+
+		for _, entry := range best {
 			files = append(files, DiscoveredFile{
-				Path:  filepath.Join(sessionsDir, name),
+				Path: filepath.Join(
+					sessionsDir, entry.Name(),
+				),
 				Agent: AgentOpenClaw,
 			})
 		}
@@ -1124,10 +1146,47 @@ func DiscoverOpenClawSessions(agentsDir string) []DiscoveredFile {
 	return files
 }
 
+// bestOpenClawEntry returns the preferred entry when two files
+// share the same logical session ID. Active .jsonl files always
+// win. Among archived files, the one with the lexicographically
+// greater name (which embeds ISO timestamps) is preferred; if
+// names compare equal, the newer mtime wins.
+func bestOpenClawEntry(a, b os.DirEntry) os.DirEntry {
+	aActive := strings.HasSuffix(a.Name(), ".jsonl")
+	bActive := strings.HasSuffix(b.Name(), ".jsonl")
+	if aActive && !bActive {
+		return a
+	}
+	if bActive && !aActive {
+		return b
+	}
+	// Both archived (or theoretically both active). Pick the
+	// lexicographically greater name (timestamps sort naturally).
+	if b.Name() > a.Name() {
+		return b
+	}
+	if a.Name() > b.Name() {
+		return a
+	}
+	// Identical names — fall back to mtime.
+	ai, errA := a.Info()
+	bi, errB := b.Info()
+	if errA == nil && errB == nil &&
+		bi.ModTime().After(ai.ModTime()) {
+		return b
+	}
+	return a
+}
+
 // FindOpenClawSourceFile locates an OpenClaw session file by its
 // raw ID (without the "openclaw:" prefix). The raw ID has the
 // format "<agentId>:<sessionId>", which directly maps to the
 // file at <agentsDir>/<agentId>/sessions/<sessionId>.jsonl.
+//
+// If the active .jsonl file does not exist (archive-only session),
+// the sessions directory is scanned for any archived file whose
+// logical session ID matches. When multiple archived files match,
+// the best candidate (newest by filename timestamp) is returned.
 func FindOpenClawSourceFile(agentsDir, rawID string) string {
 	if agentsDir == "" {
 		return ""
@@ -1140,12 +1199,42 @@ func FindOpenClawSourceFile(agentsDir, rawID string) string {
 		return ""
 	}
 
-	candidate := filepath.Join(
+	sessionsDir := filepath.Join(
 		agentsDir, agentID, "sessions",
-		sessionID+".jsonl",
 	)
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
+
+	// Fast path: the active .jsonl file exists.
+	active := filepath.Join(sessionsDir, sessionID+".jsonl")
+	if _, err := os.Stat(active); err == nil {
+		return active
+	}
+
+	// Slow path: scan for archived files matching this session.
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return ""
+	}
+
+	var best os.DirEntry
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !IsOpenClawSessionFile(name) {
+			continue
+		}
+		if OpenClawSessionID(name) != sessionID {
+			continue
+		}
+		if best == nil {
+			best = entry
+			continue
+		}
+		best = bestOpenClawEntry(best, entry)
+	}
+	if best != nil {
+		return filepath.Join(sessionsDir, best.Name())
 	}
 	return ""
 }
