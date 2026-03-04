@@ -52,7 +52,8 @@ describe("agentColor", () => {
       "var(--accent-coral)",
     );
     expect(agentColor("pi")).toBe(
-      "var(--accent-indigo)"
+      "var(--accent-indigo)",
+    );
     expect(agentColor("vscode-copilot")).toBe(
       "var(--accent-teal)",
     );
