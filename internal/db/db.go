@@ -209,7 +209,6 @@ func needsSchemaRebuild(conn *sql.DB) (bool, error) {
 		{"sessions", "user_message_count"},
 		{"sessions", "relationship_type"},
 		{"tool_calls", "subagent_session_id"},
-		{"starred_sessions", "session_id"},
 	}
 	for _, p := range probes {
 		var count int

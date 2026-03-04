@@ -7,6 +7,8 @@ class StarredStore {
   filterOnly: boolean = $state(false);
   private loaded: boolean = false;
   private loading: Promise<void> | null = null;
+  // Per-session version tokens to prevent stale rollbacks.
+  private opVersions: Map<string, number> = new Map();
 
   /** Load starred IDs from the server. Migrates localStorage data on first load. */
   async load() {
@@ -48,9 +50,10 @@ class StarredStore {
     if (toMigrate.length > 0) {
       try {
         await api.bulkStarSessions(toMigrate);
-        const next = new Set(this.ids);
-        for (const id of toMigrate) next.add(id);
-        this.ids = next;
+        // Refresh from server — the backend silently skips stale IDs,
+        // so we must not blindly add toMigrate to local state.
+        const refreshed = await api.listStarred();
+        this.ids = new Set(refreshed.session_ids);
       } catch {
         // Migration failed silently — will retry next load
         return;
@@ -73,14 +76,21 @@ class StarredStore {
     }
   }
 
+  private nextVersion(sessionId: string): number {
+    const v = (this.opVersions.get(sessionId) ?? 0) + 1;
+    this.opVersions.set(sessionId, v);
+    return v;
+  }
+
   star(sessionId: string) {
     if (this.ids.has(sessionId)) return;
-    // Optimistic update
     const next = new Set(this.ids);
     next.add(sessionId);
     this.ids = next;
-    // Fire and forget — revert on error
+    // Track version so stale failures don't revert newer actions.
+    const version = this.nextVersion(sessionId);
     api.starSession(sessionId).catch(() => {
+      if (this.opVersions.get(sessionId) !== version) return;
       const reverted = new Set(this.ids);
       reverted.delete(sessionId);
       this.ids = reverted;
@@ -89,12 +99,12 @@ class StarredStore {
 
   unstar(sessionId: string) {
     if (!this.ids.has(sessionId)) return;
-    // Optimistic update
     const next = new Set(this.ids);
     next.delete(sessionId);
     this.ids = next;
-    // Fire and forget — revert on error
+    const version = this.nextVersion(sessionId);
     api.unstarSession(sessionId).catch(() => {
+      if (this.opVersions.get(sessionId) !== version) return;
       const reverted = new Set(this.ids);
       reverted.add(sessionId);
       this.ids = reverted;
