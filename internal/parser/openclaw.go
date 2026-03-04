@@ -107,7 +107,10 @@ func ParseOpenClawSession(
 
 			if firstMsg == "" && text != "" {
 				firstMsg = truncate(
-					strings.ReplaceAll(text, "\n", " "), 300,
+					strings.ReplaceAll(
+						stripOpenClawDatePrefix(text),
+						"\n", " ",
+					), 300,
 				)
 			}
 
@@ -303,6 +306,21 @@ func openClawAgentIDFromPath(path string) string {
 		return "unknown"
 	}
 	return name
+}
+
+// stripOpenClawDatePrefix removes the gateway-injected date
+// prefix from user messages. OpenClaw prepends timestamps like
+// "[Wed 2026-02-18 11:21 GMT+1] " to messages received via
+// Telegram/channels. We strip this so session titles are clean.
+func stripOpenClawDatePrefix(s string) string {
+	if len(s) < 2 || s[0] != '[' {
+		return s
+	}
+	idx := strings.Index(s, "] ")
+	if idx < 0 || idx > 40 {
+		return s
+	}
+	return strings.TrimSpace(s[idx+2:])
 }
 
 // parseOpenClawTimestamp extracts and parses the timestamp from
