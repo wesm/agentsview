@@ -432,6 +432,22 @@ func (e *Engine) classifyOnePath(
 			if !parser.IsOpenClawSessionFile(parts[2]) {
 				continue
 			}
+			if !strings.HasSuffix(parts[2], ".jsonl") {
+				sid := parser.OpenClawSessionID(parts[2])
+				active := filepath.Join(
+					ocDir, parts[0], "sessions",
+					sid+".jsonl",
+				)
+				if _, err := os.Stat(active); err == nil {
+					continue
+				}
+				best := parser.FindOpenClawSourceFile(
+					ocDir, parts[0]+":"+sid,
+				)
+				if best != path {
+					continue
+				}
+			}
 			return parser.DiscoveredFile{
 				Path:  path,
 				Agent: parser.AgentOpenClaw,
