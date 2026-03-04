@@ -12,7 +12,10 @@ import (
 	"runtime"
 	"strings"
 
+	"bufio"
+
 	"github.com/google/shlex"
+	"github.com/tidwall/gjson"
 	"github.com/wesm/agentsview/internal/config"
 )
 
@@ -110,6 +113,15 @@ func (s *Server) handleResumeSession(
 		}
 		if req.ForkSession {
 			cmd += " --fork-session"
+		}
+	}
+
+	// Claude Code scopes sessions by the working directory the
+	// session was started from. Prepend cd <cwd> so the resume
+	// works from any terminal location.
+	if session.FilePath != nil {
+		if cwd := readSessionCwd(*session.FilePath); cwd != "" {
+			cmd = fmt.Sprintf("cd %s && %s", shellQuote(cwd), cmd)
 		}
 	}
 
@@ -350,6 +362,26 @@ func (s *Server) handleSetTerminalConfig(
 		return
 	}
 	writeJSON(w, http.StatusOK, tc)
+}
+
+// readSessionCwd reads the first few lines of a session JSONL file
+// and extracts the "cwd" field. Claude Code stores the working
+// directory in early conversation entries. Returns "" if not found.
+func readSessionCwd(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	for i := 0; i < 20 && scanner.Scan(); i++ {
+		if cwd := gjson.Get(scanner.Text(), "cwd").Str; cwd != "" {
+			return cwd
+		}
+	}
+	return ""
 }
 
 func detectTerminalLinux(cmd string) (string, []string, error) {
