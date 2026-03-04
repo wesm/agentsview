@@ -244,20 +244,26 @@ func launchTerminalInDir(o Opener, dir string) *exec.Cmd {
 	if runtime.GOOS == "darwin" {
 		switch o.ID {
 		case "iterm2":
+			// Build shell command first, then AppleScript-escape the
+			// entire string once. shellQuote provides POSIX quoting for
+			// the directory, then escapeForAppleScript escapes the whole
+			// command for embedding in an AppleScript string literal.
+			shellCmd := fmt.Sprintf("cd %s && exec bash", shellQuote(dir))
 			script := fmt.Sprintf(
 				`tell application "iTerm"
-					create window with default profile command "cd %s && exec bash"
+					create window with default profile command "%s"
 				end tell`,
-				shellQuoteAppleScript(dir),
+				escapeForAppleScript(shellCmd),
 			)
 			return exec.Command("osascript", "-e", script)
 		case "terminal":
+			shellCmd := fmt.Sprintf("cd %s", shellQuote(dir))
 			script := fmt.Sprintf(
 				`tell application "Terminal"
 					activate
-					do script "cd %s"
+					do script "%s"
 				end tell`,
-				shellQuoteAppleScript(dir),
+				escapeForAppleScript(shellCmd),
 			)
 			return exec.Command("osascript", "-e", script)
 		}
@@ -288,13 +294,13 @@ func launchTerminalInDir(o Opener, dir string) *exec.Cmd {
 	}
 }
 
-// shellQuoteAppleScript escapes a string for embedding in AppleScript.
-func shellQuoteAppleScript(s string) string {
-	s = strings.NewReplacer(
+// escapeForAppleScript escapes a string for embedding inside an
+// AppleScript double-quoted string literal. Does NOT add outer quotes.
+func escapeForAppleScript(s string) string {
+	return strings.NewReplacer(
 		"\n", " ",
 		"\r", " ",
 		`\`, `\\`,
 		`"`, `\"`,
 	).Replace(s)
-	return `"` + s + `"`
 }

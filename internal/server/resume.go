@@ -400,27 +400,16 @@ func readSessionCwd(path string) string {
 }
 
 func detectTerminalLinux(cmd string) (string, []string, error) {
-	// Check $TERMINAL env var first. Normalize by basename to
-	// reuse per-terminal argument templates when possible.
+	// Check $TERMINAL env var first. If it resolves, build args
+	// using the per-terminal template when the basename matches a
+	// known candidate, otherwise use a generic pattern.
 	if envTerm := os.Getenv("TERMINAL"); envTerm != "" {
 		if path, err := exec.LookPath(envTerm); err == nil {
-			// Try to match a known terminal by basename so we use
-			// the correct argument pattern (some terminals don't
-			// support the generic -e flag).
 			base := filepath.Base(envTerm)
-			for _, c := range terminalCandidates {
-				if c.bin == base {
-					// Delegate to the per-terminal switch below
-					// by letting the main loop find it.
-					goto autoDetect
-				}
-			}
-			// Unknown terminal — use generic pattern with keep-open.
-			return path, []string{"-e", "bash", "-c", cmd + "; exec bash"}, nil
+			args := buildTerminalArgs(base, cmd)
+			return path, args, nil
 		}
 	}
-
-autoDetect:
 
 	// Try each candidate in preference order.
 	for _, c := range terminalCandidates {
@@ -428,41 +417,38 @@ autoDetect:
 		if err != nil {
 			continue
 		}
-
-		args := make([]string, len(c.args))
-		copy(args, c.args)
-
-		// gnome-terminal uses "bash -c CMD" pattern.
-		// Others use "-e CMD" pattern.
-		switch c.bin {
-		case "gnome-terminal":
-			// gnome-terminal -- bash -c "CMD; exec bash"
-			// The exec bash keeps the terminal open after the
-			// command completes (or if the user Ctrl+C).
-			args = []string{"--", "bash", "-c", cmd + "; exec bash"}
-		case "kitty":
-			args = []string{"--", "bash", "-c", cmd + "; exec bash"}
-		case "alacritty":
-			args = []string{"-e", "bash", "-c", cmd + "; exec bash"}
-		case "wezterm":
-			args = []string{"start", "--", "bash", "-c", cmd + "; exec bash"}
-		case "konsole":
-			args = []string{"-e", "bash", "-c", cmd + "; exec bash"}
-		case "xfce4-terminal":
-			args = []string{"-e", "bash -c '" + strings.ReplaceAll(cmd, "'", `'"'"'`) + "; exec bash'"}
-		case "tilix":
-			args = []string{"-e", "bash -c '" + strings.ReplaceAll(cmd, "'", `'"'"'`) + "; exec bash'"}
-		case "xterm":
-			args = []string{"-e", "bash", "-c", cmd + "; exec bash"}
-		default:
-			args = append(args, "bash", "-c", cmd+"; exec bash")
-		}
-
-		return path, args, nil
+		return path, buildTerminalArgs(c.bin, cmd), nil
 	}
 
 	return "", nil, fmt.Errorf(
 		"no terminal emulator found; install kitty, alacritty, " +
 			"gnome-terminal, or set $TERMINAL",
 	)
+}
+
+// buildTerminalArgs returns the argument list for launching a command
+// in a named terminal. The bin parameter is the terminal basename
+// (e.g. "kitty", "gnome-terminal"). Used by both $TERMINAL and the
+// auto-detection loop.
+func buildTerminalArgs(bin, cmd string) []string {
+	switch bin {
+	case "gnome-terminal":
+		return []string{"--", "bash", "-c", cmd + "; exec bash"}
+	case "kitty":
+		return []string{"--", "bash", "-c", cmd + "; exec bash"}
+	case "alacritty":
+		return []string{"-e", "bash", "-c", cmd + "; exec bash"}
+	case "wezterm":
+		return []string{"start", "--", "bash", "-c", cmd + "; exec bash"}
+	case "konsole":
+		return []string{"-e", "bash", "-c", cmd + "; exec bash"}
+	case "xfce4-terminal":
+		return []string{"-e", "bash -c '" + strings.ReplaceAll(cmd, "'", `'"'"'`) + "; exec bash'"}
+	case "tilix":
+		return []string{"-e", "bash -c '" + strings.ReplaceAll(cmd, "'", `'"'"'`) + "; exec bash'"}
+	case "xterm":
+		return []string{"-e", "bash", "-c", cmd + "; exec bash"}
+	default:
+		return []string{"-e", "bash", "-c", cmd + "; exec bash"}
+	}
 }
