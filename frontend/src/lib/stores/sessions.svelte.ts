@@ -52,6 +52,9 @@ class SessionsStore {
   loading: boolean = $state(false);
   filters: Filters = $state(defaultFilters());
 
+  /** Set before router.navigate() to survive initFromParams() reset. */
+  pendingNavTarget: string | null = null;
+
   private loadVersion: number = 0;
   private projectsLoaded: boolean = false;
   private projectsPromise: Promise<void> | null = null;
@@ -135,7 +138,12 @@ class SessionsStore {
         ? minUserMsgs
         : 0,
     };
-    this.activeSessionId = null;
+    if (this.pendingNavTarget) {
+      this.activeSessionId = this.pendingNavTarget;
+      this.pendingNavTarget = null;
+    } else {
+      this.activeSessionId = null;
+    }
     this.resetPagination();
   }
 

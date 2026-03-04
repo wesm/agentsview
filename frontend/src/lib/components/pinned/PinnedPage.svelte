@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import { pins } from "../../stores/pins.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { router } from "../../stores/router.svelte.js";
@@ -22,11 +22,10 @@
     expanded = next;
   }
 
-  async function navigateToPin(sessionId: string, ordinal: number) {
-    router.navigate("sessions");
-    await tick();
-    sessions.selectSession(sessionId);
+  function navigateToPin(sessionId: string, ordinal: number) {
     ui.scrollToOrdinal(ordinal, sessionId);
+    sessions.pendingNavTarget = sessionId;
+    router.navigate("sessions");
   }
 
   function getSessionInfo(pin: import("../../api/types.js").PinnedMessage) {
