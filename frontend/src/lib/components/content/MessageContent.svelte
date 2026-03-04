@@ -174,6 +174,12 @@
     opacity: 1;
   }
 
+  @media (hover: none) {
+    .copy-btn {
+      opacity: 1;
+    }
+  }
+
   .copy-btn:hover {
     background: var(--bg-surface-hover);
     color: var(--text-secondary);
