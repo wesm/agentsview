@@ -1,6 +1,6 @@
 import type { SessionGroup } from "../../stores/sessions.svelte.js";
 
-export const ITEM_HEIGHT = 40;
+export const ITEM_HEIGHT = 42;
 export const HEADER_HEIGHT = 28;
 export const OVERSCAN = 10;
 export const STORAGE_KEY = "agentsview-group-by-agent";

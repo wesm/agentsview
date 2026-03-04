@@ -9,7 +9,6 @@
   } from "../../utils/agents.js";
   import {
     ITEM_HEIGHT,
-    HEADER_HEIGHT,
     OVERSCAN,
     STORAGE_KEY,
     buildAgentSections,
@@ -32,9 +31,9 @@
     typeof localStorage !== "undefined" &&
       localStorage.getItem(STORAGE_KEY) === "true",
   );
-  let collapsedAgents: Set<string> = $state(new Set());
-  // Start all collapsed by default when grouping is first enabled.
-  let initializedCollapse = $state(false);
+  let manualExpanded: Set<string> = $state(new Set());
+  // Start all collapsed when grouping is first enabled.
+  let collapseAll = $state(true);
 
   $effect(() => {
     if (typeof localStorage !== "undefined") {
@@ -57,15 +56,17 @@
     buildAgentSections(groups, groupByAgent),
   );
 
-  // Initialize all agents as collapsed when grouping is first enabled.
-  $effect(() => {
-    if (groupByAgent && !initializedCollapse && agentSections.length > 0) {
-      collapsedAgents = new Set(agentSections.map((s) => s.agent));
-      initializedCollapse = true;
+  // Derive effective collapsed set synchronously so the first
+  // render is already collapsed (no flicker).
+  let collapsedAgents = $derived.by(() => {
+    if (!groupByAgent) return new Set<string>();
+    if (collapseAll) {
+      return new Set(agentSections.map((s) => s.agent));
     }
-    if (!groupByAgent) {
-      initializedCollapse = false;
-    }
+    // Invert: all agents minus the manually expanded ones.
+    const all = new Set(agentSections.map((s) => s.agent));
+    for (const a of manualExpanded) all.delete(a);
+    return all;
   });
 
   // Build flat display items for virtual scrolling.
@@ -89,14 +90,29 @@
     return result;
   });
 
-  function toggleAgent(agent: string) {
-    const next = new Set(collapsedAgents);
-    if (next.has(agent)) {
-      next.delete(agent);
-    } else {
-      next.add(agent);
+  function toggleGroupByAgent() {
+    groupByAgent = !groupByAgent;
+    if (groupByAgent) {
+      collapseAll = true;
+      manualExpanded = new Set();
     }
-    collapsedAgents = next;
+  }
+
+  function toggleAgent(agent: string) {
+    if (collapseAll) {
+      // First toggle after fresh group-enable: switch to
+      // manual mode, expanding only the clicked agent.
+      collapseAll = false;
+      manualExpanded = new Set([agent]);
+    } else {
+      const next = new Set(manualExpanded);
+      if (next.has(agent)) {
+        next.delete(agent);
+      } else {
+        next.add(agent);
+      }
+      manualExpanded = next;
+    }
   }
 
   $effect(() => {
@@ -201,7 +217,7 @@
           <button
             class="filter-toggle"
             class:active={groupByAgent}
-            onclick={() => (groupByAgent = !groupByAgent)}
+            onclick={toggleGroupByAgent}
           >
             <span
               class="toggle-check"
