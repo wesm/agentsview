@@ -7,8 +7,8 @@ class StarredStore {
   filterOnly: boolean = $state(false);
   private loaded: boolean = false;
   private loading: Promise<void> | null = null;
-  // Per-session version tokens to prevent stale rollbacks.
   private opVersions: Map<string, number> = new Map();
+  private loadVersion: number = 0;
 
   /** Load starred IDs from the server. Migrates localStorage data on first load. */
   async load() {
@@ -20,17 +20,16 @@ class StarredStore {
 
   private async doLoad() {
     try {
+      const vBefore = this.loadVersion;
       const res = await api.listStarred();
-      // Merge with any optimistic changes made before load completed
+      if (this.loadVersion !== vBefore) return;
       const merged = new Set(res.session_ids);
       for (const id of this.ids) merged.add(id);
       this.ids = merged;
-      this.loaded = true;
 
-      // Migrate any localStorage stars to the database
       await this.migrateLocalStorage();
+      this.loaded = true;
     } catch {
-      // Fallback: read from localStorage if server unreachable
       const local = readLocalStorage();
       const merged = new Set(local);
       for (const id of this.ids) merged.add(id);
@@ -47,21 +46,14 @@ class StarredStore {
     // Find IDs in localStorage that aren't already in the DB
     const toMigrate = [...local].filter((id) => !this.ids.has(id));
     if (toMigrate.length > 0) {
-      try {
-        await api.bulkStarSessions(toMigrate);
-        // Refresh from server — the backend silently skips stale IDs,
-        // so we must not blindly add toMigrate to local state.
-        const refreshed = await api.listStarred();
-        const refreshedSet = new Set(refreshed.session_ids);
-        const next = new Set(this.ids);
-        for (const id of toMigrate) {
-          if (refreshedSet.has(id)) next.add(id);
-        }
-        this.ids = next;
-      } catch {
-        // Migration failed silently — will retry next load
-        return;
+      await api.bulkStarSessions(toMigrate);
+      const refreshed = await api.listStarred();
+      const refreshedSet = new Set(refreshed.session_ids);
+      const next = new Set(this.ids);
+      for (const id of toMigrate) {
+        if (refreshedSet.has(id)) next.add(id);
       }
+      this.ids = next;
     }
 
     // Migration succeeded — clear localStorage
@@ -83,6 +75,7 @@ class StarredStore {
   private nextVersion(sessionId: string): number {
     const v = (this.opVersions.get(sessionId) ?? 0) + 1;
     this.opVersions.set(sessionId, v);
+    this.loadVersion++;
     return v;
   }
 
