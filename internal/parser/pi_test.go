@@ -126,6 +126,36 @@ func TestParsePiSession_ToolResults(t *testing.T) {
 	require.Len(t, toolResultMsg.ToolResults, 1, "PRSR-05: one tool result")
 	assert.Equal(t, "toolu_01", toolResultMsg.ToolResults[0].ToolUseID, "PRSR-05: tool use ID")
 	assert.Greater(t, toolResultMsg.ToolResults[0].ContentLength, 0, "PRSR-05: content length > 0")
+	assert.NotEmpty(t, toolResultMsg.ToolResults[0].ContentRaw, "tool result must populate ContentRaw")
+	decoded := DecodeContent(toolResultMsg.ToolResults[0].ContentRaw)
+	assert.Contains(t, decoded, "package auth", "ContentRaw must decode to tool output text")
+}
+
+func TestParsePiSession_StringContent(t *testing.T) {
+	header := `{"type":"session","id":"str-sess","timestamp":"2025-01-01T10:00:00Z","cwd":"/tmp"}` + "\n"
+
+	t.Run("assistant string content", func(t *testing.T) {
+		sess, msgs := runPiParserTest(t,
+			header+`{"type":"message","id":"e1","timestamp":"2025-01-01T10:00:01Z","message":{"role":"assistant","content":"plain string response","model":"claude-opus-4-5","provider":"anthropic","stopReason":"stop","timestamp":1735725601000}}`,
+		)
+		require.NotNil(t, sess)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, RoleAssistant, msgs[0].Role)
+		assert.Equal(t, "plain string response", msgs[0].Content)
+	})
+
+	t.Run("tool result string content", func(t *testing.T) {
+		sess, msgs := runPiParserTest(t,
+			header+`{"type":"message","id":"e1","timestamp":"2025-01-01T10:00:01Z","message":{"role":"toolResult","toolCallId":"toolu_99","content":"file contents here","timestamp":1735725601000}}`,
+		)
+		require.NotNil(t, sess)
+		require.Len(t, msgs, 1)
+		require.Len(t, msgs[0].ToolResults, 1)
+		assert.Equal(t, "toolu_99", msgs[0].ToolResults[0].ToolUseID)
+		assert.Equal(t, len("file contents here"), msgs[0].ToolResults[0].ContentLength)
+		assert.NotEmpty(t, msgs[0].ToolResults[0].ContentRaw)
+		assert.Equal(t, "file contents here", DecodeContent(msgs[0].ToolResults[0].ContentRaw))
+	})
 }
 
 // TestParsePiSession_ThinkingBlocks verifies both explicit and redacted

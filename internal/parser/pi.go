@@ -231,35 +231,41 @@ func parsePiAssistantMessage(line string, ordinal int) *ParsedMessage {
 		hasToolUse  bool
 	)
 
-	gjson.Get(line, "message.content").ForEach(func(_, block gjson.Result) bool {
-		switch block.Get("type").Str {
-		case "text":
-			if t := block.Get("text").Str; t != "" {
-				parts = append(parts, t)
+	msgContent := gjson.Get(line, "message.content")
+	if msgContent.Type == gjson.String {
+		// Plain string content (back-compat format variation).
+		parts = append(parts, msgContent.Str)
+	} else {
+		msgContent.ForEach(func(_, block gjson.Result) bool {
+			switch block.Get("type").Str {
+			case "text":
+				if t := block.Get("text").Str; t != "" {
+					parts = append(parts, t)
+				}
+			case "thinking":
+				// Set hasThinking regardless of whether the thinking field is
+				// empty — redacted thinking blocks have an empty field but the
+				// block type presence is sufficient to mark the message.
+				hasThinking = true
+			case "toolCall":
+				hasToolUse = true
+				id := block.Get("id").Str
+				name := block.Get("name").Str
+				argsRaw := block.Get("arguments").Raw
+				// Normalize Pi's agent__intent / _i field to "description"
+				// so the frontend can use a single params.description check
+				// across all agents.
+				argsRaw = normalizePiIntent(argsRaw)
+				toolCalls = append(toolCalls, ParsedToolCall{
+					ToolUseID: id,
+					ToolName:  name,
+					Category:  NormalizeToolCategory(name),
+					InputJSON: argsRaw,
+				})
 			}
-		case "thinking":
-			// Set hasThinking regardless of whether the thinking field is
-			// empty — redacted thinking blocks have an empty field but the
-			// block type presence is sufficient to mark the message.
-			hasThinking = true
-		case "toolCall":
-			hasToolUse = true
-			id := block.Get("id").Str
-			name := block.Get("name").Str
-			argsRaw := block.Get("arguments").Raw
-			// Normalize Pi's agent__intent / _i field to "description"
-			// so the frontend can use a single params.description check
-			// across all agents.
-			argsRaw = normalizePiIntent(argsRaw)
-			toolCalls = append(toolCalls, ParsedToolCall{
-				ToolUseID: id,
-				ToolName:  name,
-				Category:  NormalizeToolCategory(name),
-				InputJSON: argsRaw,
-			})
-		}
-		return true
-	})
+			return true
+		})
+	}
 
 	content := strings.Join(parts, "\n")
 	ts := piTimestamp(line)
@@ -280,12 +286,8 @@ func parsePiAssistantMessage(line string, ordinal int) *ParsedMessage {
 // Returns nil if the entry is malformed.
 func parsePiToolResultMessage(line string, ordinal int) *ParsedMessage {
 	toolUseID := gjson.Get(line, "message.toolCallId").Str
-
-	contentLen := 0
-	gjson.Get(line, "message.content").ForEach(func(_, block gjson.Result) bool {
-		contentLen += len(block.Get("text").Str)
-		return true
-	})
+	content := gjson.Get(line, "message.content")
+	contentLen := toolResultContentLength(content)
 
 	ts := piTimestamp(line)
 
@@ -297,6 +299,7 @@ func parsePiToolResultMessage(line string, ordinal int) *ParsedMessage {
 			{
 				ToolUseID:     toolUseID,
 				ContentLength: contentLen,
+				ContentRaw:    content.Raw,
 			},
 		},
 	}
