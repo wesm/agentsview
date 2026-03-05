@@ -71,9 +71,18 @@ assert_eq "$(version_to_semver "9f0e1d2")" "" \
 assert_eq "$(version_to_semver "dev")" "" \
   "dev string returns empty"
 
+# Prerelease tags accepted
+assert_eq "$(version_to_semver "v1.2.3-rc.1")" "1.2.3-rc.1" \
+  "prerelease tag"
+assert_eq "$(version_to_semver "v0.0.1-staging.1")" "0.0.1-staging.1" \
+  "staging prerelease tag"
+assert_eq "$(version_to_semver "v1.0.0-beta")" "1.0.0-beta" \
+  "simple prerelease tag"
+assert_eq "$(version_to_semver "v1.0.0-alpha.2-dirty")" "1.0.0-alpha.2" \
+  "prerelease tag dirty stripped"
+
 # Malformed v-prefixed versions fail hard
 assert_fails "incomplete semver rejected" version_to_semver "v1.2"
-assert_fails "prerelease tag rejected" version_to_semver "v1.2.3-rc.1"
 assert_fails "bare digits rejected" version_to_semver "1.2"
 
 # patch_tauri_version test (uses a temp copy)

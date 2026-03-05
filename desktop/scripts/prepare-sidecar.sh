@@ -74,8 +74,8 @@ version_to_semver() {
     echo "${base}-dev.${distance}"
     return 0
   fi
-  # Already semver (possibly with -dirty)
-  if [[ "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-dirty)?$ ]]; then
+  # Already semver, with optional prerelease suffix (possibly with -dirty)
+  if [[ "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-][a-zA-Z0-9.]+)?(-dirty)?$ ]]; then
     echo "${raw%-dirty}"
     return 0
   fi

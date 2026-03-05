@@ -557,6 +557,18 @@ fn setup_menu(app: &mut App) -> Result<(), DynError> {
     Ok(())
 }
 
+static UPDATE_CHECK_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+// Guard that clears UPDATE_CHECK_ACTIVE on drop, ensuring the
+// flag is reset regardless of which return path is taken.
+struct UpdateGuard;
+
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATE_CHECK_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
+
 fn schedule_auto_update_check(handle: AppHandle) {
     let disabled = std::env::var("AGENTSVIEW_DESKTOP_AUTOUPDATE")
         .map(|v| v == "0")
@@ -566,13 +578,20 @@ fn schedule_auto_update_check(handle: AppHandle) {
     }
 
     tauri::async_runtime::spawn(async move {
-        // Delay to avoid blocking startup
-        thread::sleep(Duration::from_secs(5));
+        tokio::time::sleep(Duration::from_secs(5)).await;
         check_for_updates(&handle, true).await;
     });
 }
 
 async fn check_for_updates(handle: &AppHandle, silent: bool) {
+    if UPDATE_CHECK_ACTIVE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _guard = UpdateGuard;
+
     let updater = match handle.updater() {
         Ok(updater) => updater,
         Err(err) => {
@@ -582,7 +601,7 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
                     .dialog()
                     .message("Could not check for updates. The updater is not configured.")
                     .title("Update Check")
-                    .blocking_show();
+                    .show(|_| {});
             }
             return;
         }
@@ -597,7 +616,7 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
                     .dialog()
                     .message("Could not check for updates. Please try again later.")
                     .title("Update Check")
-                    .blocking_show();
+                    .show(|_| {});
             }
             return;
         }
@@ -609,20 +628,21 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
                 .dialog()
                 .message("You're running the latest version.")
                 .title("No Updates Available")
-                .blocking_show();
+                .show(|_| {});
         }
         return;
     };
 
     let version = update.version.clone();
-    let confirmed = handle
-        .dialog()
-        .message(format!(
-            "Version {version} is available. Would you like to download and install it?"
-        ))
-        .title("Update Available")
-        .buttons(MessageDialogButtons::OkCancel)
-        .blocking_show();
+    let confirmed = dialog_confirm(
+        handle,
+        "Update Available",
+        &format!(
+            "Version {version} is available. \
+             Would you like to download and install it?"
+        ),
+    )
+    .await;
 
     if !confirmed {
         return;
@@ -632,23 +652,43 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
         eprintln!("[agentsview] update install failed: {err}");
         handle
             .dialog()
-            .message("Failed to install the update. Please try downloading manually from the releases page.")
+            .message(
+                "Failed to install the update. \
+                 Please try downloading manually from the releases page.",
+            )
             .title("Update Failed")
-            .blocking_show();
+            .show(|_| {});
         return;
     }
 
-    let restart = handle
-        .dialog()
-        .message("Update installed. Restart now to apply?")
-        .title("Update Complete")
-        .buttons(MessageDialogButtons::OkCancel)
-        .blocking_show();
+    let restart = dialog_confirm(
+        handle,
+        "Update Complete",
+        "Update installed. Restart now to apply?",
+    )
+    .await;
 
     if restart {
         let _ = handle.emit("restart", ());
         handle.restart();
     }
+}
+
+async fn dialog_confirm(
+    handle: &AppHandle,
+    title: &str,
+    message: &str,
+) -> bool {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    handle
+        .dialog()
+        .message(message)
+        .title(title)
+        .buttons(MessageDialogButtons::OkCancel)
+        .show(move |confirmed| {
+            let _ = tx.send(confirmed);
+        });
+    rx.await.unwrap_or(false)
 }
 
 fn stop_backend(app: &AppHandle) {
