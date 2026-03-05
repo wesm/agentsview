@@ -64,6 +64,10 @@ assert_eq "$(version_to_semver "v0.10.0-3-gabcdef-dirty")" "0.10.0-dev.3" \
 # Non-tag inputs return empty (skip patching)
 assert_eq "$(version_to_semver "abc1234")" "" \
   "bare hash returns empty"
+assert_eq "$(version_to_semver "1abc234")" "" \
+  "digit-leading hash returns empty"
+assert_eq "$(version_to_semver "9f0e1d2")" "" \
+  "digit-leading hex hash returns empty"
 assert_eq "$(version_to_semver "dev")" "" \
   "dev string returns empty"
 

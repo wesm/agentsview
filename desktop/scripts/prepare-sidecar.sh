@@ -79,8 +79,10 @@ version_to_semver() {
     echo "${raw%-dirty}"
     return 0
   fi
-  # Looks like a version but isn't valid semver -- fail fast
-  if [[ "$raw" =~ ^[0-9] ]]; then
+  # Looks like a version (digits then dot) but isn't valid semver -- fail fast.
+  # Bare hex hashes starting with digits (e.g. 1abc234) fall through to
+  # the non-tag fallback below.
+  if [[ "$raw" =~ ^[0-9]+\. ]]; then
     echo "error: malformed version tag: $raw" >&2
     return 1
   fi
