@@ -202,6 +202,15 @@ jobs:
             fi
           done
 
+          if [ -z "$MACOS_SIG" ] || [ -z "$MACOS_URL" ]; then
+            echo "error: missing macOS updater signature or URL" >&2
+            exit 1
+          fi
+          if [ -z "$WINDOWS_SIG" ] || [ -z "$WINDOWS_URL" ]; then
+            echo "error: missing Windows updater signature or URL" >&2
+            exit 1
+          fi
+
           cat > artifacts/latest.json << MANIFEST
           {
             "version": "${VERSION}",

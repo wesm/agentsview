@@ -595,7 +595,7 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
             if !silent {
                 handle
                     .dialog()
-                    .message(format!("Could not check for updates: {err}"))
+                    .message("Could not check for updates. Please try again later.")
                     .title("Update Check")
                     .blocking_show();
             }
@@ -632,7 +632,7 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
         eprintln!("[agentsview] update install failed: {err}");
         handle
             .dialog()
-            .message(format!("Failed to install update: {err}"))
+            .message("Failed to install the update. Please try downloading manually from the releases page.")
             .title("Update Failed")
             .blocking_show();
         return;

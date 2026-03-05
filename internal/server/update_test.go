@@ -57,6 +57,16 @@ func TestCheckUpdateEndpointDevBuild(t *testing.T) {
 			resp.CurrentVersion, "dev",
 		)
 	}
+	// Dev builds should not report update_available=true
+	// even though CheckForUpdate returns info for display.
+	if resp.UpdateAvailable {
+		t.Error(
+			"expected update_available=false for dev build",
+		)
+	}
+	if !resp.IsDevBuild {
+		t.Error("expected is_dev_build=true for dev build")
+	}
 }
 
 type updateCheckResp struct {

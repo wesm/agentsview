@@ -34,7 +34,7 @@ func (s *Server) handleCheckUpdate(
 	}
 
 	writeJSON(w, http.StatusOK, updateCheckResponse{
-		UpdateAvailable: true,
+		UpdateAvailable: !info.IsDevBuild,
 		CurrentVersion:  info.CurrentVersion,
 		LatestVersion:   info.LatestVersion,
 		IsDevBuild:      info.IsDevBuild,
