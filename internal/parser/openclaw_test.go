@@ -147,6 +147,38 @@ func TestParseOpenClawSession_ToolResult(t *testing.T) {
 	}
 }
 
+func TestParseOpenClawSession_OrphanToolResult(t *testing.T) {
+	path, _ := writeOpenClawTestFile(t, "main",
+		`{"type":"session","version":3,"id":"orphan-tr","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
+		`{"type":"message","id":"m1","timestamp":"2026-02-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"hello"}],"timestamp":"2026-02-25T10:00:01Z"}}`,
+		`{"type":"message","id":"m2","timestamp":"2026-02-25T10:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"read","input":{}}],"timestamp":"2026-02-25T10:00:02Z"}}`,
+		// toolResult with empty toolCallId — should be dropped
+		`{"type":"message","id":"m3","timestamp":"2026-02-25T10:00:03Z","message":{"role":"toolResult","toolCallId":"","toolName":"read","content":[{"type":"text","text":"orphan result"}],"isError":false,"timestamp":"2026-02-25T10:00:03Z"}}`,
+		`{"type":"message","id":"m4","timestamp":"2026-02-25T10:00:04Z","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"timestamp":"2026-02-25T10:00:04Z"}}`,
+	)
+
+	sess, msgs, err := ParseOpenClawSession(path, "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 3 messages: user, assistant (tool_use), assistant (text).
+	// The orphan toolResult is skipped entirely.
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(msgs))
+	}
+	if sess.MessageCount != 3 {
+		t.Errorf("MessageCount = %d, want 3", sess.MessageCount)
+	}
+	if sess.UserMessageCount != 1 {
+		t.Errorf("UserMessageCount = %d, want 1", sess.UserMessageCount)
+	}
+	for _, m := range msgs {
+		if m.Role == RoleUser && m.Content == "" {
+			t.Error("blank user message leaked through")
+		}
+	}
+}
+
 func TestParseOpenClawSession_EmptyFile(t *testing.T) {
 	path, _ := writeOpenClawTestFile(t, "main",
 		`{"type":"session","version":3,"id":"empty","timestamp":"2026-02-25T10:00:00Z","cwd":"/tmp"}`,
