@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -324,23 +325,23 @@ func normalizePiIntent(argsRaw string) string {
 	if !intent.Exists() {
 		return argsRaw
 	}
-	// Build a minimal JSON object with "description" replacing the intent key,
-	// preserving all other fields.
-	var b strings.Builder
-	b.WriteString(`{"description":`)
-	b.WriteString(intent.Raw)
-	gjson.Parse(argsRaw).ForEach(func(key, value gjson.Result) bool {
-		k := key.Str
-		if k == "agent__intent" || k == "_i" {
-			return true // skip original intent keys
-		}
-		b.WriteByte(',')
-		b.WriteString(`"` + k + `":`)
-		b.WriteString(value.Raw)
-		return true
-	})
-	b.WriteByte('}')
-	return b.String()
+	// Unmarshal into a map, rename the intent key to "description",
+	// and re-marshal to produce valid JSON with proper escaping.
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(argsRaw), &m); err != nil {
+		return argsRaw
+	}
+	m["description"] = m["agent__intent"]
+	if m["description"] == nil {
+		m["description"] = m["_i"]
+	}
+	delete(m, "agent__intent")
+	delete(m, "_i")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return argsRaw
+	}
+	return string(out)
 }
 
 // piTimestamp extracts the timestamp for a pi JSONL entry.
