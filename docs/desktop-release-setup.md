@@ -20,74 +20,152 @@ Three separate credential sets are needed:
 
 ## 1. Apple Developer Certificate (macOS code signing)
 
+Code signing proves the app was built by a known developer. macOS Gatekeeper blocks unsigned apps. The CI workflow imports this certificate into a temporary keychain, signs the `.app` bundle and DMG, then deletes the keychain.
+
 ### Prerequisites
 
-- An [Apple Developer Program](https://developer.apple.com/programs/) membership ($99/year)
-- A "Developer ID Application" certificate (not "Mac App Distribution")
+- An [Apple Developer Program](https://developer.apple.com/programs/) membership ($99/year, required for "Developer ID" certificates)
+- A Mac with Keychain Access (needed to generate the CSR and export the `.p12`)
 
-### Generate the certificate
+### Step 1: Create a Certificate Signing Request (CSR)
 
-1. Open **Keychain Access** on your Mac
-2. Go to **Keychain Access > Certificate Assistant > Request a Certificate from a Certificate Authority**
-3. Enter your email, select "Saved to disk", click Continue
-4. Go to [Apple Developer > Certificates](https://developer.apple.com/account/resources/certificates/list)
-5. Click **+**, select **Developer ID Application**, upload the CSR
-6. Download the `.cer` file and double-click to install in Keychain Access
+1. Open **Keychain Access** (in `/Applications/Utilities/`)
+2. Menu bar: **Keychain Access > Certificate Assistant > Request a Certificate from a Certificate Authority...**
+3. Fill in:
+   - **User Email Address**: your Apple ID email
+   - **Common Name**: your name (can be anything)
+   - **CA Email Address**: leave blank
+   - Select **Saved to disk**
+4. Click **Continue** and save the `.certSigningRequest` file
 
-### Export as .p12
+### Step 2: Create the certificate on Apple's portal
 
-1. In **Keychain Access**, find the certificate under "My Certificates"
-2. Right-click > **Export** as `.p12`
-3. Set a strong password (you'll need it for the GitHub secret)
-4. Base64-encode the file:
+1. Go to [developer.apple.com/account/resources/certificates/list](https://developer.apple.com/account/resources/certificates/list)
+2. Click the **+** button
+3. Under "Software", select **Developer ID Application** (this is for apps distributed outside the App Store — do **not** choose "Mac App Distribution" or "Apple Development")
+4. Click **Continue**, upload the `.certSigningRequest` file from step 1
+5. Click **Continue**, then **Download** to get the `.cer` file
+6. Double-click the `.cer` file to install it into Keychain Access
+
+### Step 3: Export as .p12
+
+The CI runner needs the certificate as a `.p12` file (which bundles the certificate and its private key).
+
+1. Open **Keychain Access**
+2. In the left sidebar, select **login** keychain, then **My Certificates** category
+3. Find the certificate named `Developer ID Application: Your Name (TEAMID)` — it should have a disclosure triangle showing a private key underneath
+4. Right-click the certificate (not the private key) > **Export "Developer ID Application: ..."**
+5. Format: **Personal Information Exchange (.p12)**
+6. Set a strong password when prompted — you will need this for the `APPLE_CERTIFICATE_PASSWORD` secret
+
+Base64-encode the `.p12` for storage as a GitHub secret:
 
 ```bash
-base64 -i DeveloperIDApplication.p12 | pbcopy
+base64 -i "Developer_ID_Application.p12" | pbcopy
+# The base64 string is now on your clipboard
 ```
 
-### Find the signing identity
+The output is a long base64 string (typically 3000-5000 characters). It starts with something like `MIIKcQIBAzCCCjcGCS...`. This entire string goes into the `APPLE_CERTIFICATE` secret.
+
+### Step 4: Find your signing identity
+
+Run this to list available code signing identities:
 
 ```bash
 security find-identity -v -p codesigning
 ```
 
-Look for the line containing "Developer ID Application: Your Name (TEAM_ID)". The full string in quotes is your signing identity.
+You should see output like:
 
-### GitHub secrets
+```
+  1) A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2 "Developer ID Application: Jane Smith (ABC123XYZ)"
+     1 valid identities found
+```
 
-| Secret | Value |
-|--------|-------|
-| `APPLE_CERTIFICATE` | Base64-encoded `.p12` file content |
-| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
-| `APPLE_SIGNING_IDENTITY` | Full identity string, e.g. `Developer ID Application: Your Name (ABC123XYZ)` |
+The full quoted string — `Developer ID Application: Jane Smith (ABC123XYZ)` — is your signing identity. The 10-character code in parentheses is your Team ID.
+
+If you see multiple identities, use the one that matches the certificate you just created. If you see no identities, the certificate wasn't installed correctly — check that the `.cer` was imported and that the private key from the CSR is in the same keychain.
+
+### GitHub secrets for code signing
+
+| Secret | Example value | Notes |
+|--------|---------------|-------|
+| `APPLE_CERTIFICATE` | `MIIKcQIBAzCCCjcGCS...` (long base64) | The entire base64-encoded `.p12` file |
+| `APPLE_CERTIFICATE_PASSWORD` | `your-p12-export-password` | The password you set when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: Jane Smith (ABC123XYZ)` | Exact string from `security find-identity`, including the Team ID |
 
 ## 2. Apple App Store Connect API Key (notarization)
 
-Notarization sends the built app to Apple for malware scanning. It requires an API key from App Store Connect.
+Notarization sends the signed app to Apple's servers for automated malware scanning. After approval (usually 1-5 minutes), macOS recognizes the app as checked by Apple and won't show the "unidentified developer" warning. The CI workflow uses an App Store Connect API key to authenticate with Apple's notary service.
 
-### Generate the API key
+### Step 1: Create the API key
 
-1. Go to [App Store Connect > Users and Access > Integrations > App Store Connect API](https://appstoreconnect.apple.com/access/integrations/api)
-2. Click **+** to create a new key
-3. Name: `AgentsView Notarization` (or similar)
-4. Access: **Developer** role is sufficient
-5. Download the `.p8` key file (you can only download it once)
-6. Note the **Key ID** (shown in the table, e.g. `ABC123DEF`)
-7. Note the **Issuer ID** (shown at the top of the page, UUID format)
+1. Go to [appstoreconnect.apple.com/access/integrations/api](https://appstoreconnect.apple.com/access/integrations/api)
+   - If you haven't used the API before, you'll need to click **Request Access** first
+2. Note the **Issuer ID** displayed at the top of the page. It looks like a UUID:
+   ```
+   Issuer ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+   ```
+3. Click **Generate API Key** (or the **+** button)
+4. Name: `AgentsView Notarization` (or any descriptive name)
+5. Access: **Developer** (minimum role needed for notarization)
+6. Click **Generate**
 
-### Base64-encode the key
+### Step 2: Download the key
 
-```bash
-base64 -i AuthKey_ABC123DEF.p8 | pbcopy
+After generating, the key appears in the table with a **Download** link.
+
+**Download the `.p8` file immediately.** Apple only lets you download it once. If you lose it, you must revoke the key and create a new one.
+
+The downloaded file is named `AuthKey_XXXXXXXXXX.p8` where `XXXXXXXXXX` is the Key ID. For example: `AuthKey_ABC123DEF0.p8`.
+
+The Key ID is also shown in the "Key ID" column of the table. It is a 10-character alphanumeric string like `ABC123DEF0`.
+
+### Step 3: Inspect what you have
+
+At this point you should have three pieces of information:
+
+```
+Issuer ID:  a1b2c3d4-e5f6-7890-abcd-ef1234567890    (from the top of the API keys page)
+Key ID:     ABC123DEF0                                 (from the table, also in the filename)
+Key file:   ~/Downloads/AuthKey_ABC123DEF0.p8          (the downloaded file)
 ```
 
-### GitHub secrets
+The `.p8` file is a short PEM-encoded private key (about 300 bytes). It looks like:
 
-| Secret | Value |
-|--------|-------|
-| `APPLE_API_KEY_CONTENT` | Base64-encoded `.p8` key file content |
-| `APPLE_API_KEY` | Key ID (e.g. `ABC123DEF`) |
-| `APPLE_API_ISSUER` | Issuer ID (UUID from App Store Connect) |
+```
+-----BEGIN PRIVATE KEY-----
+MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
+(2-3 lines of base64)
+-----END PRIVATE KEY-----
+```
+
+### Step 4: Base64-encode the key file
+
+```bash
+base64 -i ~/Downloads/AuthKey_ABC123DEF0.p8 | pbcopy
+# The base64 string is now on your clipboard
+```
+
+The base64 output is relatively short (about 400 characters). This goes into `APPLE_API_KEY_CONTENT`.
+
+### GitHub secrets for notarization
+
+| Secret | Example value | Notes |
+|--------|---------------|-------|
+| `APPLE_API_KEY_CONTENT` | `LS0tLS1CRUdJTiBQUk...` (base64) | Base64-encoded `.p8` key file |
+| `APPLE_API_KEY` | `ABC123DEF0` | The 10-character Key ID (not the Issuer ID) |
+| `APPLE_API_ISSUER` | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` | UUID from the top of the API keys page |
+
+### How the workflow uses these
+
+The workflow reconstructs the `.p8` file on the runner:
+
+```bash
+echo "$APPLE_API_KEY_CONTENT" | base64 --decode > AuthKey_${APPLE_API_KEY}.p8
+```
+
+Then Tauri's build process passes the key to Apple's notary service via `notarytool`. The `APPLE_API_ISSUER` and `APPLE_API_KEY` identify which key to use. If notarization succeeds, `tauri build` staples the notarization ticket to the DMG automatically.
 
 ## 3. Tauri Update Signing Key (auto-updater)
 
@@ -334,17 +412,46 @@ Delete the releases manually from the fork's GitHub Releases page. Do not merge 
 
 ## Troubleshooting
 
+### Code signing: "no identity found" or "Developer ID Application" not found
+
+The `APPLE_SIGNING_IDENTITY` secret must exactly match the identity string from `security find-identity`. Common issues:
+
+- **Wrong certificate type**: "Mac Developer" or "Apple Development" certificates don't work for distribution. You need "Developer ID Application".
+- **Typo in identity string**: Copy-paste the entire quoted string from `security find-identity`, including the Team ID in parentheses.
+- **Certificate expired**: Developer ID Application certificates are valid for 5 years. Check expiry in Keychain Access or at [developer.apple.com/account/resources/certificates](https://developer.apple.com/account/resources/certificates/list).
+- **Private key missing from .p12**: When exporting, make sure you export from "My Certificates" (which bundles the private key), not from "Certificates" (which exports only the public cert).
+
+### Code signing: "errSecInternalComponent" or "User interaction is not allowed"
+
+The keychain wasn't unlocked properly. This usually means the `APPLE_CERTIFICATE_PASSWORD` secret doesn't match the password used when exporting the `.p12`. Re-export with a known password and update the secret.
+
+### Notarization: "invalid credentials" or "authentication failed"
+
+Check each piece independently:
+
+1. **Is the API key revoked?** Check at [appstoreconnect.apple.com/access/integrations/api](https://appstoreconnect.apple.com/access/integrations/api)
+2. **Is `APPLE_API_KEY` the Key ID (not the Issuer ID)?** The Key ID is the 10-character string like `ABC123DEF0`, not the UUID.
+3. **Is `APPLE_API_ISSUER` the Issuer ID (not the Key ID)?** The Issuer ID is the UUID shown at the top of the API keys page.
+4. **Is `APPLE_API_KEY_CONTENT` correctly base64-encoded?** Decode and verify it looks like a PEM private key:
+   ```bash
+   echo "$APPLE_API_KEY_CONTENT" | base64 --decode
+   # Should print:
+   # -----BEGIN PRIVATE KEY-----
+   # (2-3 lines of base64)
+   # -----END PRIVATE KEY-----
+   ```
+5. **Was the `.p8` file re-downloaded?** Apple only allows one download. If you lost the original, revoke the key and create a new one.
+
+### Notarization: "package is invalid" or "the signature is invalid"
+
+The app was signed with the wrong certificate type, or the entitlements are incorrect. Verify:
+
+- The certificate is "Developer ID Application" (not "Apple Development" or "3rd Party Mac Developer Application")
+- `desktop/src-tauri/Entitlements.plist` includes the hardened runtime entitlements for WebKit JIT
+
 ### "The updater is not configured"
 
-The `AGENTSVIEW_UPDATER_PUBKEY` env var was not set at compile time, or the pubkey in `tauri.conf.json` is still `"NOT_SET"`. Rebuild with the correct public key.
-
-### Notarization fails with "invalid credentials"
-
-Verify the API key hasn't been revoked and that `APPLE_API_KEY`, `APPLE_API_ISSUER`, and `APPLE_API_KEY_CONTENT` are all correct. The `.p8` file can only be downloaded once from App Store Connect.
-
-### "Developer ID Application" certificate not found
-
-The signing identity in `APPLE_SIGNING_IDENTITY` must exactly match the identity in the keychain. Run `security find-identity -v -p codesigning` to see available identities.
+The `AGENTSVIEW_UPDATER_PUBKEY` env var was not set at compile time, or the pubkey in `tauri.conf.json` is still `"NOT_SET"`. Make sure the secret is configured in GitHub and that both build steps in `desktop-release.yml` pass it as an env var.
 
 ### Update verification fails after key rotation
 
