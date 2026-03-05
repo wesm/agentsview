@@ -151,21 +151,16 @@ func ParseOpenClawSession(
 			ordinal++
 
 		case "toolResult":
-			// Tool results in OpenClaw are separate messages with
-			// role "toolResult". We merge them into the previous
-			// assistant message as tool_result content, matching
-			// the pattern the frontend expects.
+			// Tool results in OpenClaw are separate messages.
+			// Emit as a user message with empty Content so
+			// pairAndFilter removes it after pairToolResults
+			// copies ResultContentLength to the matching call.
 			toolCallID := msg.Get("toolCallId").Str
-			toolName := msg.Get("toolName").Str
-			isError := msg.Get("isError").Bool()
 
 			content := msg.Get("content")
 			resultText := extractToolResultText(content)
 			contentLen := len(resultText)
 
-			// Format as a user message with tool_result block,
-			// matching Claude Code's format that the frontend
-			// already handles.
 			var tr []ParsedToolResult
 			if toolCallID != "" {
 				tr = append(tr, ParsedToolResult{
@@ -174,22 +169,10 @@ func ParseOpenClawSession(
 				})
 			}
 
-			display := fmt.Sprintf(
-				"[Tool Result: %s]", toolName,
-			)
-			if isError {
-				display = fmt.Sprintf(
-					"[Tool Error: %s]", toolName,
-				)
-			}
-			if resultText != "" {
-				display += "\n" + truncate(resultText, 2000)
-			}
-
 			messages = append(messages, ParsedMessage{
 				Ordinal:       ordinal,
 				Role:          RoleUser,
-				Content:       display,
+				Content:       "",
 				Timestamp:     ts,
 				HasThinking:   false,
 				HasToolUse:    false,

@@ -429,6 +429,9 @@ func (e *Engine) classifyOnePath(
 			if len(parts) != 3 || parts[1] != "sessions" {
 				continue
 			}
+			if !parser.IsValidSessionID(parts[0]) {
+				continue
+			}
 			if !parser.IsOpenClawSessionFile(parts[2]) {
 				continue
 			}
