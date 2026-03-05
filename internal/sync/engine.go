@@ -1811,7 +1811,7 @@ func convertToolResults(
 		results[i] = db.ToolResult{
 			ToolUseID:     tr.ToolUseID,
 			ContentLength: tr.ContentLength,
-			Content:       tr.Content,
+			ContentRaw:    tr.ContentRaw,
 		}
 	}
 	return results
@@ -1855,7 +1855,7 @@ func pairToolResults(msgs []db.Message, blocked map[string]bool) {
 			if tc, ok := idx[tr.ToolUseID]; ok {
 				tc.ResultContentLength = tr.ContentLength
 				if !blocked[tc.Category] {
-					tc.ResultContent = tr.Content
+					tc.ResultContent = parser.DecodeContent(tr.ContentRaw)
 				}
 			}
 		}

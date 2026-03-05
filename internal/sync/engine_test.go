@@ -316,17 +316,17 @@ func TestPairToolResultsContent(t *testing.T) {
 					{ToolUseID: "t1", ToolName: "Bash", Category: "Bash"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 42, Content: "[main abc1234] feat\n"},
+					{ToolUseID: "t1", ContentLength: 42, ContentRaw: `"output text"`},
 				}},
 			},
 			blocked: map[string]bool{"Read": true, "Glob": true},
 			want: []db.Message{
 				{ToolCalls: []db.ToolCall{
 					{ToolUseID: "t1", ToolName: "Bash", Category: "Bash",
-						ResultContentLength: 42, ResultContent: "[main abc1234] feat\n"},
+						ResultContentLength: 42, ResultContent: "output text"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 42, Content: "[main abc1234] feat\n"},
+					{ToolUseID: "t1", ContentLength: 42, ContentRaw: `"output text"`},
 				}},
 			},
 		},
@@ -337,7 +337,7 @@ func TestPairToolResultsContent(t *testing.T) {
 					{ToolUseID: "t1", ToolName: "Read", Category: "Read"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 5000, Content: "package main\n..."},
+					{ToolUseID: "t1", ContentLength: 5000, ContentRaw: `"file data"`},
 				}},
 			},
 			blocked: map[string]bool{"Read": true, "Glob": true},
@@ -347,7 +347,7 @@ func TestPairToolResultsContent(t *testing.T) {
 						ResultContentLength: 5000, ResultContent: ""},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 5000, Content: "package main\n..."},
+					{ToolUseID: "t1", ContentLength: 5000, ContentRaw: `"file data"`},
 				}},
 			},
 		},
@@ -358,7 +358,7 @@ func TestPairToolResultsContent(t *testing.T) {
 					{ToolUseID: "t1", ToolName: "Read", Category: "Read"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 100, Content: "file content"},
+					{ToolUseID: "t1", ContentLength: 100, ContentRaw: `"file content"`},
 				}},
 			},
 			blocked: nil,
@@ -368,7 +368,7 @@ func TestPairToolResultsContent(t *testing.T) {
 						ResultContentLength: 100, ResultContent: "file content"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 100, Content: "file content"},
+					{ToolUseID: "t1", ContentLength: 100, ContentRaw: `"file content"`},
 				}},
 			},
 		},

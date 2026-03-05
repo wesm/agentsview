@@ -72,7 +72,7 @@ func ExtractTextContent(
 				toolResults = append(toolResults, ParsedToolResult{
 					ToolUseID:     tuid,
 					ContentLength: cl,
-					Content:       toolResultContent(rc),
+					ContentRaw:    rc.Raw,
 				})
 			}
 		}
@@ -98,7 +98,14 @@ func toolResultContentLength(content gjson.Result) int {
 	return 0
 }
 
-func toolResultContent(content gjson.Result) string {
+// DecodeContent extracts the text from a raw JSON tool result content
+// value (the ContentRaw field of ParsedToolResult). It handles both
+// plain string and array-of-blocks formats.
+func DecodeContent(raw string) string {
+	return decodeContent(gjson.Parse(raw))
+}
+
+func decodeContent(content gjson.Result) string {
 	if content.Type == gjson.String {
 		return content.Str
 	}

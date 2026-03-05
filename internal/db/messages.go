@@ -45,7 +45,7 @@ type ToolCall struct {
 type ToolResult struct {
 	ToolUseID     string
 	ContentLength int
-	Content       string
+	ContentRaw    string // raw JSON of the content field; decode lazily
 }
 
 // Message represents a row in the messages table.
