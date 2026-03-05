@@ -121,9 +121,9 @@
    *  specific field patterns still get the generic key-value output. */
   let fallbackContent = $derived.by(() => {
     if (content || !inputParams || !toolCall) return null;
-    const cat = toolCall.category || toolCall.tool_name;
-    return generateFallbackContent(cat, inputParams)
-      ?? generateFallbackContent(toolCall.tool_name, inputParams);
+    const cat = toolCall.category;
+    const result = cat ? generateFallbackContent(cat, inputParams) : null;
+    return result ?? generateFallbackContent(toolCall.tool_name, inputParams);
   });
 
   let isTask = $derived(
