@@ -115,13 +115,15 @@
       null,
   );
 
-  /** Generate content from input_json when regex content is empty */
+  /** Generate content from input_json when regex content is empty.
+   *  Try category first (e.g. "Edit"), then fall back to raw tool_name
+   *  (e.g. "apply_patch") so tools that don't match their category's
+   *  specific field patterns still get the generic key-value output. */
   let fallbackContent = $derived.by(() => {
     if (content || !inputParams || !toolCall) return null;
-    return generateFallbackContent(
-      toolCall.category || toolCall.tool_name,
-      inputParams,
-    );
+    const cat = toolCall.category || toolCall.tool_name;
+    return generateFallbackContent(cat, inputParams)
+      ?? generateFallbackContent(toolCall.tool_name, inputParams);
   });
 
   let isTask = $derived(
