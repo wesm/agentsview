@@ -204,8 +204,8 @@ describe("ToolBlock fallback content", () => {
 
     const toolContent = document.querySelector(".tool-content");
     expect(toolContent).not.toBeNull();
-    // Should show the generic key-value output
-    expect(toolContent!.textContent).toContain("patch_file");
+    // Should show the generic key-value output with exact format
+    expect(toolContent!.textContent).toContain("patch_file: /path/to/patch.diff");
   });
 
   it("renders fallback content when no category is provided", async () => {
@@ -226,7 +226,29 @@ describe("ToolBlock fallback content", () => {
     const toolContent = document.querySelector(".tool-content");
     expect(toolContent).not.toBeNull();
     // apply_patch doesn't have specific handling, so should show generic output
-    expect(toolContent!.textContent).toContain("patch_file");
+    expect(toolContent!.textContent).toContain("patch_file: /path/to/patch.diff");
+  });
+
+  it("falls back to tool_name when category is empty string", async () => {
+    // Empty string category should be treated same as no category
+    const toolCall: ToolCall = {
+      tool_name: "apply_patch",
+      category: "",
+      input_json: JSON.stringify({ patch_file: "/path/to/patch.diff" }),
+    };
+    component = mount(ToolBlock, {
+      target: document.body,
+      props: { content: "", toolCall },
+    });
+    await tick();
+
+    document.querySelector<HTMLButtonElement>(".tool-header")!.click();
+    await tick();
+
+    const toolContent = document.querySelector(".tool-content");
+    expect(toolContent).not.toBeNull();
+    // Should fall back to tool_name and show generic output
+    expect(toolContent!.textContent).toContain("patch_file: /path/to/patch.diff");
   });
 
   it("does not render fallback content when content is provided", async () => {
