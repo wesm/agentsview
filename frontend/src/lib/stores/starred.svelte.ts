@@ -7,8 +7,6 @@ class StarredStore {
   filterOnly: boolean = $state(false);
   private loaded = false;
   private loading: Promise<void> | null = null;
-  /** Per-session version for rollback safety on API failure. */
-  private opVersions: Map<string, number> = new Map();
   /** Global mutation counter for load/migration staleness detection. */
   private mutationVersion = 0;
 
@@ -23,17 +21,12 @@ class StarredStore {
     const mutVer = this.mutationVersion;
     try {
       const res = await api.listStarred();
-      // Only apply if no mutations occurred during the fetch.
       if (this.mutationVersion === mutVer) {
         this.ids = new Set(res.session_ids);
       }
       this.loaded = true;
-      // Best-effort migration after successful load.
       await this.migrateLocalStorage();
     } catch {
-      // Server unavailable: fall back to localStorage only if
-      // no mutations occurred during the fetch (otherwise the
-      // user's optimistic state takes precedence).
       const local = readLocalStorage();
       if (local.size > 0 && this.mutationVersion === mutVer) {
         this.ids = local;
@@ -53,16 +46,19 @@ class StarredStore {
       try {
         await api.bulkStarSessions(toMigrate);
         const refreshed = await api.listStarred();
-        // Only apply if no user mutations happened during migration.
         if (this.mutationVersion === mutVer) {
           this.ids = new Set(refreshed.session_ids);
+          clearLocalStorage();
         }
+        // mutVer mismatch: keep localStorage so migration retries
+        // on next page load once in-memory state is authoritative.
       } catch {
-        // Migration failed; don't clear localStorage so it retries.
         return;
       }
+    } else {
+      // All local stars already present in server state.
+      clearLocalStorage();
     }
-    clearLocalStorage();
   }
 
   isStarred(sessionId: string): boolean {
@@ -77,24 +73,14 @@ class StarredStore {
     }
   }
 
-  private nextOpVersion(sessionId: string): number {
-    const v = (this.opVersions.get(sessionId) ?? 0) + 1;
-    this.opVersions.set(sessionId, v);
-    return v;
-  }
-
   star(sessionId: string) {
     if (this.ids.has(sessionId)) return;
     const next = new Set(this.ids);
     next.add(sessionId);
     this.ids = next;
     this.mutationVersion++;
-    const version = this.nextOpVersion(sessionId);
     api.starSession(sessionId).catch(() => {
-      if (this.opVersions.get(sessionId) !== version) return;
-      const reverted = new Set(this.ids);
-      reverted.delete(sessionId);
-      this.ids = reverted;
+      this.reconcileAfterError();
     });
   }
 
@@ -104,12 +90,19 @@ class StarredStore {
     next.delete(sessionId);
     this.ids = next;
     this.mutationVersion++;
-    const version = this.nextOpVersion(sessionId);
     api.unstarSession(sessionId).catch(() => {
-      if (this.opVersions.get(sessionId) !== version) return;
-      const reverted = new Set(this.ids);
-      reverted.add(sessionId);
-      this.ids = reverted;
+      this.reconcileAfterError();
+    });
+  }
+
+  private reconcileAfterError() {
+    const mutVer = this.mutationVersion;
+    api.listStarred().then((res) => {
+      if (this.mutationVersion === mutVer) {
+        this.ids = new Set(res.session_ids);
+      }
+    }).catch(() => {
+      // Server unavailable; keep optimistic state.
     });
   }
 
