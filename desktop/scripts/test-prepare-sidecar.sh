@@ -61,11 +61,16 @@ assert_eq "$(version_to_semver "v0.10.0-dirty")" "0.10.0" \
   "dirty tag stripped"
 assert_eq "$(version_to_semver "v0.10.0-3-gabcdef-dirty")" "0.10.0-dev.3" \
   "git-describe dirty with distance"
-# Non-semver fallback inputs produce 0.0.0-dev
-assert_eq "$(version_to_semver "abc1234")" "0.0.0-dev" \
-  "bare hash fallback"
-assert_eq "$(version_to_semver "dev")" "0.0.0-dev" \
-  "dev string fallback"
+# Non-tag inputs return empty (skip patching)
+assert_eq "$(version_to_semver "abc1234")" "" \
+  "bare hash returns empty"
+assert_eq "$(version_to_semver "dev")" "" \
+  "dev string returns empty"
+
+# Malformed v-prefixed versions fail hard
+assert_fails "incomplete semver rejected" version_to_semver "v1.2"
+assert_fails "prerelease tag rejected" version_to_semver "v1.2.3-rc.1"
+assert_fails "bare digits rejected" version_to_semver "1.2"
 
 # patch_tauri_version test (uses a temp copy)
 tmp_root="$(mktemp -d)"

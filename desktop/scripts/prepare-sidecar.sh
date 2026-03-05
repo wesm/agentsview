@@ -79,15 +79,20 @@ version_to_semver() {
     echo "${raw%-dirty}"
     return 0
   fi
+  # Looks like a version but isn't valid semver -- fail fast
+  if [[ "$raw" =~ ^[0-9] ]]; then
+    echo "error: malformed version tag: $raw" >&2
+    return 1
+  fi
   # Non-tag fallback: bare hash, "dev", etc.
-  echo "0.0.0-dev"
+  echo ""
 }
 
 patch_tauri_version() {
   local version="$1"
   local semver
   semver="$(version_to_semver "$version")"
-  if [ "$semver" = "0.0.0-dev" ]; then
+  if [ -z "$semver" ]; then
     echo "Skipping tauri.conf.json version patch (non-tag build: $version)"
     return 0
   fi
