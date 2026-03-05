@@ -79,15 +79,18 @@ version_to_semver() {
     echo "${raw%-dirty}"
     return 0
   fi
-  # Unrecognized version format
-  echo "error: unrecognized version format: $raw" >&2
-  return 1
+  # Non-tag fallback: bare hash, "dev", etc.
+  echo "0.0.0-dev"
 }
 
 patch_tauri_version() {
   local version="$1"
   local semver
   semver="$(version_to_semver "$version")"
+  if [ "$semver" = "0.0.0-dev" ]; then
+    echo "Skipping tauri.conf.json version patch (non-tag build: $version)"
+    return 0
+  fi
   local conf="$TAURI_DIR/src-tauri/tauri.conf.json"
   sed -i.bak \
     "s/\"version\": \"[^\"]*\"/\"version\": \"$semver\"/" \

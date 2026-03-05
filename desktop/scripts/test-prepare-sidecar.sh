@@ -61,7 +61,11 @@ assert_eq "$(version_to_semver "v0.10.0-dirty")" "0.10.0" \
   "dirty tag stripped"
 assert_eq "$(version_to_semver "v0.10.0-3-gabcdef-dirty")" "0.10.0-dev.3" \
   "git-describe dirty with distance"
-assert_fails "unrecognized version rejected" version_to_semver "abc1234"
+# Non-semver fallback inputs produce 0.0.0-dev
+assert_eq "$(version_to_semver "abc1234")" "0.0.0-dev" \
+  "bare hash fallback"
+assert_eq "$(version_to_semver "dev")" "0.0.0-dev" \
+  "dev string fallback"
 
 # patch_tauri_version test (uses a temp copy)
 tmp_root="$(mktemp -d)"
@@ -73,6 +77,19 @@ patch_tauri_version "v0.10.0" >/dev/null
 patched="$(grep '"version"' "$tmp_root/src-tauri/tauri.conf.json" | head -1)"
 assert_eq "$(echo "$patched" | tr -d ' ')" '"version":"0.10.0",' \
   "patch_tauri_version applies correct version"
+
+# patch_tauri_version skips non-tag builds
+cp "$saved_tauri_dir/src-tauri/tauri.conf.json" "$tmp_root/src-tauri/tauri.conf.json"
+original="$(grep '"version"' "$tmp_root/src-tauri/tauri.conf.json" | head -1)"
+output="$(patch_tauri_version "abc1234")"
+after="$(grep '"version"' "$tmp_root/src-tauri/tauri.conf.json" | head -1)"
+assert_eq "$after" "$original" \
+  "patch_tauri_version skips patching for non-tag build"
+echo "$output" | grep -q "Skipping" || {
+  echo "assertion failed: expected skip message (got '$output')" >&2
+  exit 1
+}
+
 TAURI_DIR="$saved_tauri_dir"
 rm -rf "$tmp_root"
 
