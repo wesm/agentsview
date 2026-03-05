@@ -382,3 +382,31 @@ func TestPairToolResultsContent(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockedCategorySet(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		check string
+		want  bool
+	}{
+		{"exact match", []string{"Read"}, "Read", true},
+		{"lowercase normalized", []string{"read"}, "Read", true},
+		{"uppercase normalized", []string{"GLOB"}, "Glob", true},
+		{"trimmed", []string{" Read "}, "Read", true},
+		{"empty entry skipped", []string{""}, "Read", false},
+		{"nil input", nil, "Read", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := blockedCategorySet(tt.input)
+			got := m[tt.check]
+			if got != tt.want {
+				t.Errorf(
+					"blockedCategorySet(%v)[%q] = %v, want %v",
+					tt.input, tt.check, got, tt.want,
+				)
+			}
+		})
+	}
+}

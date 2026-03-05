@@ -78,12 +78,18 @@ func NewEngine(
 
 // blockedCategorySet converts a slice of category names into a
 // set for O(1) lookup. Returns nil when the slice is empty.
+// Entries are trimmed and title-cased to match parser categories.
 func blockedCategorySet(cats []string) map[string]bool {
 	if len(cats) == 0 {
 		return nil
 	}
 	m := make(map[string]bool, len(cats))
 	for _, c := range cats {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		c = strings.ToUpper(c[:1]) + strings.ToLower(c[1:])
 		m[c] = true
 	}
 	return m
