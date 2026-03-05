@@ -23,9 +23,12 @@
   let collapsed: boolean = $state(true);
   let outputCollapsed: boolean = $state(true);
 
-  let outputPreviewLine = $derived(
-    toolCall?.result_content?.split("\n")[0]?.slice(0, 100) ?? "",
-  );
+  let outputPreviewLine = $derived.by(() => {
+    const rc = toolCall?.result_content;
+    if (!rc) return "";
+    const nl = rc.indexOf("\n");
+    return (nl === -1 ? rc : rc.slice(0, nl)).slice(0, 100);
+  });
 
   let previewLine = $derived(
     content.split("\n")[0]?.slice(0, 100) ?? "",
