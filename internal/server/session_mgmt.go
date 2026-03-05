@@ -118,31 +118,18 @@ func (s *Server) handlePermanentDeleteSession(
 ) {
 	id := r.PathValue("id")
 
-	// Only allow permanent deletion of sessions that are already
-	// in the trash (deleted_at IS NOT NULL). This prevents
-	// accidental hard-deletion of active sessions.
-	session, err := s.db.GetSessionFull(r.Context(), id)
+	// Atomically delete only if the session is in the trash.
+	// This avoids a TOCTOU race between checking deleted_at and
+	// performing the delete.
+	n, err := s.db.DeleteSessionIfTrashed(id)
 	if err != nil {
-		if handleContextError(w, err) {
-			return
-		}
-		log.Printf("permanent delete lookup: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if session == nil {
-		writeError(w, http.StatusNotFound, "session not found")
-		return
-	}
-	if session.DeletedAt == nil {
-		writeError(w, http.StatusConflict,
-			"session must be in trash before permanent deletion")
-		return
-	}
-
-	if err := s.db.DeleteSession(id); err != nil {
 		log.Printf("permanent delete session: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if n == 0 {
+		writeError(w, http.StatusConflict,
+			"session not found or not in trash")
 		return
 	}
 

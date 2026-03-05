@@ -3435,3 +3435,94 @@ func TestCopySessionMetadataFrom(t *testing.T) {
 		t.Errorf("stars after = %d, want 1", starCount)
 	}
 }
+
+func TestPinMessageIdempotent(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, userMsg("s1", 1, "hello"))
+
+	// First pin should succeed.
+	id1, err := d.PinMessage("s1", 1, nil)
+	if err != nil || id1 == 0 {
+		t.Fatalf("first PinMessage: id=%d err=%v", id1, err)
+	}
+
+	// Idempotent re-pin with same note must not return 0.
+	id2, err := d.PinMessage("s1", 1, nil)
+	if err != nil {
+		t.Fatalf("idempotent PinMessage err: %v", err)
+	}
+	if id2 == 0 {
+		t.Fatal("idempotent PinMessage returned id=0; should return existing id")
+	}
+	if id2 != id1 {
+		t.Errorf("idempotent PinMessage id=%d, want %d", id2, id1)
+	}
+
+	// Re-pin with different note should succeed and return same id.
+	note := "important"
+	id2b, err := d.PinMessage("s1", 1, &note)
+	if err != nil {
+		t.Fatalf("re-pin with note err: %v", err)
+	}
+	if id2b != id1 {
+		t.Errorf("re-pin with note id=%d, want %d", id2b, id1)
+	}
+
+	// Pin with wrong session should return 0.
+	id3, err := d.PinMessage("nonexistent", 1, nil)
+	if err != nil {
+		t.Fatalf("wrong-session PinMessage err: %v", err)
+	}
+	if id3 != 0 {
+		t.Errorf("wrong-session PinMessage id=%d, want 0", id3)
+	}
+}
+
+func TestDeleteSessionIfTrashed(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	// Delete a non-trashed session should return 0.
+	n, err := d.DeleteSessionIfTrashed("s1")
+	if err != nil {
+		t.Fatalf("DeleteSessionIfTrashed non-trashed: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("non-trashed: rows=%d, want 0", n)
+	}
+
+	// Soft-delete, then permanent delete should succeed.
+	requireNoError(t, d.SoftDeleteSession("s1"), "soft delete")
+	n, err = d.DeleteSessionIfTrashed("s1")
+	if err != nil {
+		t.Fatalf("DeleteSessionIfTrashed trashed: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("trashed: rows=%d, want 1", n)
+	}
+
+	// Session should be gone.
+	ctx := context.Background()
+	s, err := d.GetSessionFull(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetSessionFull after delete: %v", err)
+	}
+	if s != nil {
+		t.Error("session should be nil after permanent delete")
+	}
+
+	// Session should be excluded.
+	if !d.IsSessionExcluded("s1") {
+		t.Error("session should be in excluded_sessions")
+	}
+
+	// Non-existent session should return 0.
+	n, err = d.DeleteSessionIfTrashed("nonexistent")
+	if err != nil {
+		t.Fatalf("DeleteSessionIfTrashed nonexistent: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("nonexistent: rows=%d, want 0", n)
+	}
+}

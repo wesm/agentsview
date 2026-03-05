@@ -544,6 +544,47 @@ func (db *DB) DeleteSession(id string) error {
 	return err
 }
 
+// DeleteSessionIfTrashed atomically deletes a session only if it
+// is currently in the trash (deleted_at IS NOT NULL). Returns the
+// number of rows affected. This avoids a TOCTOU race between
+// checking deleted_at and performing the delete.
+func (db *DB) DeleteSessionIfTrashed(id string) (int64, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	w := db.getWriter()
+
+	tx, err := w.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("begin delete-if-trashed tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Only delete if the session is currently trashed.
+	res, err := tx.Exec(
+		"DELETE FROM sessions WHERE id = ? AND deleted_at IS NOT NULL",
+		id,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("deleting trashed session %s: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return 0, nil
+	}
+
+	// Record in exclusion list so sync doesn't re-import.
+	if _, err := tx.Exec(
+		"INSERT OR IGNORE INTO excluded_sessions (id) VALUES (?)", id,
+	); err != nil {
+		return 0, fmt.Errorf("excluding session %s: %w", id, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit delete-if-trashed: %w", err)
+	}
+	return n, nil
+}
+
 // GetProjects returns project names with session counts.
 func (db *DB) GetProjects(
 	ctx context.Context,

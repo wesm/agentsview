@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -57,32 +58,32 @@ func (db *DB) PinMessage(
 
 	// Use INSERT ... SELECT to enforce session-message ownership
 	// and read ordinal from the messages table (not the client).
-	res, err := db.getWriter().Exec(
+	// RowsAffected is not checked because SQLite may report 0 on
+	// an idempotent upsert (same note value). Instead we rely on
+	// the subsequent SELECT to detect a missing pin.
+	if _, err := db.getWriter().Exec(
 		`INSERT INTO pinned_messages (session_id, message_id, ordinal, note)
 		 SELECT ?, m.id, m.ordinal, ?
 		 FROM messages m
 		 WHERE m.id = ? AND m.session_id = ?
 		 ON CONFLICT(session_id, message_id) DO UPDATE SET note = excluded.note`,
 		sessionID, note, messageID, sessionID,
-	)
-	if err != nil {
+	); err != nil {
 		return 0, fmt.Errorf("pinning message: %w", err)
 	}
 
-	// Check if ownership validation failed (zero rows affected).
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return 0, nil
-	}
-
 	// Retrieve the actual row ID (LastInsertId is unreliable on
-	// upsert in SQLite).
+	// upsert in SQLite). If no row exists the message did not
+	// belong to the session (the INSERT ... SELECT matched nothing).
 	var id int64
-	err = db.getWriter().QueryRow(
+	err := db.getWriter().QueryRow(
 		"SELECT id FROM pinned_messages WHERE session_id = ? AND message_id = ?",
 		sessionID, messageID,
 	).Scan(&id)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
 		return 0, fmt.Errorf("retrieving pin id: %w", err)
 	}
 	return id, nil
