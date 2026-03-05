@@ -318,6 +318,7 @@ const exportTemplateStr = `<!DOCTYPE html>
   --accent-black: #2d2d2d;
   --accent-teal: #0d9488;
   --accent-red: #dc2626;
+  --accent-indigo: #6366f1;
   --user-bg: #eef2ff;
   --assistant-bg: #faf9ff;
   --thinking-bg: #f5f3ff;
@@ -350,6 +351,7 @@ const exportTemplateStr = `<!DOCTYPE html>
   --accent-black: #b0b0b0;
   --accent-teal: #2dd4bf;
   --accent-red: #f87171;
+  --accent-indigo: #818cf8;
   --user-bg: #111827;
   --assistant-bg: #141220;
   --thinking-bg: #1a1530;

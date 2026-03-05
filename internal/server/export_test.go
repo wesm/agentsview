@@ -561,6 +561,7 @@ func TestExportTemplateAccentColors(t *testing.T) {
 		"--accent-black",
 		"--accent-teal",
 		"--accent-red",
+		"--accent-indigo",
 	}
 	for _, v := range required {
 		if !strings.Contains(exportTemplateStr, v) {
