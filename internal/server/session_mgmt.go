@@ -95,9 +95,16 @@ func (s *Server) handleRestoreSession(
 ) {
 	id := r.PathValue("id")
 
-	if err := s.db.RestoreSession(id); err != nil {
+	n, err := s.db.RestoreSession(id)
+	if err != nil {
 		log.Printf("restore session: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if n == 0 {
+		// Either the session doesn't exist or it's not in trash.
+		writeError(w, http.StatusNotFound,
+			"session not found or not in trash")
 		return
 	}
 

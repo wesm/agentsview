@@ -3176,3 +3176,170 @@ func TestGetAgentsEmptyResultSerializesAsArray(t *testing.T) {
 		t.Errorf("JSON = %s, want []", b)
 	}
 }
+
+func TestRestoreSession(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "s1", "p")
+
+	t.Run("restore non-trashed returns 0", func(t *testing.T) {
+		n, err := d.RestoreSession("s1")
+		requireNoError(t, err, "RestoreSession")
+		if n != 0 {
+			t.Errorf("rows affected = %d, want 0", n)
+		}
+	})
+
+	t.Run("restore non-existent returns 0", func(t *testing.T) {
+		n, err := d.RestoreSession("no-such-session")
+		requireNoError(t, err, "RestoreSession")
+		if n != 0 {
+			t.Errorf("rows affected = %d, want 0", n)
+		}
+	})
+
+	t.Run("restore trashed returns 1", func(t *testing.T) {
+		requireNoError(t, d.SoftDeleteSession("s1"), "SoftDeleteSession")
+
+		// Should not appear in filtered list queries.
+		f := filterWith(func(f *SessionFilter) {})
+		page, err := d.ListSessions(ctx, f)
+		requireNoError(t, err, "ListSessions")
+		if len(page.Sessions) != 0 {
+			t.Fatal("soft-deleted session should not appear in list")
+		}
+
+		// Should appear in trash list.
+		trashed, err := d.ListTrashedSessions(ctx)
+		requireNoError(t, err, "ListTrashedSessions")
+		if len(trashed) != 1 {
+			t.Fatalf("trash count = %d, want 1", len(trashed))
+		}
+
+		n, err := d.RestoreSession("s1")
+		requireNoError(t, err, "RestoreSession")
+		if n != 1 {
+			t.Errorf("rows affected = %d, want 1", n)
+		}
+
+		// Should appear in list again.
+		page, err = d.ListSessions(ctx, f)
+		requireNoError(t, err, "ListSessions")
+		if len(page.Sessions) != 1 {
+			t.Fatal("restored session should appear in list")
+		}
+	})
+}
+
+func TestDeleteSessionExcludes(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+
+	if err := d.DeleteSession("s1"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	// Session should be gone.
+	requireSessionGone(t, d, "s1")
+
+	// Session should be excluded.
+	if !d.IsSessionExcluded("s1") {
+		t.Error("session should be excluded after permanent delete")
+	}
+
+	// UpsertSession should return ErrSessionExcluded.
+	err := d.UpsertSession(Session{
+		ID: "s1", Project: "p", Machine: "m", Agent: "claude",
+	})
+	if !errors.Is(err, ErrSessionExcluded) {
+		t.Fatalf("UpsertSession = %v, want ErrSessionExcluded", err)
+	}
+	requireSessionGone(t, d, "s1")
+}
+
+func TestEmptyTrashExcludes(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+	insertSession(t, d, "s2", "p")
+	insertSession(t, d, "s3", "p")
+
+	requireNoError(t, d.SoftDeleteSession("s1"), "SoftDeleteSession s1")
+	requireNoError(t, d.SoftDeleteSession("s2"), "SoftDeleteSession s2")
+
+	n, err := d.EmptyTrash()
+	requireNoError(t, err, "EmptyTrash")
+	if n != 2 {
+		t.Errorf("EmptyTrash deleted = %d, want 2", n)
+	}
+
+	// Both should be excluded.
+	if !d.IsSessionExcluded("s1") {
+		t.Error("s1 should be excluded")
+	}
+	if !d.IsSessionExcluded("s2") {
+		t.Error("s2 should be excluded")
+	}
+
+	// s3 should NOT be excluded.
+	if d.IsSessionExcluded("s3") {
+		t.Error("s3 should not be excluded")
+	}
+
+	// Re-upsert should return ErrSessionExcluded.
+	err = d.UpsertSession(Session{
+		ID: "s1", Project: "p", Machine: "m", Agent: "claude",
+	})
+	if !errors.Is(err, ErrSessionExcluded) {
+		t.Fatalf("UpsertSession s1 = %v, want ErrSessionExcluded", err)
+	}
+	requireSessionGone(t, d, "s1")
+
+	// s3 should still be upsertable.
+	s, _ := d.GetSession(context.Background(), "s3")
+	if s == nil {
+		t.Error("s3 should still be visible")
+	}
+}
+
+func TestCopyExcludedSessionsFrom(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source DB with excluded sessions.
+	srcPath := filepath.Join(dir, "src.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+
+	insertSession(t, srcDB, "s1", "p")
+	requireNoError(t, srcDB.DeleteSession("s1"), "DeleteSession")
+	if !srcDB.IsSessionExcluded("s1") {
+		t.Fatal("s1 should be excluded in src")
+	}
+	srcDB.Close()
+
+	// Destination DB (empty, simulates fresh resync DB).
+	dstPath := filepath.Join(dir, "dst.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	// Copy excluded sessions.
+	if err := dstDB.CopyExcludedSessionsFrom(srcPath); err != nil {
+		t.Fatalf("CopyExcludedSessionsFrom: %v", err)
+	}
+
+	// s1 should be excluded in destination.
+	if !dstDB.IsSessionExcluded("s1") {
+		t.Error("s1 should be excluded in dst after copy")
+	}
+
+	// Upserting s1 should be rejected.
+	err = dstDB.UpsertSession(Session{
+		ID: "s1", Project: "p", Machine: "m", Agent: "claude",
+	})
+	if !errors.Is(err, ErrSessionExcluded) {
+		t.Errorf("UpsertSession = %v, want ErrSessionExcluded", err)
+	}
+}

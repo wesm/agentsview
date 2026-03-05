@@ -15,6 +15,11 @@ import (
 // ErrInvalidCursor is returned when a cursor cannot be decoded or verified.
 var ErrInvalidCursor = errors.New("invalid cursor")
 
+// ErrSessionExcluded is returned by UpsertSession when the
+// session was permanently deleted by the user. Callers should
+// skip any follow-up writes (messages, tool_calls) for this session.
+var ErrSessionExcluded = errors.New("session excluded")
+
 // sessionBaseCols is the column list for standard session queries
 // (list, get). Keep in sync with scanSessionRow.
 const sessionBaseCols = `id, project, machine, agent,
@@ -380,10 +385,45 @@ func (db *DB) GetSessionFull(
 	return &s, nil
 }
 
+// IsSessionExcluded returns true if the session ID was
+// permanently deleted by the user.
+func (db *DB) IsSessionExcluded(id string) bool {
+	var n int
+	_ = db.getReader().QueryRow(
+		"SELECT 1 FROM excluded_sessions WHERE id = ?", id,
+	).Scan(&n)
+	return n == 1
+}
+
+// PurgeExcludedSessions removes any session rows whose IDs
+// appear in excluded_sessions. Used after a resync to clean
+// up sessions that were synced before their exclusion was
+// recorded.
+func (db *DB) PurgeExcludedSessions() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.getWriter().Exec(
+		"DELETE FROM sessions WHERE id IN (SELECT id FROM excluded_sessions)",
+	)
+	return err
+}
+
 // UpsertSession inserts or updates a session.
+// Sessions that were permanently deleted (in excluded_sessions)
+// are silently skipped.
 func (db *DB) UpsertSession(s Session) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	// Check exclusion under the write lock to avoid a race with
+	// concurrent DeleteSession/EmptyTrash.
+	var excluded int
+	_ = db.getWriter().QueryRow(
+		"SELECT 1 FROM excluded_sessions WHERE id = ?", s.ID,
+	).Scan(&excluded)
+	if excluded == 1 {
+		return ErrSessionExcluded
+	}
 
 	_, err := db.getWriter().Exec(`
 		INSERT INTO sessions (
@@ -489,12 +529,18 @@ func (db *DB) ResetAllMtimes() error {
 }
 
 // DeleteSession removes a session and its messages (cascading).
+// The session ID is recorded in excluded_sessions so the sync
+// engine does not re-import it from disk.
 func (db *DB) DeleteSession(id string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.getWriter().Exec(
-		"DELETE FROM sessions WHERE id = ?", id,
-	)
+	w := db.getWriter()
+	if _, err := w.Exec(
+		"INSERT OR IGNORE INTO excluded_sessions (id) VALUES (?)", id,
+	); err != nil {
+		return fmt.Errorf("excluding session %s: %w", id, err)
+	}
+	_, err := w.Exec("DELETE FROM sessions WHERE id = ?", id)
 	return err
 }
 
@@ -706,13 +752,20 @@ func (db *DB) SoftDeleteSession(id string) error {
 }
 
 // RestoreSession clears deleted_at, making the session visible again.
-func (db *DB) RestoreSession(id string) error {
+// Returns the number of rows affected (0 if session doesn't exist
+// or is not in trash).
+func (db *DB) RestoreSession(id string) (int64, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.getWriter().Exec(
-		"UPDATE sessions SET deleted_at = NULL WHERE id = ?", id,
+	res, err := db.getWriter().Exec(
+		"UPDATE sessions SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
+		id,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // RenameSession sets or clears the display_name for a session.
@@ -743,11 +796,20 @@ func (db *DB) ListTrashedSessions(
 }
 
 // EmptyTrash permanently deletes all soft-deleted sessions.
-// Returns the count of deleted rows.
+// Session IDs are recorded in excluded_sessions so the sync
+// engine does not re-import them. Returns the count of deleted rows.
 func (db *DB) EmptyTrash() (int, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	res, err := db.getWriter().Exec(
+	w := db.getWriter()
+	// Record all trashed session IDs before deleting.
+	if _, err := w.Exec(
+		`INSERT OR IGNORE INTO excluded_sessions (id)
+		 SELECT id FROM sessions WHERE deleted_at IS NOT NULL`,
+	); err != nil {
+		return 0, fmt.Errorf("excluding trashed sessions: %w", err)
+	}
+	res, err := w.Exec(
 		"DELETE FROM sessions WHERE deleted_at IS NOT NULL",
 	)
 	if err != nil {

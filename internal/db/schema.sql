@@ -157,6 +157,13 @@ CREATE TABLE IF NOT EXISTS starred_sessions (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- Excluded sessions: tracks session IDs that were permanently
+-- deleted by the user so the sync engine does not re-import them.
+CREATE TABLE IF NOT EXISTS excluded_sessions (
+    id         TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 -- Skipped files cache: persists skip decisions for files that
 -- produced no session (non-interactive, parse errors) so they
 -- survive process restarts without re-parsing.

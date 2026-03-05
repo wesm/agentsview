@@ -24,6 +24,7 @@ class PinsStore {
 
   async loadForSession(sessionId: string) {
     this.#currentSessionId = sessionId;
+    this.sessionPinIds = new Set();
     try {
       const res = await api.listSessionPins(sessionId);
       // Guard against stale responses.
@@ -34,6 +35,7 @@ class PinsStore {
       }
     } catch {
       // Silently ignore — pins are non-critical.
+      // sessionPinIds was already cleared above.
     }
   }
 

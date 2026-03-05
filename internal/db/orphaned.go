@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -50,11 +52,13 @@ func (d *DB) CopyOrphanedDataFrom(
 	}()
 
 	// Snapshot orphaned session IDs before any inserts
-	// change main.sessions.
+	// change main.sessions. Exclude permanently deleted sessions
+	// so they are not resurrected as orphans.
 	if _, err := conn.ExecContext(ctx, `
 		CREATE TEMP TABLE _orphaned_ids AS
 		SELECT id FROM old_db.sessions
-		WHERE id NOT IN (SELECT id FROM main.sessions)`,
+		WHERE id NOT IN (SELECT id FROM main.sessions)
+		  AND id NOT IN (SELECT id FROM main.excluded_sessions)`,
 	); err != nil {
 		return 0, fmt.Errorf(
 			"identifying orphaned sessions: %w", err,
@@ -173,4 +177,57 @@ func (d *DB) CopyOrphanedDataFrom(
 	)
 
 	return count, nil
+}
+
+// CopyExcludedSessionsFrom copies the excluded_sessions table
+// from the source DB so permanently deleted sessions survive
+// full DB rebuilds. The source must not have active connections.
+func (d *DB) CopyExcludedSessionsFrom(
+	sourcePath string,
+) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	ctx := context.Background()
+	conn, err := d.getWriter().Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(
+		ctx, "ATTACH DATABASE ? AS old_db", sourcePath,
+	); err != nil {
+		return fmt.Errorf("attaching source db: %w", err)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(
+			ctx, "DETACH DATABASE old_db",
+		)
+	}()
+
+	// Only copy if the source has the table (older DBs won't).
+	var tableExists int
+	err = conn.QueryRowContext(ctx,
+		"SELECT 1 FROM old_db.sqlite_master WHERE type='table' AND name='excluded_sessions'",
+	).Scan(&tableExists)
+	if err != nil {
+		// sql.ErrNoRows means the table doesn't exist.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("probing excluded_sessions table: %w", err)
+	}
+	if tableExists != 1 {
+		return nil
+	}
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT OR IGNORE INTO excluded_sessions (id, created_at)
+		SELECT id, created_at
+		FROM old_db.excluded_sessions`)
+	if err != nil {
+		return fmt.Errorf("copying excluded sessions: %w", err)
+	}
+	return nil
 }
