@@ -10,45 +10,51 @@ class PinsStore {
   sessionPinIds: Set<number> = $state(new Set());
 
   #currentSessionId: string | null = null;
-  /** Maps messageId → sessionId for in-flight mutations. */
-  #inflight: Map<number, string> = new Map();
+  /** Tracks in-flight mutation message IDs to prevent double-clicks. */
+  #inflight: Set<number> = new Set();
   #loadVersion = 0;
   #loadAllVersion = 0;
+  /** Incremented on every mutation so loads can detect staleness. */
+  #mutationVersion = 0;
 
   async loadAll() {
     this.loading = true;
-    const version = ++this.#loadAllVersion;
+    const loadVer = ++this.#loadAllVersion;
+    const mutVer = this.#mutationVersion;
     try {
       const res = await api.listPins();
-      // Skip if a newer loadAll was issued or any mutation is
-      // in-flight (this.pins is global, any mutation can conflict).
-      if (this.#loadAllVersion === version && this.#inflight.size === 0) {
+      // Apply only if this is the latest load AND no mutation
+      // occurred since the request started (which would make
+      // this response stale relative to the optimistic state).
+      if (this.#loadAllVersion === loadVer && this.#mutationVersion === mutVer) {
         this.pins = res.pins;
       }
     } finally {
-      this.loading = false;
+      if (this.#loadAllVersion === loadVer) {
+        this.loading = false;
+      }
     }
   }
 
   async loadForSession(sessionId: string) {
+    const isNewSession = this.#currentSessionId !== sessionId;
     this.#currentSessionId = sessionId;
-    const version = ++this.#loadVersion;
-    this.sessionPinIds = new Set();
+    const loadVer = ++this.#loadVersion;
+    const mutVer = this.#mutationVersion;
+    // Only clear on session change to avoid flickering pins
+    // during re-fetches triggered by mutation completion.
+    if (isNewSession) {
+      this.sessionPinIds = new Set();
+    }
     try {
       const res = await api.listSessionPins(sessionId);
-      // Only block on in-flight mutations for THIS session;
-      // mutations for other sessions don't affect sessionPinIds.
-      const hasInflightForSession = [...this.#inflight.values()].some(
-        (sid) => sid === sessionId,
-      );
-      if (this.#loadVersion === version && !hasInflightForSession) {
+      if (this.#loadVersion === loadVer && this.#mutationVersion === mutVer) {
         this.sessionPinIds = new Set(
           res.pins.map((p) => p.message_id),
         );
       }
     } catch {
       // Silently ignore — pins are non-critical.
-      // sessionPinIds was already cleared above.
     }
   }
 
@@ -61,14 +67,25 @@ class PinsStore {
     return this.sessionPinIds.has(messageId);
   }
 
+  /** Re-fetch session pins after the last in-flight mutation settles. */
+  #refetchAfterMutation() {
+    if (this.#inflight.size === 0 && this.#currentSessionId) {
+      this.loadForSession(this.#currentSessionId);
+    }
+  }
+
   async unpin(sessionId: string, messageId: number) {
     if (this.#inflight.has(messageId)) return;
-    this.#inflight.set(messageId, sessionId);
+    this.#inflight.add(messageId);
+    this.#mutationVersion++;
     try {
       await api.unpinMessage(sessionId, messageId);
-      const next = new Set(this.sessionPinIds);
-      next.delete(messageId);
-      this.sessionPinIds = next;
+      // Only update sessionPinIds if still viewing the same session.
+      if (this.#currentSessionId === sessionId) {
+        const next = new Set(this.sessionPinIds);
+        next.delete(messageId);
+        this.sessionPinIds = next;
+      }
       this.pins = this.pins.filter(
         (p) =>
           !(
@@ -78,6 +95,7 @@ class PinsStore {
       );
     } finally {
       this.#inflight.delete(messageId);
+      this.#refetchAfterMutation();
     }
   }
 
@@ -90,12 +108,16 @@ class PinsStore {
     if (this.sessionPinIds.has(messageId)) {
       await this.unpin(sessionId, messageId);
     } else {
-      this.#inflight.set(messageId, sessionId);
+      this.#inflight.add(messageId);
+      this.#mutationVersion++;
       try {
         const result = await api.pinMessage(sessionId, messageId);
-        const next = new Set(this.sessionPinIds);
-        next.add(messageId);
-        this.sessionPinIds = next;
+        // Only update sessionPinIds if still viewing the same session.
+        if (this.#currentSessionId === sessionId) {
+          const next = new Set(this.sessionPinIds);
+          next.add(messageId);
+          this.sessionPinIds = next;
+        }
         this.pins = [
           {
             id: result.id,
@@ -114,6 +136,7 @@ class PinsStore {
         ];
       } finally {
         this.#inflight.delete(messageId);
+        this.#refetchAfterMutation();
       }
     }
   }
