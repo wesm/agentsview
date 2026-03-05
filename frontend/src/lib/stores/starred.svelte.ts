@@ -5,12 +5,13 @@ const STORAGE_KEY = "agentsview-starred-sessions";
 class StarredStore {
   ids: Set<string> = $state(new Set());
   filterOnly: boolean = $state(false);
-  private loaded: boolean = false;
+  private loaded = false;
   private loading: Promise<void> | null = null;
+  /** Per-session version for rollback safety on API failure. */
   private opVersions: Map<string, number> = new Map();
-  private loadVersion: number = 0;
+  /** Global mutation counter for load/migration staleness detection. */
+  private mutationVersion = 0;
 
-  /** Load starred IDs from the server. Migrates localStorage data on first load. */
   async load() {
     if (this.loaded) return;
     if (this.loading) return this.loading;
@@ -19,24 +20,24 @@ class StarredStore {
   }
 
   private async doLoad() {
+    const mutVer = this.mutationVersion;
     try {
       const res = await api.listStarred();
-      // Always merge server response with local state. Skip IDs
-      // the user explicitly toggled while the request was in flight
-      // — those are already reflected optimistically in this.ids.
-      const merged = new Set(this.ids);
-      for (const id of res.session_ids) {
-        if (!this.opVersions.has(id)) merged.add(id);
+      // Only apply if no mutations occurred during the fetch.
+      if (this.mutationVersion === mutVer) {
+        this.ids = new Set(res.session_ids);
       }
-      this.ids = merged;
-
-      await this.migrateLocalStorage();
       this.loaded = true;
+      // Best-effort migration after successful load.
+      await this.migrateLocalStorage();
     } catch {
+      // Server unavailable: fall back to localStorage only if
+      // no mutations occurred during the fetch (otherwise the
+      // user's optimistic state takes precedence).
       const local = readLocalStorage();
-      const merged = new Set(local);
-      for (const id of this.ids) merged.add(id);
-      this.ids = merged;
+      if (local.size > 0 && this.mutationVersion === mutVer) {
+        this.ids = local;
+      }
     } finally {
       this.loading = null;
     }
@@ -46,20 +47,21 @@ class StarredStore {
     const local = readLocalStorage();
     if (local.size === 0) return;
 
-    // Find IDs in localStorage that aren't already in the DB
     const toMigrate = [...local].filter((id) => !this.ids.has(id));
     if (toMigrate.length > 0) {
-      await api.bulkStarSessions(toMigrate);
-      const refreshed = await api.listStarred();
-      const refreshedSet = new Set(refreshed.session_ids);
-      const next = new Set(this.ids);
-      for (const id of toMigrate) {
-        if (refreshedSet.has(id)) next.add(id);
+      const mutVer = this.mutationVersion;
+      try {
+        await api.bulkStarSessions(toMigrate);
+        const refreshed = await api.listStarred();
+        // Only apply if no user mutations happened during migration.
+        if (this.mutationVersion === mutVer) {
+          this.ids = new Set(refreshed.session_ids);
+        }
+      } catch {
+        // Migration failed; don't clear localStorage so it retries.
+        return;
       }
-      this.ids = next;
     }
-
-    // Migration succeeded — clear localStorage
     clearLocalStorage();
   }
 
@@ -75,10 +77,9 @@ class StarredStore {
     }
   }
 
-  private nextVersion(sessionId: string): number {
+  private nextOpVersion(sessionId: string): number {
     const v = (this.opVersions.get(sessionId) ?? 0) + 1;
     this.opVersions.set(sessionId, v);
-    this.loadVersion++;
     return v;
   }
 
@@ -87,8 +88,8 @@ class StarredStore {
     const next = new Set(this.ids);
     next.add(sessionId);
     this.ids = next;
-    // Track version so stale failures don't revert newer actions.
-    const version = this.nextVersion(sessionId);
+    this.mutationVersion++;
+    const version = this.nextOpVersion(sessionId);
     api.starSession(sessionId).catch(() => {
       if (this.opVersions.get(sessionId) !== version) return;
       const reverted = new Set(this.ids);
@@ -102,7 +103,8 @@ class StarredStore {
     const next = new Set(this.ids);
     next.delete(sessionId);
     this.ids = next;
-    const version = this.nextVersion(sessionId);
+    this.mutationVersion++;
+    const version = this.nextOpVersion(sessionId);
     api.unstarSession(sessionId).catch(() => {
       if (this.opVersions.get(sessionId) !== version) return;
       const reverted = new Set(this.ids);
