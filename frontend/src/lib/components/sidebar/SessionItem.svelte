@@ -171,8 +171,12 @@
         onclick={(e) => e.stopPropagation()}
         onblur={submitRename}
         onkeydown={(e) => {
-          if (e.key === "Enter") submitRename();
+          if (e.key === "Enter") {
+            e.stopPropagation();
+            submitRename();
+          }
           if (e.key === "Escape") {
+            e.stopPropagation();
             renaming = false;
           }
         }}

@@ -232,9 +232,19 @@
     <span>Session deleted</span>
     <button
       class="undo-btn"
-      onclick={() => {
+      onclick={async (e) => {
+        const btn = e.currentTarget;
+        if (btn.disabled) return;
         const last = sessions.recentlyDeleted[sessions.recentlyDeleted.length - 1];
-        if (last) sessions.restoreSession(last.id);
+        if (!last) return;
+        btn.disabled = true;
+        try {
+          await sessions.restoreSession(last.id);
+        } catch {
+          // restore failed — toast will remain
+        } finally {
+          btn.disabled = false;
+        }
       }}
     >
       Undo
