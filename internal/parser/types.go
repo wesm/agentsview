@@ -17,6 +17,7 @@ const (
 	AgentCursor        AgentType = "cursor"
 	AgentAmp           AgentType = "amp"
 	AgentVSCodeCopilot AgentType = "vscode-copilot"
+	AgentOpenClaw      AgentType = "openclaw"
 )
 
 // AgentDef describes a supported coding agent's filesystem
@@ -146,6 +147,17 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverVSCodeCopilotSessions,
 		FindSourceFunc: FindVSCodeCopilotSourceFile,
+	},
+	{
+		Type:        AgentOpenClaw,
+		DisplayName: "OpenClaw",
+		EnvVar:      "OPENCLAW_DIR",
+		ConfigKey:   "openclaw_dirs",
+		DefaultDirs: []string{".openclaw/agents"},
+		IDPrefix:    "openclaw:",
+		FileBased:   true,
+		DiscoverFunc:   DiscoverOpenClawSessions,
+		FindSourceFunc: FindOpenClawSourceFile,
 	},
 }
 

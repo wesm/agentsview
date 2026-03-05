@@ -417,6 +417,47 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// OpenClaw: <openclawDir>/<agentId>/sessions/<sessionId>.jsonl
+	//       or: <openclawDir>/<agentId>/sessions/<sessionId>.jsonl.<archiveSuffix>
+	for _, ocDir := range e.agentDirs[parser.AgentOpenClaw] {
+		if ocDir == "" {
+			continue
+		}
+		if rel, ok := isUnder(ocDir, path); ok {
+			parts := strings.Split(rel, sep)
+			// Expect: <agentId>/sessions/<file>
+			if len(parts) != 3 || parts[1] != "sessions" {
+				continue
+			}
+			if !parser.IsValidSessionID(parts[0]) {
+				continue
+			}
+			if !parser.IsOpenClawSessionFile(parts[2]) {
+				continue
+			}
+			if !strings.HasSuffix(parts[2], ".jsonl") {
+				sid := parser.OpenClawSessionID(parts[2])
+				active := filepath.Join(
+					ocDir, parts[0], "sessions",
+					sid+".jsonl",
+				)
+				if _, err := os.Stat(active); err == nil {
+					continue
+				}
+				best := parser.FindOpenClawSourceFile(
+					ocDir, parts[0]+":"+sid,
+				)
+				if best != path {
+					continue
+				}
+			}
+			return parser.DiscoveredFile{
+				Path:  path,
+				Agent: parser.AgentOpenClaw,
+			}, true
+		}
+	}
+
 	return parser.DiscoveredFile{}, false
 }
 
@@ -988,6 +1029,8 @@ func (e *Engine) processFile(
 		res = e.processAmp(file, info)
 	case parser.AgentVSCodeCopilot:
 		res = e.processVSCodeCopilot(file, info)
+	case parser.AgentOpenClaw:
+		res = e.processOpenClaw(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -1243,6 +1286,35 @@ func (e *Engine) processVSCodeCopilot(
 	}
 
 	sess, msgs, err := parser.ParseVSCodeCopilotSession(
+		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
+}
+
+func (e *Engine) processOpenClaw(
+	file parser.DiscoveredFile, info os.FileInfo,
+) processResult {
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseOpenClawSession(
 		file.Path, file.Project, e.machine,
 	)
 	if err != nil {
