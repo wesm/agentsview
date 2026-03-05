@@ -110,7 +110,16 @@ The command will prompt for a password. You can leave it empty for an unencrypte
 
 The public key needs to go in **two** places:
 
-**Option A (recommended):** Set as a compile-time environment variable in CI. Add `AGENTSVIEW_UPDATER_PUBKEY` as a GitHub secret or CI env var. The Rust code reads it via `option_env!("AGENTSVIEW_UPDATER_PUBKEY")` and overrides the placeholder in `tauri.conf.json`.
+**Option A (recommended):** Add `AGENTSVIEW_UPDATER_PUBKEY` as a GitHub Actions secret containing the public key string. The release workflow passes it as an env var to both Tauri build steps, and the Rust code reads it at compile time via `option_env!("AGENTSVIEW_UPDATER_PUBKEY")` to override the placeholder in `tauri.conf.json`. The relevant workflow lines look like:
+
+```yaml
+env:
+  AGENTSVIEW_UPDATER_PUBKEY: ${{ secrets.AGENTSVIEW_UPDATER_PUBKEY }}
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+```
+
+If this secret is missing or empty, the app compiles but the updater falls back to the `"NOT_SET"` placeholder and shows "updater is not configured" at runtime.
 
 **Option B:** Replace `"NOT_SET"` in `desktop/src-tauri/tauri.conf.json` directly:
 
@@ -152,6 +161,7 @@ All secrets are configured at **Settings > Secrets and variables > Actions** in 
 | `APPLE_API_ISSUER` | macOS build | API issuer ID |
 | `TAURI_SIGNING_PRIVATE_KEY` | Both platforms | Tauri updater signing key |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Both platforms | Signing key password |
+| `AGENTSVIEW_UPDATER_PUBKEY` | Both platforms | Updater public key (Option A) |
 
 ## Key Rotation
 
