@@ -36,6 +36,7 @@ type Server struct {
 	mux     *http.ServeMux
 	httpSrv *http.Server
 	version VersionInfo
+	dataDir string
 
 	generateStreamFunc insight.GenerateStreamFunc
 	spaFS              fs.FS
@@ -79,6 +80,11 @@ type Option func(*Server)
 // WithVersion sets the build-time version metadata.
 func WithVersion(v VersionInfo) Option {
 	return func(s *Server) { s.version = v }
+}
+
+// WithDataDir sets the data directory used for update caching.
+func WithDataDir(dir string) Option {
+	return func(s *Server) { s.dataDir = dir }
 }
 
 // WithGenerateFunc overrides the insight generation function,
@@ -161,6 +167,7 @@ func (s *Server) routes() {
 	s.mux.Handle(
 		"POST /api/v1/config/github", s.withTimeout(s.handleSetGithubConfig),
 	)
+	s.mux.Handle("GET /api/v1/update/check", s.withTimeout(s.handleCheckUpdate))
 
 	// SPA fallback: serve embedded frontend
 	// Do not use timeout handler for static assets to avoid buffering.

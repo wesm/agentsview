@@ -1,5 +1,6 @@
 <script lang="ts">
   import { sync } from "../../stores/sync.svelte.js";
+  import { ui } from "../../stores/ui.svelte.js";
   import { formatNumber, formatRelativeTime } from "../../utils/format.js";
 
   let progressText = $derived.by(() => {
@@ -30,6 +31,16 @@
   </div>
 
   <div class="status-right">
+    {#if sync.updateAvailable}
+      <button
+        class="update-available"
+        onclick={() => (ui.activeModal = "update")}
+        title="A new version is available: {sync.latestVersion}"
+      >
+        update available
+      </button>
+      <span class="sep">&middot;</span>
+    {/if}
     {#if sync.versionMismatch}
       <button
         class="version-warn"
@@ -85,6 +96,17 @@
 
   .sync-progress {
     color: var(--accent-green);
+  }
+
+  .update-available {
+    color: var(--accent-blue);
+    font-size: 10px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .update-available:hover {
+    text-decoration: underline;
   }
 
   .version-warn {

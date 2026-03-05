@@ -76,18 +76,23 @@ jobs:
           echo "APPLE_API_KEY_PATH=$KEY_DIR/AuthKey_${APPLE_API_KEY}.p8" \
             >> "$GITHUB_ENV"
 
-      - name: Build DMG
+      - name: Build DMG and updater bundle
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        run: npx tauri build --bundles dmg
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles dmg,updater
         working-directory: desktop
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: agentsview-desktop-macos
-          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
 
       - name: Cleanup signing secrets
@@ -131,15 +136,21 @@ jobs:
         run: npm run prepare-sidecar
         working-directory: desktop
 
-      - name: Build NSIS installer
+      - name: Build NSIS installer and updater bundle
         shell: bash
-        run: npx tauri build --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles nsis,updater
         working-directory: desktop
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: agentsview-desktop-windows
-          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/nsis/*.nsis.zip
+            desktop/src-tauri/target/release/bundle/nsis/*.nsis.zip.sig
           if-no-files-found: error
 
   release:
@@ -158,8 +169,56 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum *.dmg *.exe > SHA256SUMS-desktop
+          sha256sum *.dmg *.exe *.tar.gz *.nsis.zip > SHA256SUMS-desktop 2>/dev/null || true
           cat SHA256SUMS-desktop
+
+      - name: Generate updater manifest
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          MACOS_SIG=""
+          MACOS_URL=""
+          WINDOWS_SIG=""
+          WINDOWS_URL=""
+
+          for f in artifacts/*.app.tar.gz.sig; do
+            if [ -f "$f" ]; then
+              MACOS_SIG="$(cat "$f")"
+              MACOS_TARBALL="$(basename "${f%.sig}")"
+              MACOS_URL="https://github.com/wesm/agentsview/releases/download/${TAG}/${MACOS_TARBALL}"
+            fi
+          done
+
+          for f in artifacts/*.nsis.zip.sig; do
+            if [ -f "$f" ]; then
+              WINDOWS_SIG="$(cat "$f")"
+              NSIS_ZIP="$(basename "${f%.sig}")"
+              WINDOWS_URL="https://github.com/wesm/agentsview/releases/download/${TAG}/${NSIS_ZIP}"
+            fi
+          done
+
+          cat > artifacts/latest.json << MANIFEST
+          {
+            "version": "${VERSION}",
+            "pub_date": "${DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "url": "${MACOS_URL}",
+                "signature": "${MACOS_SIG}"
+              },
+              "windows-x86_64": {
+                "url": "${WINDOWS_URL}",
+                "signature": "${WINDOWS_SIG}"
+              }
+            }
+          }
+          MANIFEST
+
+          echo "Generated latest.json:"
+          cat artifacts/latest.json
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b  # v2.5.0
@@ -167,4 +226,9 @@ jobs:
           files: |
             artifacts/*.dmg
             artifacts/*.exe
+            artifacts/*.app.tar.gz
+            artifacts/*.app.tar.gz.sig
+            artifacts/*.nsis.zip
+            artifacts/*.nsis.zip.sig
+            artifacts/latest.json
             artifacts/SHA256SUMS-desktop

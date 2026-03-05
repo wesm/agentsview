@@ -13,16 +13,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tauri::async_runtime::Receiver;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::plugin::Builder as PluginBuilder;
-use tauri::{App, AppHandle, Manager, RunEvent, Url, WebviewWindow};
+use tauri::{App, AppHandle, Emitter, Manager, RunEvent, Url, WebviewWindow};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 const HOST: &str = "127.0.0.1";
 const PREFERRED_PORT: u16 = 8080;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(125);
 const LOGIN_SHELL_ENV_TIMEOUT: Duration = Duration::from_secs(3);
+
 
 type DynError = Box<dyn Error>;
 type CommandRx = Receiver<CommandEvent>;
@@ -35,14 +39,38 @@ struct SidecarState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut updater_builder = tauri_plugin_updater::Builder::new();
+    // Override the placeholder pubkey from tauri.conf.json with
+    // the real key when baked in at compile time via env var.
+    if let Some(pubkey) = option_env!("AGENTSVIEW_UPDATER_PUBKEY") {
+        if !pubkey.is_empty() {
+            updater_builder = updater_builder.pubkey(pubkey.to_string());
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(updater_builder.build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(init_navigation_guard_plugin())
         .manage(SidecarState::default())
-        .setup(launch_backend)
+        .setup(|app| {
+            launch_backend(app)?;
+            setup_menu(app)?;
+            schedule_auto_update_check(app.handle().clone());
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("failed to build tauri app")
         .run(|app_handle, event| {
+            if let RunEvent::MenuEvent(event) = &event {
+                if event.id().0 == "check_updates" {
+                    let handle = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        check_for_updates(&handle, false).await;
+                    });
+                }
+            }
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 stop_backend(app_handle);
             }
@@ -512,6 +540,115 @@ fn parse_listening_port_from_stdout_buffer(buffer: &mut String, chunk: &str) -> 
     }
 
     None
+}
+
+fn setup_menu(app: &mut App) -> Result<(), DynError> {
+    let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates...")
+        .build(app)?;
+
+    let app_submenu = SubmenuBuilder::new(app, "AgentsView")
+        .item(&check_updates)
+        .separator()
+        .quit()
+        .build()?;
+
+    let menu = MenuBuilder::new(app).item(&app_submenu).build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+fn schedule_auto_update_check(handle: AppHandle) {
+    let disabled = std::env::var("AGENTSVIEW_DESKTOP_AUTOUPDATE")
+        .map(|v| v == "0")
+        .unwrap_or(false);
+    if disabled {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        // Delay to avoid blocking startup
+        thread::sleep(Duration::from_secs(5));
+        check_for_updates(&handle, true).await;
+    });
+}
+
+async fn check_for_updates(handle: &AppHandle, silent: bool) {
+    let updater = match handle.updater() {
+        Ok(updater) => updater,
+        Err(err) => {
+            eprintln!("[agentsview] updater unavailable: {err}");
+            if !silent {
+                handle
+                    .dialog()
+                    .message("Could not check for updates. The updater is not configured.")
+                    .title("Update Check")
+                    .blocking_show();
+            }
+            return;
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(update) => update,
+        Err(err) => {
+            eprintln!("[agentsview] update check failed: {err}");
+            if !silent {
+                handle
+                    .dialog()
+                    .message(format!("Could not check for updates: {err}"))
+                    .title("Update Check")
+                    .blocking_show();
+            }
+            return;
+        }
+    };
+
+    let Some(update) = update else {
+        if !silent {
+            handle
+                .dialog()
+                .message("You're running the latest version.")
+                .title("No Updates Available")
+                .blocking_show();
+        }
+        return;
+    };
+
+    let version = update.version.clone();
+    let confirmed = handle
+        .dialog()
+        .message(format!(
+            "Version {version} is available. Would you like to download and install it?"
+        ))
+        .title("Update Available")
+        .buttons(MessageDialogButtons::OkCancel)
+        .blocking_show();
+
+    if !confirmed {
+        return;
+    }
+
+    if let Err(err) = update.download_and_install(|_, _| {}, || {}).await {
+        eprintln!("[agentsview] update install failed: {err}");
+        handle
+            .dialog()
+            .message(format!("Failed to install update: {err}"))
+            .title("Update Failed")
+            .blocking_show();
+        return;
+    }
+
+    let restart = handle
+        .dialog()
+        .message("Update installed. Restart now to apply?")
+        .title("Update Complete")
+        .buttons(MessageDialogButtons::OkCancel)
+        .blocking_show();
+
+    if restart {
+        let _ = handle.emit("restart", ());
+        handle.restart();
+    }
 }
 
 fn stop_backend(app: &AppHandle) {

@@ -40,5 +40,13 @@
       "entitlements": "./Entitlements.plist",
       "minimumSystemVersion": "11.0"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "NOT_SET",
+      "endpoints": [
+        "https://github.com/wesm/agentsview/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

@@ -4,6 +4,7 @@ import type {
   SyncStats,
   Stats,
   VersionInfo,
+  UpdateCheck,
 } from "../api/types.js";
 
 const POLL_INTERVAL_MS = 10_000;
@@ -34,6 +35,8 @@ class SyncStore {
   stats: Stats | null = $state(null);
   serverVersion: VersionInfo | null = $state(null);
   versionMismatch: boolean = $state(false);
+  updateAvailable: boolean = $state(false);
+  latestVersion: string | null = $state(null);
   readonly buildCommit: string =
     import.meta.env.VITE_BUILD_COMMIT;
 
@@ -87,6 +90,17 @@ class SyncStore {
       );
     } catch (error) {
       console.warn("Failed to load version info:", error);
+    }
+  }
+
+  async checkForUpdate() {
+    try {
+      const result: UpdateCheck =
+        await api.checkForUpdate();
+      this.updateAvailable = result.update_available;
+      this.latestVersion = result.latest_version ?? null;
+    } catch (error) {
+      console.warn("Failed to check for updates:", error);
     }
   }
 

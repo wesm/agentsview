@@ -123,3 +123,11 @@ export interface AgentInfo {
 export interface AgentsResponse {
   agents: AgentInfo[];
 }
+
+/** Matches Go updateCheckResponse in internal/server/update.go */
+export interface UpdateCheck {
+  update_available: boolean;
+  current_version: string;
+  latest_version?: string;
+  is_dev_build?: boolean;
+}
