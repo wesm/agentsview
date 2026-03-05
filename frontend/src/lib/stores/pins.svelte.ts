@@ -11,6 +11,7 @@ class PinsStore {
 
   #currentSessionId: string | null = null;
   #inflight: Set<number> = new Set();
+  #loadVersion = 0;
 
   async loadAll() {
     this.loading = true;
@@ -24,11 +25,17 @@ class PinsStore {
 
   async loadForSession(sessionId: string) {
     this.#currentSessionId = sessionId;
+    const version = ++this.#loadVersion;
     this.sessionPinIds = new Set();
     try {
       const res = await api.listSessionPins(sessionId);
-      // Guard against stale responses.
-      if (this.#currentSessionId === sessionId) {
+      // Guard against stale responses: skip if a newer load was
+      // issued or if mutations are in-flight (their optimistic
+      // state would be clobbered by this older server snapshot).
+      if (
+        this.#loadVersion === version &&
+        this.#inflight.size === 0
+      ) {
         this.sessionPinIds = new Set(
           res.pins.map((p) => p.message_id),
         );
