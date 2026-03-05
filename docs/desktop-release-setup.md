@@ -222,6 +222,116 @@ These environment variables affect the desktop app at runtime (not build time):
 
 Users can also set environment overrides in `~/.agentsview/desktop.env` (KEY=VALUE format, one per line).
 
+## Staging / Testing
+
+Test the full release pipeline on a personal fork before shipping to production. This covers code signing, notarization, updater artifacts, and the end-to-end update flow.
+
+### Fork setup
+
+1. Fork the repository on GitHub.
+
+2. Configure **all** secrets on the fork (Settings > Secrets and variables > Actions). The Apple secrets are the same ones used in production — they are tied to your Apple Developer account, not to a specific repository:
+
+   | Secret | Notes |
+   |--------|-------|
+   | `APPLE_CERTIFICATE` | Same certificate works on any repo |
+   | `APPLE_CERTIFICATE_PASSWORD` | |
+   | `APPLE_SIGNING_IDENTITY` | |
+   | `APPLE_API_KEY_CONTENT` | Same API key works for any app |
+   | `APPLE_API_KEY` | |
+   | `APPLE_API_ISSUER` | |
+   | `TAURI_SIGNING_PRIVATE_KEY` | Generate a **separate** test keypair (see below) |
+   | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | |
+   | `AGENTSVIEW_UPDATER_PUBKEY` | Public key from the test keypair |
+
+3. Generate a test Tauri signing keypair (do not reuse the production key):
+
+   ```bash
+   npx @tauri-apps/cli signer generate -w /tmp/staging-updater.key
+   # Use the contents of /tmp/staging-updater.key for TAURI_SIGNING_PRIVATE_KEY
+   # Use the contents of /tmp/staging-updater.key.pub for AGENTSVIEW_UPDATER_PUBKEY
+   ```
+
+4. Temporarily point the updater endpoint to the fork. In `desktop/src-tauri/tauri.conf.json`, change:
+
+   ```json
+   "endpoints": [
+     "https://github.com/YOUR_USER/agentsview/releases/latest/download/latest.json"
+   ]
+   ```
+
+   Commit this change on your test branch (do not merge it back).
+
+### Test the CI pipeline
+
+Push the branch and a test tag to the fork:
+
+```bash
+git remote add staging git@github.com:YOUR_USER/agentsview.git
+git push staging tauri-packaging
+git tag v0.0.1-staging.1
+git push staging v0.0.1-staging.1
+```
+
+Watch the workflow run. Verify:
+
+- **macOS job**: Certificate import succeeds, code signing succeeds, notarization completes (Apple returns "Accepted"), DMG and `.app.tar.gz` + `.sig` are uploaded
+- **Windows job**: NSIS installer and `.nsis.zip` + `.sig` are uploaded
+- **Release job**: `latest.json` contains non-empty URLs and signatures for both platforms, all artifacts appear on the GitHub Release page
+
+### Test the desktop update flow
+
+This requires two releases on the fork — an older version to install, and a newer version to update to.
+
+1. After `v0.0.1-staging.1` finishes building, download and install the macOS DMG (or Windows installer).
+
+2. Push a second tag:
+
+   ```bash
+   git tag v0.0.2-staging.1
+   git push staging v0.0.2-staging.1
+   ```
+
+3. Wait for the workflow to complete and the release to publish.
+
+4. Launch the v0.0.1 app. Verify:
+   - **Auto-check**: Within a few seconds of startup, a native dialog should appear offering to update to v0.0.2 (check stderr for `[agentsview]` log lines if it doesn't)
+   - **Menu**: Click "AgentsView > Check for Updates..." — should show the update dialog
+   - **Install**: Click OK to download and install, then confirm the restart prompt
+   - **Post-restart**: The app should relaunch running v0.0.2
+
+5. Check "Check for Updates..." again — should now show "You're running the latest version."
+
+### Test the Go endpoint and frontend
+
+No fork needed. Run locally with a low version number:
+
+```bash
+go build -tags fts5 \
+  -ldflags "-X main.version=v0.1.0" \
+  -o /tmp/agentsview-test ./cmd/agentsview
+/tmp/agentsview-test serve
+```
+
+Verify:
+
+- `GET /api/v1/update/check` returns `update_available: true` with the correct latest version
+- The StatusBar shows "update available" — clicking it opens the UpdateModal
+- The modal displays current vs latest version and CLI instructions
+
+Repeat with `-X main.version=v99.99.99` (up-to-date) and `-X main.version=dev` (dev build) to confirm those paths show no update indicator.
+
+### Cleanup
+
+After testing, delete the test tags and releases from the fork:
+
+```bash
+git push staging --delete v0.0.1-staging.1 v0.0.2-staging.1
+git tag -d v0.0.1-staging.1 v0.0.2-staging.1
+```
+
+Delete the releases manually from the fork's GitHub Releases page. Do not merge the endpoint URL change back to the main repository.
+
 ## Troubleshooting
 
 ### "The updater is not configured"
