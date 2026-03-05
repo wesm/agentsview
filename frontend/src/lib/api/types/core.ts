@@ -45,6 +45,7 @@ export interface ToolCall {
   input_json?: string;
   skill_name?: string;
   result_content_length?: number;
+  result_content?: string;
   subagent_session_id?: string;
 }
 

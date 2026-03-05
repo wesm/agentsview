@@ -162,13 +162,6 @@ describe("registerShortcuts", () => {
       expect(navigateMessage).not.toHaveBeenCalled();
     });
 
-    it("should NOT trigger shortcut on Alt+T", () => {
-      const toggleSpy = vi.spyOn(ui, "toggleThinking");
-      fireKey("t", { altKey: true });
-      expect(toggleSpy).not.toHaveBeenCalled();
-      toggleSpy.mockRestore();
-    });
-
     it("should still navigate on plain J key", () => {
       fireKey("j");
       expect(navigateMessage).toHaveBeenCalledWith(1);

@@ -396,6 +396,114 @@ func TestOpenDataVersionBump_SurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestMigration_ResultContentColumn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a DB with the current schema then drop the
+	// result_content column to simulate a pre-migration DB.
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d,
+		userMsg("s1", 0, "hello"),
+		Message{
+			SessionID:  "s1",
+			Ordinal:    1,
+			Role:       "assistant",
+			Content:    "Let me read that.",
+			HasToolUse: true,
+			ToolCalls: []ToolCall{{
+				SessionID:           "s1",
+				ToolName:            "Read",
+				Category:            "Read",
+				ToolUseID:           "tu1",
+				ResultContentLength: 42,
+			}},
+		},
+	)
+	d.Close()
+
+	// Remove result_content via raw SQL: recreate tool_calls
+	// without the column to simulate a legacy schema.
+	conn, err := sql.Open("sqlite3", path)
+	requireNoError(t, err, "raw open")
+	_, err = conn.Exec(`
+		CREATE TABLE tool_calls_old AS
+			SELECT id, message_id, session_id, tool_name,
+			       category, tool_use_id, input_json,
+			       skill_name, result_content_length,
+			       subagent_session_id
+			FROM tool_calls;
+		DROP TABLE tool_calls;
+		ALTER TABLE tool_calls_old RENAME TO tool_calls;
+	`)
+	requireNoError(t, err, "drop result_content column")
+
+	// Verify column is gone and tool_calls row exists.
+	var count int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')` +
+			` WHERE name = 'result_content'`,
+	).Scan(&count)
+	requireNoError(t, err, "verify column removed")
+	if count != 0 {
+		t.Fatal("expected result_content column to be absent")
+	}
+	var tcCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM tool_calls`,
+	).Scan(&tcCount)
+	requireNoError(t, err, "count tool_calls pre-migration")
+	if tcCount != 1 {
+		t.Fatalf("expected 1 tool_call row, got %d", tcCount)
+	}
+	conn.Close()
+
+	// Reopen with Open() — migration should add the column.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen after migration")
+	defer d2.Close()
+
+	// Verify column exists.
+	err = d2.getReader().QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')` +
+			` WHERE name = 'result_content'`,
+	).Scan(&count)
+	requireNoError(t, err, "verify column added")
+	if count != 1 {
+		t.Fatal("expected result_content column after migration")
+	}
+
+	// Verify tool_calls row preserved with fields intact.
+	msgs, err := d2.GetMessages(
+		context.Background(), "s1", 0, 100, true,
+	)
+	requireNoError(t, err, "get messages")
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if len(msgs[1].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d",
+			len(msgs[1].ToolCalls))
+	}
+	tc := msgs[1].ToolCalls[0]
+	if tc.ToolName != "Read" {
+		t.Errorf("ToolName = %q, want Read", tc.ToolName)
+	}
+	if tc.ToolUseID != "tu1" {
+		t.Errorf("ToolUseID = %q, want tu1", tc.ToolUseID)
+	}
+	if tc.ResultContentLength != 42 {
+		t.Errorf("ResultContentLength = %d, want 42",
+			tc.ResultContentLength)
+	}
+	if tc.ResultContent != "" {
+		t.Errorf("ResultContent = %q, want empty (NULL)",
+			tc.ResultContent)
+	}
+}
+
 func TestOpenPreservesDataAtCurrentVersion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
@@ -2371,6 +2479,49 @@ func TestGetMessagesReturnsToolCalls(t *testing.T) {
 	}
 	if tc.ResultContentLength != 42 {
 		t.Errorf("ResultContentLength = %d", tc.ResultContentLength)
+	}
+}
+
+func TestToolCallResultContent(t *testing.T) {
+	database := testDB(t)
+	sess := Session{
+		ID: "sess-rc", Project: "p", Machine: "m", Agent: "claude",
+	}
+	if err := database.UpsertSession(sess); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	msgs := []Message{
+		{
+			SessionID: "sess-rc",
+			Ordinal:   0,
+			Role:      "assistant",
+			Content:   "ok",
+			ToolCalls: []ToolCall{
+				{
+					SessionID:     "sess-rc",
+					ToolName:      "Bash",
+					Category:      "Bash",
+					ToolUseID:     "tu-rc",
+					ResultContent: "[main abc1234] Add feature\n 1 file changed",
+				},
+			},
+		},
+	}
+	if err := database.InsertMessages(msgs); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	retrieved, err := database.GetMessages(
+		context.Background(), "sess-rc", 0, 10, true,
+	)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(retrieved) != 1 || len(retrieved[0].ToolCalls) != 1 {
+		t.Fatalf("expected 1 msg with 1 tool call")
+	}
+	tc := retrieved[0].ToolCalls[0]
+	if tc.ResultContent != "[main abc1234] Add feature\n 1 file changed" {
+		t.Errorf("ResultContent = %q", tc.ResultContent)
 	}
 }
 

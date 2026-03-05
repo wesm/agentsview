@@ -72,6 +72,7 @@ func ExtractTextContent(
 				toolResults = append(toolResults, ParsedToolResult{
 					ToolUseID:     tuid,
 					ContentLength: cl,
+					ContentRaw:    rc.Raw,
 				})
 			}
 		}
@@ -95,6 +96,30 @@ func toolResultContentLength(content gjson.Result) int {
 		return total
 	}
 	return 0
+}
+
+// DecodeContent extracts the text from a raw JSON tool result content
+// value (the ContentRaw field of ParsedToolResult). It handles both
+// plain string and array-of-blocks formats.
+func DecodeContent(raw string) string {
+	return decodeContent(gjson.Parse(raw))
+}
+
+func decodeContent(content gjson.Result) string {
+	if content.Type == gjson.String {
+		return content.Str
+	}
+	if content.IsArray() {
+		var parts []string
+		content.ForEach(func(_, block gjson.Result) bool {
+			if t := block.Get("text").Str; t != "" {
+				parts = append(parts, t)
+			}
+			return true
+		})
+		return strings.Join(parts, "")
+	}
+	return ""
 }
 
 var todoIcons = map[string]string{

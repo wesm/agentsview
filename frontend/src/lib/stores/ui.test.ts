@@ -213,12 +213,6 @@ describe("UIStore", () => {
       expect(ui.theme).toBe("light");
     });
 
-    it("should toggle showThinking", () => {
-      const initial = ui.showThinking;
-      ui.toggleThinking();
-      expect(ui.showThinking).toBe(!initial);
-    });
-
     it("should toggle sortNewestFirst", () => {
       const initial = ui.sortNewestFirst;
       ui.toggleSort();
@@ -250,22 +244,6 @@ describe("UIStore", () => {
       ui.toggleBlock("tool");
       expect(ui.isBlockVisible("tool")).toBe(true);
       expect(ui.hiddenBlockCount).toBe(0);
-    });
-
-    it("should sync showThinking when toggling thinking block", () => {
-      ui.toggleBlock("thinking");
-      expect(ui.showThinking).toBe(false);
-
-      ui.toggleBlock("thinking");
-      expect(ui.showThinking).toBe(true);
-    });
-
-    it("should sync block filter when toggling thinking", () => {
-      ui.toggleThinking();
-      expect(ui.isBlockVisible("thinking")).toBe(false);
-
-      ui.toggleThinking();
-      expect(ui.isBlockVisible("thinking")).toBe(true);
     });
 
     it("should reset all with showAllBlocks", () => {

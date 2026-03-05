@@ -18,6 +18,7 @@ const (
 	AgentAmp           AgentType = "amp"
 	AgentVSCodeCopilot AgentType = "vscode-copilot"
 	AgentPi            AgentType = "pi"
+	AgentOpenClaw      AgentType = "openclaw"
 )
 
 // AgentDef describes a supported coding agent's filesystem
@@ -158,6 +159,17 @@ var Registry = []AgentDef{
 		DiscoverFunc:   DiscoverPiSessions,
 		FindSourceFunc: FindPiSourceFile,
 	},
+	{
+		Type:        AgentOpenClaw,
+		DisplayName: "OpenClaw",
+		EnvVar:      "OPENCLAW_DIR",
+		ConfigKey:   "openclaw_dirs",
+		DefaultDirs: []string{".openclaw/agents"},
+		IDPrefix:    "openclaw:",
+		FileBased:   true,
+		DiscoverFunc:   DiscoverOpenClawSessions,
+		FindSourceFunc: FindOpenClawSourceFile,
+	},
 }
 
 // AgentByType returns the AgentDef for the given type.
@@ -249,6 +261,7 @@ type ParsedToolCall struct {
 type ParsedToolResult struct {
 	ToolUseID     string
 	ContentLength int
+	ContentRaw    string // raw JSON of the content field; decode with DecodeContent
 }
 
 // ParsedMessage holds a single extracted message.

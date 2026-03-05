@@ -88,10 +88,6 @@ class UIStore {
   /** Set of block types currently visible. */
   visibleBlocks: Set<BlockType> = $state(readBlockFilters());
 
-  get showThinking(): boolean {
-    return this.visibleBlocks.has("thinking");
-  }
-
   constructor() {
     $effect.root(() => {
       $effect(() => {
@@ -138,10 +134,6 @@ class UIStore {
 
   toggleTheme() {
     this.theme = this.theme === "light" ? "dark" : "light";
-  }
-
-  toggleThinking() {
-    this.toggleBlock("thinking");
   }
 
   isBlockVisible(type: BlockType): boolean {

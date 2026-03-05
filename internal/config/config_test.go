@@ -397,3 +397,88 @@ func TestLoadFile_MalformedDirValueLogsWarning(t *testing.T) {
 		)
 	}
 }
+
+func TestDefault_ResultContentBlockedCategories(t *testing.T) {
+	cfg, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"Read", "Glob"}
+	if len(cfg.ResultContentBlockedCategories) != len(want) {
+		t.Fatalf(
+			"ResultContentBlockedCategories len = %d, want %d",
+			len(cfg.ResultContentBlockedCategories), len(want),
+		)
+	}
+	for i, v := range cfg.ResultContentBlockedCategories {
+		if v != want[i] {
+			t.Errorf(
+				"ResultContentBlockedCategories[%d] = %q, want %q",
+				i, v, want[i],
+			)
+		}
+	}
+}
+
+func TestLoadFile_ResultContentBlockedCategories(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []string
+	}{
+		{
+			"NoConfigFileUsesDefault",
+			map[string]any{},
+			[]string{"Read", "Glob"},
+		},
+		{
+			"ConfigFileOverridesWithCustomArray",
+			map[string]any{
+				"result_content_blocked_categories": []string{"Bash"},
+			},
+			[]string{"Bash"},
+		},
+		{
+			"ConfigFileWithMultipleCategories",
+			map[string]any{
+				"result_content_blocked_categories": []string{"Bash", "Write", "Edit"},
+			},
+			[]string{"Bash", "Write", "Edit"},
+		},
+		{
+			"ConfigFileWithEmptyArrayClearsBlocklist",
+			map[string]any{
+				"result_content_blocked_categories": []string{},
+			},
+			[]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := setupTestEnv(t)
+			writeConfig(t, dir, tt.config)
+
+			cfg, err := LoadMinimal()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(cfg.ResultContentBlockedCategories) != len(tt.want) {
+				t.Fatalf(
+					"ResultContentBlockedCategories len = %d, want %d",
+					len(cfg.ResultContentBlockedCategories), len(tt.want),
+				)
+			}
+			for i, v := range cfg.ResultContentBlockedCategories {
+				if v != tt.want[i] {
+					t.Errorf(
+						"ResultContentBlockedCategories[%d] = %q, want %q",
+						i, v, tt.want[i],
+					)
+				}
+			}
+		})
+	}
+}

@@ -285,19 +285,19 @@ func TestExtractToolResults(t *testing.T) {
 		{
 			"single tool_result",
 			`[{"type":"tool_result","tool_use_id":"toolu_123","content":"file contents here"}]`,
-			[]ParsedToolResult{{ToolUseID: "toolu_123", ContentLength: 18}},
+			[]ParsedToolResult{{ToolUseID: "toolu_123", ContentLength: 18, ContentRaw: `"file contents here"`}},
 		},
 		{
 			"tool_result with array content",
 			`[{"type":"tool_result","tool_use_id":"toolu_456","content":[{"type":"text","text":"output data"}]}]`,
-			[]ParsedToolResult{{ToolUseID: "toolu_456", ContentLength: 11}},
+			[]ParsedToolResult{{ToolUseID: "toolu_456", ContentLength: 11, ContentRaw: `[{"type":"text","text":"output data"}]`}},
 		},
 		{
 			"multiple tool_results",
 			`[{"type":"tool_result","tool_use_id":"toolu_1","content":"abc"},{"type":"tool_result","tool_use_id":"toolu_2","content":"defgh"}]`,
 			[]ParsedToolResult{
-				{ToolUseID: "toolu_1", ContentLength: 3},
-				{ToolUseID: "toolu_2", ContentLength: 5},
+				{ToolUseID: "toolu_1", ContentLength: 3, ContentRaw: `"abc"`},
+				{ToolUseID: "toolu_2", ContentLength: 5, ContentRaw: `"defgh"`},
 			},
 		},
 	}
@@ -318,6 +318,32 @@ func TestExtractToolResults(t *testing.T) {
 					t.Errorf("[%d].ContentLength = %d, want %d",
 						i, trs[i].ContentLength, tt.wantResults[i].ContentLength)
 				}
+				if trs[i].ContentRaw != tt.wantResults[i].ContentRaw {
+					t.Errorf("[%d].ContentRaw = %q, want %q",
+						i, trs[i].ContentRaw, tt.wantResults[i].ContentRaw)
+				}
+			}
+		})
+	}
+}
+
+func TestDecodeContent(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"string content", `"file contents here"`, "file contents here"},
+		{"array content", `[{"type":"text","text":"output data"}]`, "output data"},
+		{"multiple array blocks", `[{"type":"text","text":"foo"},{"type":"text","text":"bar"}]`, "foobar"},
+		{"empty raw", "", ""},
+		{"non-text array block ignored", `[{"type":"image"}]`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DecodeContent(tt.raw)
+			if got != tt.want {
+				t.Errorf("DecodeContent(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
 	}
