@@ -61,24 +61,19 @@ assert_eq "$(version_to_semver "v0.10.0-dirty")" "0.10.0" \
   "dirty tag stripped"
 assert_eq "$(version_to_semver "v0.10.0-3-gabcdef-dirty")" "0.10.0-dev.3" \
   "git-describe dirty with distance"
-assert_eq "$(version_to_semver "abc1234")" "0.0.0-dev" \
-  "short SHA fallback"
+assert_fails "unrecognized version rejected" version_to_semver "abc1234"
 
 # patch_tauri_version test (uses a temp copy)
-tmp_conf="$(mktemp -d)"
-cp "$SCRIPT_DIR/../src-tauri/tauri.conf.json" "$tmp_conf/tauri.conf.json"
-original_version="$(grep '"version"' "$tmp_conf/tauri.conf.json" | head -1)"
-# Temporarily override TAURI_DIR to use our temp copy
+tmp_root="$(mktemp -d)"
+mkdir -p "$tmp_root/src-tauri"
+cp "$SCRIPT_DIR/../src-tauri/tauri.conf.json" "$tmp_root/src-tauri/tauri.conf.json"
 saved_tauri_dir="$TAURI_DIR"
-TAURI_DIR="$tmp_conf/.."
-mkdir -p "$tmp_conf/../src-tauri"
-cp "$saved_tauri_dir/src-tauri/tauri.conf.json" "$tmp_conf/../src-tauri/tauri.conf.json"
-TAURI_DIR="$tmp_conf/.."
+TAURI_DIR="$tmp_root"
 patch_tauri_version "v0.10.0" >/dev/null
-patched="$(grep '"version"' "$tmp_conf/../src-tauri/tauri.conf.json" | head -1)"
+patched="$(grep '"version"' "$tmp_root/src-tauri/tauri.conf.json" | head -1)"
 assert_eq "$(echo "$patched" | tr -d ' ')" '"version":"0.10.0",' \
   "patch_tauri_version applies correct version"
 TAURI_DIR="$saved_tauri_dir"
-rm -rf "$tmp_conf"
+rm -rf "$tmp_root"
 
 echo "prepare-sidecar target mapping checks passed"

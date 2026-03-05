@@ -79,8 +79,9 @@ version_to_semver() {
     echo "${raw%-dirty}"
     return 0
   fi
-  # Fallback: not a recognizable version
-  echo "0.0.0-dev"
+  # Unrecognized version format
+  echo "error: unrecognized version format: $raw" >&2
+  return 1
 }
 
 patch_tauri_version() {
