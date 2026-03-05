@@ -63,6 +63,38 @@ resolve_version() {
   echo "dev"
 }
 
+version_to_semver() {
+  local raw="$1"
+  # Strip leading 'v'
+  raw="${raw#v}"
+  # git-describe: 0.10.0-3-gabcdef -> 0.10.0-dev.3
+  if [[ "$raw" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-g[0-9a-f]+(-dirty)?$ ]]; then
+    local base="${BASH_REMATCH[1]}"
+    local distance="${BASH_REMATCH[2]}"
+    echo "${base}-dev.${distance}"
+    return 0
+  fi
+  # Already semver (possibly with -dirty)
+  if [[ "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-dirty)?$ ]]; then
+    echo "${raw%-dirty}"
+    return 0
+  fi
+  # Fallback: not a recognizable version
+  echo "0.0.0-dev"
+}
+
+patch_tauri_version() {
+  local version="$1"
+  local semver
+  semver="$(version_to_semver "$version")"
+  local conf="$TAURI_DIR/src-tauri/tauri.conf.json"
+  sed -i.bak \
+    "s/\"version\": \"[^\"]*\"/\"version\": \"$semver\"/" \
+    "$conf"
+  rm -f "$conf.bak"
+  echo "Patched tauri.conf.json version to $semver"
+}
+
 install_frontend_deps() {
   if [ -f "$REPO_ROOT/frontend/package-lock.json" ]; then
     npm ci
@@ -103,6 +135,7 @@ main() {
 
   local version commit build_date ldflags tmp_dir build_bin
   version="$(resolve_version)"
+  patch_tauri_version "$version"
   commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
   build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   ldflags="-X main.version=$version -X main.commit=$commit -X main.buildDate=$build_date -s -w"

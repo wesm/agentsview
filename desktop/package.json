@@ -8,6 +8,7 @@
     "tauri:dev": "npm run prepare-sidecar && tauri dev",
     "tauri:build": "npm run prepare-sidecar && tauri build",
     "tauri:build:macos-app": "npm run prepare-sidecar && tauri build --bundles app",
+    "tauri:build:macos-dmg": "npm run prepare-sidecar && tauri build --bundles dmg",
     "tauri:build:windows": "npm run prepare-sidecar && tauri build --bundles nsis",
     "tauri": "tauri"
   },
