@@ -3343,3 +3343,95 @@ func TestCopyExcludedSessionsFrom(t *testing.T) {
 		t.Errorf("UpsertSession = %v, want ErrSessionExcluded", err)
 	}
 }
+
+func TestCopySessionMetadataFrom(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Source DB: session with display_name, deleted_at, and a pin.
+	srcPath := filepath.Join(dir, "src.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	insertMessages(t, srcDB, Message{
+		SessionID: "s1", Ordinal: 1, Role: "user",
+		Content: "hello", ContentLength: 5,
+	})
+	dn := "my-custom-name"
+	requireNoError(t, srcDB.RenameSession("s1", &dn), "Rename")
+	requireNoError(t, srcDB.SoftDeleteSession("s1"), "SoftDelete")
+	// Pin message ordinal 1.
+	pinID, err := srcDB.PinMessage("s1", 1, nil)
+	if err != nil || pinID == 0 {
+		t.Fatalf("PinMessage in src: id=%d err=%v", pinID, err)
+	}
+	// Star the session.
+	if _, err := srcDB.getWriter().Exec(
+		"INSERT INTO starred_sessions (session_id) VALUES (?)", "s1",
+	); err != nil {
+		t.Fatalf("star session in src: %v", err)
+	}
+	srcDB.Close()
+
+	// Destination DB: same session re-synced (no user metadata).
+	dstPath := filepath.Join(dir, "dst.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj")
+	insertMessages(t, dstDB, Message{
+		SessionID: "s1", Ordinal: 1, Role: "user",
+		Content: "hello", ContentLength: 5,
+	})
+
+	// Before copy: no metadata, no pins.
+	s, err := dstDB.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession before")
+	if s.DisplayName != nil {
+		t.Errorf("display_name before = %v, want nil", *s.DisplayName)
+	}
+	if s.DeletedAt != nil {
+		t.Errorf("deleted_at before = %v, want nil", *s.DeletedAt)
+	}
+	pins, err := dstDB.ListPinnedMessages(ctx, "s1")
+	requireNoError(t, err, "ListPins before")
+	if len(pins) != 0 {
+		t.Errorf("pins before = %d, want 0", len(pins))
+	}
+	var starCount int
+	requireNoError(t, dstDB.getReader().QueryRow(
+		"SELECT count(*) FROM starred_sessions WHERE session_id = ?", "s1",
+	).Scan(&starCount), "count stars before")
+	if starCount != 0 {
+		t.Errorf("stars before = %d, want 0", starCount)
+	}
+
+	// Copy metadata.
+	if err := dstDB.CopySessionMetadataFrom(srcPath); err != nil {
+		t.Fatalf("CopySessionMetadataFrom: %v", err)
+	}
+
+	// After copy: metadata, pin, and star should be merged.
+	s, err = dstDB.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession after")
+	if s.DisplayName == nil || *s.DisplayName != dn {
+		t.Errorf("display_name = %v, want %q", s.DisplayName, dn)
+	}
+	if s.DeletedAt == nil {
+		t.Error("deleted_at should be set after copy")
+	}
+	pins, err = dstDB.ListPinnedMessages(ctx, "s1")
+	requireNoError(t, err, "ListPins after")
+	if len(pins) != 1 {
+		t.Fatalf("pins after = %d, want 1", len(pins))
+	}
+	if pins[0].Ordinal != 1 {
+		t.Errorf("pin ordinal = %d, want 1", pins[0].Ordinal)
+	}
+	requireNoError(t, dstDB.getReader().QueryRow(
+		"SELECT count(*) FROM starred_sessions WHERE session_id = ?", "s1",
+	).Scan(&starCount), "count stars after")
+	if starCount != 1 {
+		t.Errorf("stars after = %d, want 1", starCount)
+	}
+}

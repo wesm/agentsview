@@ -104,7 +104,13 @@ class PinsStore {
             ordinal,
             created_at: new Date().toISOString(),
           },
-          ...this.pins,
+          ...this.pins.filter(
+            (p) =>
+              !(
+                p.session_id === sessionId &&
+                p.message_id === messageId
+              ),
+          ),
         ];
       } finally {
         this.#inflight.delete(messageId);

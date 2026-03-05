@@ -630,6 +630,14 @@ func (e *Engine) ResyncAll(
 	}
 	stats.OrphanedCopied = orphaned
 
+	// Merge user-managed data (display_name, deleted_at,
+	// starred_sessions, pinned_messages) from the old DB
+	// so renames, soft-deletes, stars, and pins survive.
+	if err := newDB.CopySessionMetadataFrom(origPath); err != nil {
+		log.Printf("resync: copy session metadata: %v", err)
+		// Non-fatal: worst case, renames/soft-deletes are lost.
+	}
+
 	// 5. Close newDB and swap files, then reopen origDB.
 	newDB.Close()
 
