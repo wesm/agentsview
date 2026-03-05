@@ -396,6 +396,85 @@ func TestOpenDataVersionBump_SurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestMigration_ResultContentColumn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Create a DB with the current schema then drop the
+	// result_content column to simulate a pre-migration DB.
+	d, err := Open(path)
+	requireNoError(t, err, "initial open")
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d,
+		userMsg("s1", 0, "hello"),
+		asstMsg("s1", 1, "response"),
+	)
+	d.Close()
+
+	// Remove result_content via raw SQL: recreate tool_calls
+	// without the column to simulate a legacy schema.
+	conn, err := sql.Open("sqlite3", path)
+	requireNoError(t, err, "raw open")
+	_, err = conn.Exec(`
+		CREATE TABLE tool_calls_old AS
+			SELECT id, message_id, session_id, tool_name,
+			       category, tool_use_id, input_json,
+			       skill_name, result_content_length,
+			       subagent_session_id
+			FROM tool_calls;
+		DROP TABLE tool_calls;
+		ALTER TABLE tool_calls_old RENAME TO tool_calls;
+	`)
+	requireNoError(t, err, "drop result_content column")
+
+	// Verify column is gone.
+	var count int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')` +
+			` WHERE name = 'result_content'`,
+	).Scan(&count)
+	requireNoError(t, err, "verify column removed")
+	if count != 0 {
+		t.Fatal("expected result_content column to be absent")
+	}
+	conn.Close()
+
+	// Reopen with Open() — migration should add the column.
+	d2, err := Open(path)
+	requireNoError(t, err, "reopen after migration")
+	defer d2.Close()
+
+	// Verify column exists.
+	err = d2.getReader().QueryRow(
+		`SELECT count(*) FROM pragma_table_info('tool_calls')` +
+			` WHERE name = 'result_content'`,
+	).Scan(&count)
+	requireNoError(t, err, "verify column added")
+	if count != 1 {
+		t.Fatal("expected result_content column after migration")
+	}
+
+	// Verify existing session data is preserved.
+	page, err := d2.ListSessions(
+		context.Background(),
+		SessionFilter{Limit: 100},
+	)
+	requireNoError(t, err, "list sessions")
+	if len(page.Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d",
+			len(page.Sessions))
+	}
+
+	// Verify messages still readable.
+	msgs, err := d2.GetMessages(
+		context.Background(), "s1", 0, 100, true,
+	)
+	requireNoError(t, err, "get messages")
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+}
+
 func TestOpenPreservesDataAtCurrentVersion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
