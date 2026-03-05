@@ -39,6 +39,7 @@
     try {
       await api.permanentDeleteSession(id);
       trashedSessions = trashedSessions.filter((s) => s.id !== id);
+      sessions.clearRecentlyDeleted(id);
     } catch {
       // silently fail
     }
@@ -49,6 +50,7 @@
     try {
       await api.emptyTrash();
       trashedSessions = [];
+      sessions.clearRecentlyDeleted();
     } finally {
       emptying = false;
     }

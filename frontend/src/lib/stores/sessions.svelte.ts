@@ -380,14 +380,24 @@ class SessionsStore {
 
   async restoreSession(id: string) {
     await api.restoreSession(id);
-    this.recentlyDeleted = this.recentlyDeleted.filter((d) => {
-      if (d.id === id) {
-        clearTimeout(d.timer);
-        return false;
-      }
-      return true;
-    });
+    this.clearRecentlyDeleted(id);
     await this.load();
+  }
+
+  /** Remove one or all entries from the undo toast list. */
+  clearRecentlyDeleted(id?: string) {
+    if (id) {
+      this.recentlyDeleted = this.recentlyDeleted.filter((d) => {
+        if (d.id === id) {
+          clearTimeout(d.timer);
+          return false;
+        }
+        return true;
+      });
+    } else {
+      for (const d of this.recentlyDeleted) clearTimeout(d.timer);
+      this.recentlyDeleted = [];
+    }
   }
 
   async renameSession(id: string, displayName: string | null) {
