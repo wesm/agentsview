@@ -97,6 +97,7 @@ make vet        # go vet
 - Tests should be fast and isolated
 - No emojis in code or output
 - **The database is a persistent archive** — never drop, truncate, or recreate the database to handle data version changes. Use non-destructive migrations (ALTER TABLE, UPDATE) and full resync (build fresh DB, copy orphaned data, swap) instead. Session data must survive even when the original source files are gone.
+- **Markdown formatting**: Use `mdformat --wrap 80` to format Markdown files. Requires the `mdformat-tables` plugin (`uv tool install mdformat --with mdformat-tables`).
 
 ## Git Workflow
 
