@@ -9,6 +9,9 @@ class StarredStore {
   private loading: Promise<void> | null = null;
   /** Global mutation counter for load/migration staleness detection. */
   private mutationVersion = 0;
+  /** Monotonic counter for listStarred refresh calls so only the
+   *  latest response applies when multiple are in-flight. */
+  private refreshId = 0;
   /** Per-session promise chains to serialize server mutations. */
   private queues: Map<string, Promise<void>> = new Map();
 
@@ -21,16 +24,17 @@ class StarredStore {
 
   private async doLoad() {
     const mutVer = this.mutationVersion;
+    const rid = ++this.refreshId;
     try {
       const res = await api.listStarred();
-      if (this.mutationVersion === mutVer) {
+      if (this.mutationVersion === mutVer && this.refreshId === rid) {
         this.ids = new Set(res.session_ids);
       }
       this.loaded = true;
       await this.migrateLocalStorage();
     } catch {
       const local = readLocalStorage();
-      if (local.size > 0 && this.mutationVersion === mutVer) {
+      if (local.size > 0 && this.mutationVersion === mutVer && this.refreshId === rid) {
         this.ids = local;
       }
     } finally {
@@ -45,10 +49,11 @@ class StarredStore {
     const toMigrate = [...local].filter((id) => !this.ids.has(id));
     if (toMigrate.length > 0) {
       const mutVer = this.mutationVersion;
+      const rid = ++this.refreshId;
       try {
         await api.bulkStarSessions(toMigrate);
         const refreshed = await api.listStarred();
-        if (this.mutationVersion === mutVer) {
+        if (this.mutationVersion === mutVer && this.refreshId === rid) {
           this.ids = new Set(refreshed.session_ids);
           clearLocalStorage();
         }
@@ -90,11 +95,6 @@ class StarredStore {
     this.enqueue(sessionId, () => api.unstarSession(sessionId));
   }
 
-  /**
-   * Enqueue a mutation for a session, serializing per-session to
-   * guarantee server receives operations in user-intent order.
-   * When all queues drain, reconcile with the server.
-   */
   private enqueue(
     sessionId: string,
     op: () => Promise<unknown>,
@@ -114,13 +114,16 @@ class StarredStore {
 
   /**
    * After all in-flight mutations settle, re-fetch server state
-   * to correct any drift from failed requests.
+   * to correct any drift from failed requests. Uses refreshId to
+   * ensure only the latest listStarred response is applied when
+   * multiple refreshes are in-flight.
    */
   private reconcileIfIdle() {
     if (this.queues.size > 0) return;
     const mutVer = this.mutationVersion;
+    const rid = ++this.refreshId;
     api.listStarred().then((res) => {
-      if (this.mutationVersion === mutVer) {
+      if (this.mutationVersion === mutVer && this.refreshId === rid) {
         this.ids = new Set(res.session_ids);
       }
     }).catch(() => {
