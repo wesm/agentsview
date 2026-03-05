@@ -9,6 +9,8 @@ class StarredStore {
   private loading: Promise<void> | null = null;
   /** Global mutation counter for load/migration staleness detection. */
   private mutationVersion = 0;
+  /** Per-session promise chains to serialize server mutations. */
+  private queues: Map<string, Promise<void>> = new Map();
 
   async load() {
     if (this.loaded) return;
@@ -50,13 +52,10 @@ class StarredStore {
           this.ids = new Set(refreshed.session_ids);
           clearLocalStorage();
         }
-        // mutVer mismatch: keep localStorage so migration retries
-        // on next page load once in-memory state is authoritative.
       } catch {
         return;
       }
     } else {
-      // All local stars already present in server state.
       clearLocalStorage();
     }
   }
@@ -79,9 +78,7 @@ class StarredStore {
     next.add(sessionId);
     this.ids = next;
     this.mutationVersion++;
-    api.starSession(sessionId).catch(() => {
-      this.reconcileAfterError();
-    });
+    this.enqueue(sessionId, () => api.starSession(sessionId));
   }
 
   unstar(sessionId: string) {
@@ -90,12 +87,37 @@ class StarredStore {
     next.delete(sessionId);
     this.ids = next;
     this.mutationVersion++;
-    api.unstarSession(sessionId).catch(() => {
-      this.reconcileAfterError();
-    });
+    this.enqueue(sessionId, () => api.unstarSession(sessionId));
   }
 
-  private reconcileAfterError() {
+  /**
+   * Enqueue a mutation for a session, serializing per-session to
+   * guarantee server receives operations in user-intent order.
+   * When all queues drain, reconcile with the server.
+   */
+  private enqueue(
+    sessionId: string,
+    op: () => Promise<unknown>,
+  ) {
+    const prev = this.queues.get(sessionId) ?? Promise.resolve();
+    const chain: Promise<void> = prev
+      .then(() => op(), () => op())
+      .then(() => {}, () => {})
+      .then(() => {
+        if (this.queues.get(sessionId) === chain) {
+          this.queues.delete(sessionId);
+        }
+        this.reconcileIfIdle();
+      });
+    this.queues.set(sessionId, chain);
+  }
+
+  /**
+   * After all in-flight mutations settle, re-fetch server state
+   * to correct any drift from failed requests.
+   */
+  private reconcileIfIdle() {
+    if (this.queues.size > 0) return;
     const mutVer = this.mutationVersion;
     api.listStarred().then((res) => {
       if (this.mutationVersion === mutVer) {
