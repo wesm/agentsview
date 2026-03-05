@@ -156,18 +156,13 @@ func ParseOpenClawSession(
 			// pairAndFilter removes it after pairToolResults
 			// copies ResultContentLength to the matching call.
 			toolCallID := msg.Get("toolCallId").Str
+			if toolCallID == "" {
+				continue
+			}
 
 			content := msg.Get("content")
 			resultText := extractToolResultText(content)
 			contentLen := len(resultText)
-
-			var tr []ParsedToolResult
-			if toolCallID != "" {
-				tr = append(tr, ParsedToolResult{
-					ToolUseID:     toolCallID,
-					ContentLength: contentLen,
-				})
-			}
 
 			messages = append(messages, ParsedMessage{
 				Ordinal:       ordinal,
@@ -177,7 +172,10 @@ func ParseOpenClawSession(
 				HasThinking:   false,
 				HasToolUse:    false,
 				ContentLength: contentLen,
-				ToolResults:   tr,
+				ToolResults: []ParsedToolResult{{
+					ToolUseID:     toolCallID,
+					ContentLength: contentLen,
+				}},
 			})
 			ordinal++
 		}
