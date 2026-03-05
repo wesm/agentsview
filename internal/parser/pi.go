@@ -331,8 +331,9 @@ func normalizePiIntent(argsRaw string) string {
 	if err := json.Unmarshal([]byte(argsRaw), &m); err != nil {
 		return argsRaw
 	}
-	m["description"] = m["agent__intent"]
-	if m["description"] == nil {
+	if v, ok := m["agent__intent"]; ok {
+		m["description"] = v
+	} else {
 		m["description"] = m["_i"]
 	}
 	delete(m, "agent__intent")

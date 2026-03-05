@@ -341,6 +341,16 @@ func TestNormalizePiIntent(t *testing.T) {
 			in:   "",
 			want: "",
 		},
+		{
+			name: "special characters in intent value properly escaped",
+			in:   `{"command":"echo","agent__intent":"Say \"hello\" and \n newline"}`,
+			want: `{"description":"Say \"hello\" and \n newline","command":"echo"}`,
+		},
+		{
+			name: "backslash and quote escaping in intent",
+			in:   `{"agent__intent":"Path: C:\\Users\\test","command":"dir"}`,
+			want: `{"description":"Path: C:\\Users\\test","command":"dir"}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
