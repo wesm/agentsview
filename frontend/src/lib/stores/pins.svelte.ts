@@ -10,14 +10,21 @@ class PinsStore {
   sessionPinIds: Set<number> = $state(new Set());
 
   #currentSessionId: string | null = null;
-  #inflight: Set<number> = new Set();
+  /** Maps messageId → sessionId for in-flight mutations. */
+  #inflight: Map<number, string> = new Map();
   #loadVersion = 0;
+  #loadAllVersion = 0;
 
   async loadAll() {
     this.loading = true;
+    const version = ++this.#loadAllVersion;
     try {
       const res = await api.listPins();
-      this.pins = res.pins;
+      // Skip if a newer loadAll was issued or any mutation is
+      // in-flight (this.pins is global, any mutation can conflict).
+      if (this.#loadAllVersion === version && this.#inflight.size === 0) {
+        this.pins = res.pins;
+      }
     } finally {
       this.loading = false;
     }
@@ -29,13 +36,12 @@ class PinsStore {
     this.sessionPinIds = new Set();
     try {
       const res = await api.listSessionPins(sessionId);
-      // Guard against stale responses: skip if a newer load was
-      // issued or if mutations are in-flight (their optimistic
-      // state would be clobbered by this older server snapshot).
-      if (
-        this.#loadVersion === version &&
-        this.#inflight.size === 0
-      ) {
+      // Only block on in-flight mutations for THIS session;
+      // mutations for other sessions don't affect sessionPinIds.
+      const hasInflightForSession = [...this.#inflight.values()].some(
+        (sid) => sid === sessionId,
+      );
+      if (this.#loadVersion === version && !hasInflightForSession) {
         this.sessionPinIds = new Set(
           res.pins.map((p) => p.message_id),
         );
@@ -57,7 +63,7 @@ class PinsStore {
 
   async unpin(sessionId: string, messageId: number) {
     if (this.#inflight.has(messageId)) return;
-    this.#inflight.add(messageId);
+    this.#inflight.set(messageId, sessionId);
     try {
       await api.unpinMessage(sessionId, messageId);
       const next = new Set(this.sessionPinIds);
@@ -84,7 +90,7 @@ class PinsStore {
     if (this.sessionPinIds.has(messageId)) {
       await this.unpin(sessionId, messageId);
     } else {
-      this.#inflight.add(messageId);
+      this.#inflight.set(messageId, sessionId);
       try {
         const result = await api.pinMessage(sessionId, messageId);
         const next = new Set(this.sessionPinIds);
