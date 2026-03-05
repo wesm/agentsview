@@ -407,7 +407,20 @@ func TestMigration_ResultContentColumn(t *testing.T) {
 	insertSession(t, d, "s1", "proj")
 	insertMessages(t, d,
 		userMsg("s1", 0, "hello"),
-		asstMsg("s1", 1, "response"),
+		Message{
+			SessionID:  "s1",
+			Ordinal:    1,
+			Role:       "assistant",
+			Content:    "Let me read that.",
+			HasToolUse: true,
+			ToolCalls: []ToolCall{{
+				SessionID:           "s1",
+				ToolName:            "Read",
+				Category:            "Read",
+				ToolUseID:           "tu1",
+				ResultContentLength: 42,
+			}},
+		},
 	)
 	d.Close()
 
@@ -427,7 +440,7 @@ func TestMigration_ResultContentColumn(t *testing.T) {
 	`)
 	requireNoError(t, err, "drop result_content column")
 
-	// Verify column is gone.
+	// Verify column is gone and tool_calls row exists.
 	var count int
 	err = conn.QueryRow(
 		`SELECT count(*) FROM pragma_table_info('tool_calls')` +
@@ -436,6 +449,14 @@ func TestMigration_ResultContentColumn(t *testing.T) {
 	requireNoError(t, err, "verify column removed")
 	if count != 0 {
 		t.Fatal("expected result_content column to be absent")
+	}
+	var tcCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM tool_calls`,
+	).Scan(&tcCount)
+	requireNoError(t, err, "count tool_calls pre-migration")
+	if tcCount != 1 {
+		t.Fatalf("expected 1 tool_call row, got %d", tcCount)
 	}
 	conn.Close()
 
@@ -454,24 +475,32 @@ func TestMigration_ResultContentColumn(t *testing.T) {
 		t.Fatal("expected result_content column after migration")
 	}
 
-	// Verify existing session data is preserved.
-	page, err := d2.ListSessions(
-		context.Background(),
-		SessionFilter{Limit: 100},
-	)
-	requireNoError(t, err, "list sessions")
-	if len(page.Sessions) != 1 {
-		t.Fatalf("expected 1 session, got %d",
-			len(page.Sessions))
-	}
-
-	// Verify messages still readable.
+	// Verify tool_calls row preserved with fields intact.
 	msgs, err := d2.GetMessages(
 		context.Background(), "s1", 0, 100, true,
 	)
 	requireNoError(t, err, "get messages")
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if len(msgs[1].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d",
+			len(msgs[1].ToolCalls))
+	}
+	tc := msgs[1].ToolCalls[0]
+	if tc.ToolName != "Read" {
+		t.Errorf("ToolName = %q, want Read", tc.ToolName)
+	}
+	if tc.ToolUseID != "tu1" {
+		t.Errorf("ToolUseID = %q, want tu1", tc.ToolUseID)
+	}
+	if tc.ResultContentLength != 42 {
+		t.Errorf("ResultContentLength = %d, want 42",
+			tc.ResultContentLength)
+	}
+	if tc.ResultContent != "" {
+		t.Errorf("ResultContent = %q, want empty (NULL)",
+			tc.ResultContent)
 	}
 }
 
