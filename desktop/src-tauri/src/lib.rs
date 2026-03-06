@@ -17,6 +17,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::plugin::Builder as PluginBuilder;
 use tauri::{App, AppHandle, Emitter, Manager, RunEvent, Url, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -50,6 +51,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(updater_builder.build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(init_navigation_guard_plugin())
@@ -122,8 +124,8 @@ fn init_navigation_guard_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlug
             if is_allowed_external_open_url(url) {
                 if let Err(err) = webview
                     .app_handle()
-                    .shell()
-                    .open(url.as_str().to_string(), None)
+                    .opener()
+                    .open_url(url.as_str(), Option::<&str>::None)
                 {
                     eprintln!("[agentsview] failed to open external URL in system browser: {err}");
                 }
