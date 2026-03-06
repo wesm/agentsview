@@ -463,6 +463,12 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                                  window.__setStatus('Starting database and syncing sessions...');",
                             );
                         }
+                        if let Some(status) = extract_startup_status(chunk.as_ref()) {
+                            let escaped = status.replace('\\', "\\\\").replace('\'', "\\'");
+                            let _ = window.eval(
+                                format!("window.__setStatus('{escaped}');").as_str(),
+                            );
+                        }
                         if let Some(port) = parse_listening_port_from_stdout_buffer(
                             &mut stdout_buffer,
                             chunk.as_ref(),
@@ -527,6 +533,23 @@ fn redirect_when_ready(window: WebviewWindow, port: u16) {
             "document.getElementById('status').textContent = 'AgentsView backend did not start within 30 seconds.';",
         );
     });
+}
+
+/// Extracts the latest human-readable status text from a stdout
+/// chunk during startup. The Go server uses `\r` for in-place
+/// progress updates and `\n` for line breaks.
+fn extract_startup_status(chunk: &str) -> Option<String> {
+    // Split on \r or \n, take the last non-empty segment.
+    let segment = chunk
+        .rsplit(['\r', '\n'])
+        .map(|s| s.trim())
+        .find(|s| !s.is_empty())?;
+    // Only forward lines that look like sync output, not
+    // arbitrary log noise.
+    if segment.contains("sessions") || segment.contains("ync") || segment.contains("atching") {
+        return Some(segment.to_string());
+    }
+    None
 }
 
 fn parse_listening_port(line: &str) -> Option<u16> {
@@ -828,6 +851,41 @@ mod tests {
             parse_listening_port_from_stdout_buffer(&mut buf, "080 (started in 1.2s)\n"),
             Some(18080)
         );
+    }
+
+    #[test]
+    fn extract_startup_status_parses_progress_and_messages() {
+        // Carriage-return progress line
+        let chunk = "\r  25/100 sessions (25%) · 1250 messages";
+        assert_eq!(
+            extract_startup_status(chunk),
+            Some("25/100 sessions (25%) · 1250 messages".to_string())
+        );
+
+        // Multiple \r-delimited updates: takes the last one
+        let chunk = "\r  5/100 sessions (5%) · 25 messages\r  10/100 sessions (10%) · 50 messages";
+        assert_eq!(
+            extract_startup_status(chunk),
+            Some("10/100 sessions (10%) · 50 messages".to_string())
+        );
+
+        // Newline-delimited sync messages
+        assert_eq!(
+            extract_startup_status("Running initial sync...\n"),
+            Some("Running initial sync...".to_string())
+        );
+        assert_eq!(
+            extract_startup_status("Sync complete: 42 sessions synced in 125ms\n"),
+            Some("Sync complete: 42 sessions synced in 125ms".to_string())
+        );
+        assert_eq!(
+            extract_startup_status("Watching 50 directories for changes (12ms)\n"),
+            Some("Watching 50 directories for changes (12ms)".to_string())
+        );
+
+        // Unrelated output is ignored
+        assert_eq!(extract_startup_status("some random log line\n"), None);
+        assert_eq!(extract_startup_status(""), None);
     }
 
     #[test]
