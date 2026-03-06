@@ -365,8 +365,12 @@ class SessionsStore {
 
   async deleteSession(id: string) {
     await api.deleteSession(id);
+    const before = this.sessions.length;
     this.sessions = this.sessions.filter((s) => s.id !== id);
-    this.total = Math.max(0, this.total - 1);
+    const removed = before - this.sessions.length;
+    if (removed > 0) {
+      this.total = Math.max(0, this.total - removed);
+    }
     if (this.activeSessionId === id) {
       this.activeSessionId = null;
     }
