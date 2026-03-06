@@ -3526,3 +3526,66 @@ func TestDeleteSessionIfTrashed(t *testing.T) {
 		t.Errorf("nonexistent: rows=%d, want 0", n)
 	}
 }
+
+func TestMetadataQueriesExcludeTrashed(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "s1", "proj-a", func(s *Session) {
+		s.Agent = "claude"
+		s.Machine = "laptop"
+	})
+	insertSession(t, d, "s2", "proj-b", func(s *Session) {
+		s.Agent = "codex"
+		s.Machine = "desktop"
+	})
+
+	// Before trashing: both projects, agents, machines visible.
+	projects, err := d.GetProjects(ctx)
+	requireNoError(t, err, "GetProjects before trash")
+	if len(projects) != 2 {
+		t.Fatalf("projects before trash: got %d, want 2", len(projects))
+	}
+
+	agents, err := d.GetAgents(ctx)
+	requireNoError(t, err, "GetAgents before trash")
+	if len(agents) != 2 {
+		t.Fatalf("agents before trash: got %d, want 2", len(agents))
+	}
+
+	machines, err := d.GetMachines(ctx)
+	requireNoError(t, err, "GetMachines before trash")
+	if len(machines) != 2 {
+		t.Fatalf("machines before trash: got %d, want 2", len(machines))
+	}
+
+	// Soft-delete s2: its project/agent/machine should disappear.
+	requireNoError(t, d.SoftDeleteSession("s2"), "soft delete s2")
+
+	projects, err = d.GetProjects(ctx)
+	requireNoError(t, err, "GetProjects after trash")
+	if len(projects) != 1 {
+		t.Errorf("projects after trash: got %d, want 1", len(projects))
+	}
+	if projects[0].Name != "proj-a" {
+		t.Errorf("project name: got %q, want %q", projects[0].Name, "proj-a")
+	}
+
+	agents, err = d.GetAgents(ctx)
+	requireNoError(t, err, "GetAgents after trash")
+	if len(agents) != 1 {
+		t.Errorf("agents after trash: got %d, want 1", len(agents))
+	}
+	if agents[0].Name != "claude" {
+		t.Errorf("agent name: got %q, want %q", agents[0].Name, "claude")
+	}
+
+	machines, err = d.GetMachines(ctx)
+	requireNoError(t, err, "GetMachines after trash")
+	if len(machines) != 1 {
+		t.Errorf("machines after trash: got %d, want 1", len(machines))
+	}
+	if machines[0] != "laptop" {
+		t.Errorf("machine: got %q, want %q", machines[0], "laptop")
+	}
+}

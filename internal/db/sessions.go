@@ -594,6 +594,7 @@ func (db *DB) GetProjects(
 		FROM sessions
 		WHERE message_count > 0
 		  AND relationship_type NOT IN ('subagent', 'fork')
+		  AND deleted_at IS NULL
 		GROUP BY project
 		ORDER BY project`)
 	if err != nil {
@@ -626,6 +627,7 @@ func (db *DB) GetAgents(
 		SELECT agent, COUNT(*) as session_count
 		FROM sessions
 		WHERE message_count > 0 AND agent <> ''
+		  AND deleted_at IS NULL
 		GROUP BY agent
 		ORDER BY agent`)
 	if err != nil {
@@ -655,7 +657,7 @@ func (db *DB) GetMachines(
 	ctx context.Context,
 ) ([]string, error) {
 	rows, err := db.getReader().QueryContext(ctx,
-		"SELECT DISTINCT machine FROM sessions ORDER BY machine",
+		"SELECT DISTINCT machine FROM sessions WHERE deleted_at IS NULL ORDER BY machine",
 	)
 	if err != nil {
 		return nil, err
