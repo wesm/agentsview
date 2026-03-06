@@ -34,8 +34,17 @@ class StarredStore {
       await this.migrateLocalStorage();
     } catch {
       const local = readLocalStorage();
-      if (local.size > 0 && this.mutationVersion === mutVer && this.refreshId === rid) {
-        this.ids = local;
+      if (local.size > 0) {
+        if (this.mutationVersion === mutVer && this.refreshId === rid) {
+          // No mutations during load — safe to replace.
+          this.ids = local;
+        } else {
+          // Mutations occurred — merge local stars into current
+          // optimistic state so legacy IDs aren't lost.
+          const merged = new Set(this.ids);
+          for (const id of local) merged.add(id);
+          this.ids = merged;
+        }
       }
     } finally {
       this.loading = null;
