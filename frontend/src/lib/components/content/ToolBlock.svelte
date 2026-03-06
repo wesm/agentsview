@@ -103,7 +103,9 @@
   /** Extract metadata tags for common tool types */
   let toolParamMeta = $derived.by(() => {
     if (!inputParams || !toolCall) return null;
-    return extractToolParamMeta(toolCall.category || toolCall.tool_name, inputParams);
+    const cat = toolCall.category || null;
+    const result = cat ? extractToolParamMeta(cat, inputParams) : null;
+    return result ?? extractToolParamMeta(toolCall.tool_name, inputParams);
   });
 
   /** Combined metadata for any tool type */
