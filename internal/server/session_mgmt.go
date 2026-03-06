@@ -48,12 +48,21 @@ func (s *Server) handleRenameSession(
 		return
 	}
 
-	updated, _ := s.db.GetSession(r.Context(), id)
-	if updated != nil {
-		writeJSON(w, http.StatusOK, updated)
-	} else {
-		w.WriteHeader(http.StatusNoContent)
+	updated, err := s.db.GetSession(r.Context(), id)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		log.Printf("rename session readback: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
+	if updated == nil {
+		// Session was concurrently trashed/deleted between rename and readback.
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // --- Soft Delete (move to trash) ---
