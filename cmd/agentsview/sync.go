@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/wesm/agentsview/internal/config"
 	"github.com/wesm/agentsview/internal/db"
@@ -31,6 +32,13 @@ func parseSyncFlags(args []string) (SyncConfig, error) {
 
 	if err := fs.Parse(args); err != nil {
 		return SyncConfig{}, err
+	}
+
+	if fs.NArg() > 0 {
+		return SyncConfig{}, fmt.Errorf(
+			"unexpected arguments: %s",
+			strings.Join(fs.Args(), " "),
+		)
 	}
 
 	return SyncConfig{Full: *full}, nil

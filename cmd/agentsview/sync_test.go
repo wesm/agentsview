@@ -35,6 +35,11 @@ func TestParseSyncFlags(t *testing.T) {
 			},
 		},
 		{
+			name:    "unexpected positional args",
+			args:    []string{"full"},
+			wantErr: "unexpected arguments",
+		},
+		{
 			name:    "unknown flag",
 			args:    []string{"--bogus"},
 			wantErr: "flag provided but not defined",
