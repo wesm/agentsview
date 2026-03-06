@@ -47,6 +47,14 @@ map_go_target() {
 }
 
 resolve_version() {
+  # In CI, AGENTSVIEW_VERSION is set from the triggering tag ref
+  # to avoid git-describe picking the wrong tag when multiple
+  # tags point at the same commit.
+  if [ -n "${AGENTSVIEW_VERSION:-}" ]; then
+    echo "$AGENTSVIEW_VERSION"
+    return 0
+  fi
+
   local resolved
   resolved="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || true)"
   if [ -n "$resolved" ]; then

@@ -39,6 +39,9 @@ class SyncStore {
   latestVersion: string | null = $state(null);
   readonly buildCommit: string =
     import.meta.env.VITE_BUILD_COMMIT;
+  readonly isDesktop: boolean =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("desktop");
 
   private watchEventSource: EventSource | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null =
@@ -94,6 +97,10 @@ class SyncStore {
   }
 
   async checkForUpdate() {
+    // Desktop app uses the native Tauri updater; the
+    // Go backend endpoint checks upstream releases which
+    // is irrelevant and potentially wrong for forks.
+    if (this.isDesktop) return;
     try {
       const result: UpdateCheck =
         await api.checkForUpdate();

@@ -36,6 +36,10 @@ if [ -z "$resolved_version" ] || [ "$resolved_version" = "dev" ]; then
   exit 1
 fi
 
+# AGENTSVIEW_VERSION env var overrides git describe
+assert_eq "$(AGENTSVIEW_VERSION=v0.5.0-staging.1 resolve_version)" \
+  "v0.5.0-staging.1" "AGENTSVIEW_VERSION override"
+
 target="$(
   TAURI_ENV_TARGET_TRIPLE="tauri-priority-target" CARGO_BUILD_TARGET="cargo-target" \
     resolve_target_triple

@@ -387,16 +387,9 @@ update flow.
    # Use the contents of /tmp/staging-updater.key.pub for AGENTSVIEW_UPDATER_PUBKEY
    ```
 
-1. Temporarily point the updater endpoint to the fork. In
-   `desktop/src-tauri/tauri.conf.json`, change:
-
-   ```json
-   "endpoints": [
-     "https://github.com/YOUR_USER/agentsview/releases/latest/download/latest.json"
-   ]
-   ```
-
-   Commit this change on your test branch (do not merge it back).
+No manual `tauri.conf.json` edits are needed. The workflow automatically patches
+the updater endpoint URL and `latest.json` download URLs to use the current
+repository (`$GITHUB_REPOSITORY`).
 
 ### Test the CI pipeline
 
@@ -426,11 +419,14 @@ newer version to update to.
 1. After `v0.0.1-staging.1` finishes building, download and install the macOS
    DMG (or Windows installer).
 
-1. Push a second tag:
+1. Make a small commit (e.g. edit a comment), then push a second tag. The second
+   tag **must** be on a different commit so the build produces a distinct
+   version:
 
    ```bash
+   git commit --allow-empty -m "staging: bump for v0.0.2 test"
    git tag v0.0.2-staging.1
-   git push staging v0.0.2-staging.1
+   git push staging tauri-packaging v0.0.2-staging.1
    ```
 
 1. Wait for the workflow to complete and the release to publish.
@@ -479,8 +475,7 @@ git push staging --delete v0.0.1-staging.1 v0.0.2-staging.1
 git tag -d v0.0.1-staging.1 v0.0.2-staging.1
 ```
 
-Delete the releases manually from the fork's GitHub Releases page. Do not merge
-the endpoint URL change back to the main repository.
+Delete the releases manually from the fork's GitHub Releases page.
 
 ## Troubleshooting
 

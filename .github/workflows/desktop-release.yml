@@ -35,8 +35,17 @@ jobs:
         working-directory: desktop
 
       - name: Prepare sidecar
+        env:
+          AGENTSVIEW_VERSION: ${{ github.ref_name }}
         run: npm run prepare-sidecar
         working-directory: desktop
+
+      - name: Patch updater endpoint for current repository
+        run: |
+          sed -i.bak \
+            "s|wesm/agentsview|${GITHUB_REPOSITORY}|g" \
+            desktop/src-tauri/tauri.conf.json
+          rm -f desktop/src-tauri/tauri.conf.json.bak
 
       - name: Import signing certificate
         env:
@@ -134,8 +143,18 @@ jobs:
 
       - name: Prepare sidecar
         shell: bash
+        env:
+          AGENTSVIEW_VERSION: ${{ github.ref_name }}
         run: npm run prepare-sidecar
         working-directory: desktop
+
+      - name: Patch updater endpoint for current repository
+        shell: bash
+        run: |
+          sed -i.bak \
+            "s|wesm/agentsview|${GITHUB_REPOSITORY}|g" \
+            desktop/src-tauri/tauri.conf.json
+          rm -f desktop/src-tauri/tauri.conf.json.bak
 
       - name: Build NSIS installer and updater bundle
         shell: bash
@@ -190,7 +209,7 @@ jobs:
             if [ -f "$f" ]; then
               MACOS_SIG="$(cat "$f")"
               MACOS_TARBALL="$(basename "${f%.sig}")"
-              MACOS_URL="https://github.com/wesm/agentsview/releases/download/${TAG}/${MACOS_TARBALL}"
+              MACOS_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${MACOS_TARBALL}"
             fi
           done
 
@@ -198,7 +217,7 @@ jobs:
             if [ -f "$f" ]; then
               WINDOWS_SIG="$(cat "$f")"
               NSIS_ZIP="$(basename "${f%.sig}")"
-              WINDOWS_URL="https://github.com/wesm/agentsview/releases/download/${TAG}/${NSIS_ZIP}"
+              WINDOWS_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${NSIS_ZIP}"
             fi
           done
 

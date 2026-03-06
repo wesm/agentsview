@@ -496,7 +496,7 @@ fn main_window(app: &App) -> Result<WebviewWindow, DynError> {
 }
 
 fn redirect_when_ready(window: WebviewWindow, port: u16) {
-    let target_url = format!("http://{HOST}:{port}");
+    let target_url = format!("http://{HOST}:{port}?desktop=1");
 
     thread::spawn(move || {
         if wait_for_server(port, READY_TIMEOUT) {

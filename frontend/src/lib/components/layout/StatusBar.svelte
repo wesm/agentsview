@@ -31,7 +31,7 @@
   </div>
 
   <div class="status-right">
-    {#if sync.updateAvailable}
+    {#if sync.updateAvailable && !sync.isDesktop}
       <button
         class="update-available"
         onclick={() => (ui.activeModal = "update")}
