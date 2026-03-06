@@ -495,8 +495,12 @@ fn main_window(app: &App) -> Result<WebviewWindow, DynError> {
         .ok_or_else(|| io::Error::other("missing main window").into())
 }
 
+fn desktop_redirect_url(port: u16) -> String {
+    format!("http://{HOST}:{port}?desktop=1")
+}
+
 fn redirect_when_ready(window: WebviewWindow, port: u16) {
-    let target_url = format!("http://{HOST}:{port}?desktop=1");
+    let target_url = desktop_redirect_url(port);
 
     thread::spawn(move || {
         if wait_for_server(port, READY_TIMEOUT) {
@@ -588,6 +592,13 @@ async fn check_for_updates(handle: &AppHandle, silent: bool) {
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
+        if !silent {
+            handle
+                .dialog()
+                .message("An update check is already in progress.")
+                .title("Update Check")
+                .show(|_| {});
+        }
         return;
     }
     let _guard = UpdateGuard;
@@ -1063,6 +1074,16 @@ mod tests {
             elapsed < Duration::from_secs(1),
             "timeout path took too long: {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn desktop_redirect_url_includes_desktop_query_param() {
+        let url = desktop_redirect_url(18080);
+        assert_eq!(url, "http://127.0.0.1:18080?desktop=1");
+
+        let url2 = desktop_redirect_url(8080);
+        assert!(url2.contains("?desktop=1"));
+        assert!(url2.starts_with("http://127.0.0.1:8080"));
     }
 
     #[test]

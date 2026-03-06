@@ -6,6 +6,14 @@ import (
 	"github.com/wesm/agentsview/internal/update"
 )
 
+// UpdateCheckFunc is the signature for functions that check for
+// available updates. The default is update.CheckForUpdate.
+type UpdateCheckFunc func(
+	currentVersion string,
+	forceCheck bool,
+	cacheDir string,
+) (*update.UpdateInfo, error)
+
 type updateCheckResponse struct {
 	UpdateAvailable bool   `json:"update_available"`
 	CurrentVersion  string `json:"current_version"`
@@ -16,7 +24,12 @@ type updateCheckResponse struct {
 func (s *Server) handleCheckUpdate(
 	w http.ResponseWriter, _ *http.Request,
 ) {
-	info, err := update.CheckForUpdate(
+	checkFn := s.updateCheckFn
+	if checkFn == nil {
+		checkFn = update.CheckForUpdate
+	}
+
+	info, err := checkFn(
 		s.version.Version, false, s.dataDir,
 	)
 	if err != nil {

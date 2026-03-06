@@ -85,6 +85,18 @@ assert_eq "$(version_to_semver "v1.0.0-beta")" "1.0.0-beta" \
 assert_eq "$(version_to_semver "v1.0.0-alpha.2-dirty")" "1.0.0-alpha.2" \
   "prerelease tag dirty stripped"
 
+# Hyphens within identifiers
+assert_eq "$(version_to_semver "v1.0.0-rc-1")" "1.0.0-rc-1" \
+  "prerelease with hyphen in identifier"
+assert_eq "$(version_to_semver "v2.0.0-pre-alpha.3")" "2.0.0-pre-alpha.3" \
+  "prerelease with hyphenated identifier and dot"
+
+# Malformed prerelease rejected
+assert_fails "empty prerelease identifier rejected" \
+  version_to_semver "v1.0.0-.."
+assert_fails "trailing dot rejected" \
+  version_to_semver "v1.0.0-rc."
+
 # Malformed v-prefixed versions fail hard
 assert_fails "incomplete semver rejected" version_to_semver "v1.2"
 assert_fails "bare digits rejected" version_to_semver "1.2"

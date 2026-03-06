@@ -46,6 +46,11 @@ type Server struct {
 	// handler, used only by tests to guarantee handlers
 	// exceed a short timeout. Zero in production.
 	handlerDelay time.Duration
+
+	// updateCheckFn is the function called to check for
+	// updates. Defaults to update.CheckForUpdate; tests
+	// can override it via WithUpdateChecker.
+	updateCheckFn UpdateCheckFunc
 }
 
 // New creates a new Server.
@@ -85,6 +90,12 @@ func WithVersion(v VersionInfo) Option {
 // WithDataDir sets the data directory used for update caching.
 func WithDataDir(dir string) Option {
 	return func(s *Server) { s.dataDir = dir }
+}
+
+// WithUpdateChecker overrides the update check function,
+// allowing tests to substitute a deterministic stub.
+func WithUpdateChecker(f UpdateCheckFunc) Option {
+	return func(s *Server) { s.updateCheckFn = f }
 }
 
 // WithGenerateFunc overrides the insight generation function,
