@@ -2,17 +2,19 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
 // StarSession marks a session as starred. Uses INSERT...SELECT
 // with an EXISTS check so the operation is atomic and avoids FK
 // errors if the session is concurrently deleted.  Returns false
-// if the session does not exist.
+// if the session does not exist (idempotent for already-starred).
 func (db *DB) StarSession(sessionID string) (bool, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	res, err := db.getWriter().Exec(`
+	w := db.getWriter()
+	res, err := w.Exec(`
 		INSERT OR IGNORE INTO starred_sessions (session_id)
 		SELECT ? WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`,
 		sessionID, sessionID)
@@ -20,7 +22,21 @@ func (db *DB) StarSession(sessionID string) (bool, error) {
 		return false, fmt.Errorf("starring session %s: %w", sessionID, err)
 	}
 	n, _ := res.RowsAffected()
-	return n > 0, nil
+	if n > 0 {
+		return true, nil // newly starred
+	}
+	// Zero rows: either already starred or session doesn't exist.
+	var exists int
+	err = w.QueryRow(
+		"SELECT 1 FROM sessions WHERE id = ?", sessionID,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil // session doesn't exist
+	}
+	if err != nil {
+		return false, fmt.Errorf("checking session %s: %w", sessionID, err)
+	}
+	return true, nil // already starred
 }
 
 // UnstarSession removes a session's star.

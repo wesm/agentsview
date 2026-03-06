@@ -119,6 +119,9 @@ class StarredStore {
     next.delete(sessionId);
     this.ids = next;
     this.mutationVersion++;
+    // Mirror into localStorage while the legacy key exists so
+    // a migration retry doesn't re-star this session.
+    removeFromLocalStorage(sessionId);
     this.enqueue(sessionId, () => api.unstarSession(sessionId));
   }
 
@@ -179,6 +182,25 @@ function readLocalStorage(): Set<string> {
 function clearLocalStorage() {
   try {
     localStorage?.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Remove a single ID from localStorage (if the key exists). */
+function removeFromLocalStorage(id: string) {
+  try {
+    const raw = localStorage?.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    const filtered = arr.filter((v: unknown) => v !== id);
+    if (filtered.length === arr.length) return;
+    if (filtered.length === 0) {
+      localStorage?.removeItem(STORAGE_KEY);
+    } else {
+      localStorage?.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    }
   } catch {
     // ignore
   }

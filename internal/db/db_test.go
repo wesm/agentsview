@@ -3188,14 +3188,13 @@ func TestStarSession(t *testing.T) {
 		t.Fatalf("StarSession: ok=%v err=%v", ok, err)
 	}
 
-	// Idempotent re-star — INSERT OR IGNORE returns 0 rows on
-	// no-op, so ok is false. This is acceptable.
+	// Idempotent re-star — should still return true (session exists).
 	ok, err = d.StarSession("s1")
 	if err != nil {
 		t.Fatalf("re-star: %v", err)
 	}
-	if ok {
-		t.Error("re-star should return false (already starred)")
+	if !ok {
+		t.Error("re-star should return true (session exists, already starred)")
 	}
 	// This is acceptable — the session is already starred.
 
