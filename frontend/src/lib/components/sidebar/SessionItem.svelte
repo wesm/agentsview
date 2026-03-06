@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session } from "../../api/types.js";
   import { sessions, isRecentlyActive } from "../../stores/sessions.svelte.js";
+  import { starred } from "../../stores/starred.svelte.js";
   import { formatRelativeTime, truncate } from "../../utils/format.js";
   import { agentColor as getAgentColor } from "../../utils/agents.js";
 
@@ -43,6 +44,13 @@
   let timeStr = $derived(
     formatRelativeTime(session.ended_at ?? session.started_at),
   );
+
+  let isStarred = $derived(starred.isStarred(session.id));
+
+  function handleStar(e: MouseEvent) {
+    e.stopPropagation();
+    starred.toggle(session.id);
+  }
 
   // Context menu state
   let contextMenu: { x: number; y: number } | null = $state(null);
@@ -194,6 +202,23 @@
       {/if}
     </div>
   </div>
+  <button
+    class="star-btn"
+    class:starred={isStarred}
+    onclick={handleStar}
+    title={isStarred ? "Unstar session" : "Star session"}
+    aria-label={isStarred ? "Unstar session" : "Star session"}
+  >
+    {#if isStarred}
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/>
+      </svg>
+    {:else}
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+        <path d="M8 1.5l1.88 3.81 4.21.61-3.05 2.97.72 4.19L8 11.1l-3.77 1.98.72-4.19L1.9 5.92l4.21-.61L8 1.5z"/>
+      </svg>
+    {/if}
+  </button>
 </div>
 
 {#if contextMenu}
@@ -349,6 +374,40 @@
     color: var(--accent-blue);
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .star-btn {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s, background 0.12s;
+  }
+
+  .session-item:hover .star-btn,
+  .session-item:focus-within .star-btn,
+  .star-btn:focus-visible,
+  .star-btn.starred {
+    opacity: 1;
+  }
+
+  .star-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-secondary);
+  }
+
+  .star-btn.starred {
+    color: var(--accent-amber);
+  }
+
+  .star-btn.starred:hover {
+    color: var(--accent-amber);
+    background: var(--bg-surface-hover);
   }
 
   /* Context menu uses :global since it's portaled to document.body */
