@@ -399,7 +399,7 @@ where
 
     let drive = get("HOMEDRIVE", &mut lookup)?;
     let path = get("HOMEPATH", &mut lookup)?;
-    let mut combined = OsString::from(drive);
+    let mut combined = drive;
     combined.push(path);
     Some(PathBuf::from(combined))
 }
@@ -437,13 +437,14 @@ fn handle_sidecar_terminated(state: &SidecarState, startup_handled: &AtomicBool)
 
 fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
     let startup_handled = Arc::new(AtomicBool::new(false));
+    let first_output = Arc::new(AtomicBool::new(false));
     let timeout_window = window.clone();
     let timeout_state = startup_handled.clone();
     thread::spawn(move || {
         thread::sleep(READY_TIMEOUT);
         if !timeout_state.load(Ordering::SeqCst) {
             let _ = timeout_window.eval(
-                "document.getElementById('status').textContent = 'AgentsView backend did not become ready in time.';",
+                "window.__setStatus('AgentsView backend did not become ready in time.');",
             );
         }
     });
@@ -456,12 +457,22 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                     let chunk = String::from_utf8_lossy(&chunk_bytes);
                     eprintln!("[agentsview] {}", chunk.trim_end());
                     if !startup_handled.load(Ordering::SeqCst) {
+                        if !first_output.swap(true, Ordering::SeqCst) {
+                            let _ = window.eval(
+                                "window.__setStage(1); \
+                                 window.__setStatus('Starting database and syncing sessions...');",
+                            );
+                        }
                         if let Some(port) = parse_listening_port_from_stdout_buffer(
                             &mut stdout_buffer,
                             chunk.as_ref(),
                         ) {
-                            save_sidecar_port(&window.app_handle(), port);
+                            save_sidecar_port(window.app_handle(), port);
                             startup_handled.store(true, Ordering::SeqCst);
+                            let _ = window.eval(
+                                "window.__setStage(2); \
+                                 window.__setStatus('Connecting to interface...');",
+                            );
                             redirect_when_ready(window.clone(), port);
                         }
                     }
@@ -478,7 +489,8 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                     let state = window.app_handle().state::<SidecarState>();
                     if handle_sidecar_terminated(&state, startup_handled.as_ref()) {
                         let _ = window.eval(
-                            "document.getElementById('status').textContent = 'AgentsView backend exited before startup completed.';",
+                            "window.__setStatus(\
+                             'AgentsView backend exited before startup completed.');",
                         );
                     }
                     break;
