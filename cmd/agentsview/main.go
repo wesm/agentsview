@@ -47,6 +47,9 @@ func main() {
 		case "serve":
 			runServe(os.Args[2:])
 			return
+		case "sync":
+			runSync(os.Args[2:])
+			return
 		case "version", "--version", "-v":
 			fmt.Printf("agentsview %s (commit %s, built %s)\n",
 				version, commit, buildDate)
@@ -70,6 +73,7 @@ session browser via a local web UI.
 Usage:
   agentsview [flags]          Start the server (default command)
   agentsview serve [flags]    Start the server (explicit)
+  agentsview sync [flags]     Sync session data without serving
   agentsview prune [flags]    Delete sessions matching filters
   agentsview update [flags]   Check for and install updates
   agentsview version          Show version information
@@ -79,6 +83,9 @@ Server flags:
   -host string        Host to bind to (default "127.0.0.1")
   -port int           Port to listen on (default 8080)
   -no-browser         Don't open browser on startup
+
+Sync flags:
+  -full              Force a full resync regardless of data version
 
 Prune flags:
   -project string     Sessions whose project contains this substring
