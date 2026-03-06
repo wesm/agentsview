@@ -40,9 +40,13 @@ class StarredStore {
           this.ids = local;
         } else {
           // Mutations occurred — merge local stars into current
-          // optimistic state so legacy IDs aren't lost.
+          // optimistic state so legacy IDs aren't lost, but skip
+          // IDs with in-flight mutations to avoid resurrecting
+          // explicitly unstarred sessions.
           const merged = new Set(this.ids);
-          for (const id of local) merged.add(id);
+          for (const id of local) {
+            if (!this.queues.has(id)) merged.add(id);
+          }
           this.ids = merged;
         }
       }
