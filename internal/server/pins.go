@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -10,8 +12,7 @@ import (
 )
 
 type pinRequest struct {
-	Ordinal int     `json:"ordinal"`
-	Note    *string `json:"note,omitempty"`
+	Note *string `json:"note,omitempty"`
 }
 
 func (s *Server) handlePinMessage(
@@ -26,7 +27,7 @@ func (s *Server) handlePinMessage(
 	}
 
 	var req pinRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
