@@ -58,6 +58,12 @@ class StarredStore {
           clearLocalStorage();
         }
       } catch {
+        // Migration failed — merge local IDs into memory so they
+        // remain visible. localStorage is preserved for retry on
+        // next page reload.
+        const merged = new Set(this.ids);
+        for (const id of toMigrate) merged.add(id);
+        this.ids = merged;
         return;
       }
     } else {
