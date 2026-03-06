@@ -5,17 +5,22 @@ import (
 	"fmt"
 )
 
-// StarSession marks a session as starred.
-func (db *DB) StarSession(sessionID string) error {
+// StarSession marks a session as starred. Uses INSERT...SELECT
+// with an EXISTS check so the operation is atomic and avoids FK
+// errors if the session is concurrently deleted.  Returns false
+// if the session does not exist.
+func (db *DB) StarSession(sessionID string) (bool, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.getWriter().Exec(`
+	res, err := db.getWriter().Exec(`
 		INSERT OR IGNORE INTO starred_sessions (session_id)
-		VALUES (?)`, sessionID)
+		SELECT ? WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`,
+		sessionID, sessionID)
 	if err != nil {
-		return fmt.Errorf("starring session %s: %w", sessionID, err)
+		return false, fmt.Errorf("starring session %s: %w", sessionID, err)
 	}
-	return nil
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // UnstarSession removes a session's star.

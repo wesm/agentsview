@@ -15,23 +15,16 @@ func (s *Server) handleStarSession(
 		return
 	}
 
-	session, err := s.db.GetSession(r.Context(), id)
+	// StarSession is atomic: INSERT...SELECT WHERE EXISTS avoids
+	// the TOCTOU race of a separate GetSession + INSERT.
+	ok, err := s.db.StarSession(id)
 	if err != nil {
-		if handleContextError(w, err) {
-			return
-		}
-		log.Printf("star session: lookup error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if session == nil {
-		writeError(w, http.StatusNotFound, "session not found")
-		return
-	}
-
-	if err := s.db.StarSession(id); err != nil {
 		log.Printf("star session: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

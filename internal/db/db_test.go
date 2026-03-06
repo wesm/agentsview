@@ -3176,3 +3176,74 @@ func TestGetAgentsEmptyResultSerializesAsArray(t *testing.T) {
 		t.Errorf("JSON = %s, want []", b)
 	}
 }
+
+func TestStarSession(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	insertSession(t, d, "s1", "proj")
+
+	// Star existing session.
+	ok, err := d.StarSession("s1")
+	if err != nil || !ok {
+		t.Fatalf("StarSession: ok=%v err=%v", ok, err)
+	}
+
+	// Idempotent re-star.
+	ok, err = d.StarSession("s1")
+	if err != nil {
+		t.Fatalf("re-star: %v", err)
+	}
+	// INSERT OR IGNORE returns 0 rows on no-op, so ok is false.
+	// This is acceptable — the session is already starred.
+
+	// Listed.
+	ids, err := d.ListStarredSessionIDs(ctx)
+	if err != nil {
+		t.Fatalf("ListStarredSessionIDs: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "s1" {
+		t.Errorf("listed = %v, want [s1]", ids)
+	}
+
+	// Unstar.
+	if err := d.UnstarSession("s1"); err != nil {
+		t.Fatalf("UnstarSession: %v", err)
+	}
+	ids, err = d.ListStarredSessionIDs(ctx)
+	if err != nil {
+		t.Fatalf("ListStarredSessionIDs after unstar: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("listed after unstar = %v, want []", ids)
+	}
+
+	// Star non-existent session returns false (no FK error).
+	ok, err = d.StarSession("nonexistent")
+	if err != nil {
+		t.Fatalf("StarSession nonexistent: %v", err)
+	}
+	if ok {
+		t.Error("StarSession should return false for non-existent session")
+	}
+}
+
+func TestBulkStarSessions(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	insertSession(t, d, "s1", "proj")
+	insertSession(t, d, "s2", "proj")
+
+	// Bulk star with mix of valid and invalid IDs.
+	err := d.BulkStarSessions([]string{"s1", "s2", "nonexistent"})
+	if err != nil {
+		t.Fatalf("BulkStarSessions: %v", err)
+	}
+
+	ids, err := d.ListStarredSessionIDs(ctx)
+	if err != nil {
+		t.Fatalf("ListStarredSessionIDs: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("listed = %d, want 2", len(ids))
+	}
+}
