@@ -1,0 +1,106 @@
+// ABOUTME: CLI subcommand that syncs session data into the database
+// ABOUTME: without starting the HTTP server.
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/wesm/agentsview/internal/config"
+	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/parser"
+	"github.com/wesm/agentsview/internal/sync"
+)
+
+// SyncConfig holds parsed CLI options for the sync command.
+type SyncConfig struct {
+	Full bool
+}
+
+func parseSyncFlags(args []string) (SyncConfig, error) {
+	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
+	full := fs.Bool(
+		"full", false,
+		"Force a full resync regardless of data version",
+	)
+
+	if err := fs.Parse(args); err != nil {
+		return SyncConfig{}, err
+	}
+
+	return SyncConfig{Full: *full}, nil
+}
+
+func runSync(args []string) {
+	cfg, err := parseSyncFlags(args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
+	appCfg, err := config.LoadMinimal()
+	if err != nil {
+		log.Fatalf("loading config: %v", err)
+	}
+
+	if err := os.MkdirAll(appCfg.DataDir, 0o755); err != nil {
+		log.Fatalf("creating data dir: %v", err)
+	}
+
+	setupLogFile(appCfg.DataDir)
+
+	var database *db.DB
+	database, err = db.Open(appCfg.DBPath)
+	if err != nil {
+		fatal("opening database: %v", err)
+	}
+	defer database.Close()
+
+	if appCfg.CursorSecret != "" {
+		secret, decErr := base64.StdEncoding.DecodeString(appCfg.CursorSecret)
+		if decErr != nil {
+			fatal("invalid cursor secret: %v", decErr)
+		}
+		database.SetCursorSecret(secret)
+	}
+
+	for _, def := range parser.Registry {
+		if !appCfg.IsUserConfigured(def.Type) {
+			continue
+		}
+		warnMissingDirs(
+			appCfg.ResolveDirs(def.Type),
+			string(def.Type),
+		)
+	}
+
+	cleanResyncTemp(appCfg.DBPath)
+
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: appCfg.AgentDirs,
+		Machine:   "local",
+	})
+
+	if cfg.Full || database.NeedsResync() {
+		runInitialResync(engine)
+	} else {
+		runInitialSync(engine)
+	}
+
+	fmt.Println()
+	stats, err := database.GetStats(context.Background())
+	if err == nil {
+		fmt.Printf(
+			"Database: %d sessions, %d messages\n",
+			stats.SessionCount, stats.MessageCount,
+		)
+	}
+}
