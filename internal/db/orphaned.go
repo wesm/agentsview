@@ -266,11 +266,15 @@ func (d *DB) CopySessionMetadataFrom(
 	hasDisplayName := oldDBHasColumn(ctx, tx, "sessions", "display_name")
 	hasDeletedAt := oldDBHasColumn(ctx, tx, "sessions", "deleted_at")
 
+	// Use COALESCE so that any value already in newDB (from a
+	// concurrent user action during resync) is preserved.  Old
+	// values only fill in NULLs, preventing stale metadata from
+	// overwriting newer user actions.
 	if hasDisplayName && hasDeletedAt {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE main.sessions
-			SET display_name = old_s.display_name,
-			    deleted_at = old_s.deleted_at
+			SET display_name = COALESCE(main.sessions.display_name, old_s.display_name),
+			    deleted_at   = COALESCE(main.sessions.deleted_at,   old_s.deleted_at)
 			FROM old_db.sessions old_s
 			WHERE main.sessions.id = old_s.id
 			  AND (old_s.display_name IS NOT NULL
@@ -280,7 +284,7 @@ func (d *DB) CopySessionMetadataFrom(
 	} else if hasDisplayName {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE main.sessions
-			SET display_name = old_s.display_name
+			SET display_name = COALESCE(main.sessions.display_name, old_s.display_name)
 			FROM old_db.sessions old_s
 			WHERE main.sessions.id = old_s.id
 			  AND old_s.display_name IS NOT NULL`); err != nil {
@@ -289,7 +293,7 @@ func (d *DB) CopySessionMetadataFrom(
 	} else if hasDeletedAt {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE main.sessions
-			SET deleted_at = old_s.deleted_at
+			SET deleted_at = COALESCE(main.sessions.deleted_at, old_s.deleted_at)
 			FROM old_db.sessions old_s
 			WHERE main.sessions.id = old_s.id
 			  AND old_s.deleted_at IS NOT NULL`); err != nil {
