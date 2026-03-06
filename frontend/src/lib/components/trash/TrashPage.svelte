@@ -18,6 +18,8 @@
     try {
       const res = await api.listTrash();
       trashedSessions = res.sessions ?? [];
+    } catch {
+      // Silently ignore — page will show empty state.
     } finally {
       loading = false;
     }
@@ -51,6 +53,8 @@
       await api.emptyTrash();
       trashedSessions = [];
       sessions.clearRecentlyDeleted();
+    } catch {
+      // Silently ignore — button resets to allow retry.
     } finally {
       emptying = false;
     }

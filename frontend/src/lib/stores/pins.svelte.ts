@@ -29,6 +29,8 @@ class PinsStore {
       if (this.#loadAllVersion === loadVer && this.#mutationVersion === mutVer) {
         this.pins = res.pins;
       }
+    } catch {
+      // Silently ignore — pins are non-critical.
     } finally {
       if (this.#loadAllVersion === loadVer) {
         this.loading = false;
@@ -93,6 +95,8 @@ class PinsStore {
             p.message_id === messageId
           ),
       );
+    } catch {
+      // Silently ignore — refetch will reconcile state.
     } finally {
       this.#inflight.delete(messageId);
       this.#refetchAfterMutation();
@@ -134,6 +138,8 @@ class PinsStore {
               ),
           ),
         ];
+      } catch {
+        // Silently ignore — refetch will reconcile state.
       } finally {
         this.#inflight.delete(messageId);
         this.#refetchAfterMutation();
