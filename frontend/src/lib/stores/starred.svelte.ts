@@ -30,8 +30,14 @@ class StarredStore {
       if (this.mutationVersion === mutVer && this.refreshId === rid) {
         this.ids = new Set(res.session_ids);
       }
-      this.loaded = true;
-      await this.migrateLocalStorage();
+      try {
+        await this.migrateLocalStorage();
+      } finally {
+        // Mark loaded after migration completes (or fails) so
+        // concurrent load() callers don't see partially-initialized
+        // state. Only set when listStarred succeeded.
+        this.loaded = true;
+      }
     } catch {
       const local = readLocalStorage();
       if (local.size > 0) {
