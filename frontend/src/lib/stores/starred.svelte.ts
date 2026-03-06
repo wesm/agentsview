@@ -52,19 +52,27 @@ class StarredStore {
       const rid = ++this.refreshId;
       try {
         await api.bulkStarSessions(toMigrate);
-        const refreshed = await api.listStarred();
-        if (this.mutationVersion === mutVer && this.refreshId === rid) {
-          this.ids = new Set(refreshed.session_ids);
-          clearLocalStorage();
-        }
       } catch {
-        // Migration failed — merge local IDs into memory so they
-        // remain visible. localStorage is preserved for retry on
-        // next page reload.
+        // Bulk star failed — merge into memory and preserve
+        // localStorage for retry on next page reload.
         const merged = new Set(this.ids);
         for (const id of toMigrate) merged.add(id);
         this.ids = merged;
         return;
+      }
+      // Server has the data — clear localStorage immediately so
+      // stale IDs are never re-migrated on a later reload.
+      clearLocalStorage();
+      try {
+        const refreshed = await api.listStarred();
+        if (this.mutationVersion === mutVer && this.refreshId === rid) {
+          this.ids = new Set(refreshed.session_ids);
+        }
+      } catch {
+        // Refresh failed — merge migrated IDs so they're visible.
+        const merged = new Set(this.ids);
+        for (const id of toMigrate) merged.add(id);
+        this.ids = merged;
       }
     } else {
       clearLocalStorage();
