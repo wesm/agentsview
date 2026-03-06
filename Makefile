@@ -11,7 +11,7 @@ LDFLAGS := -X main.version=$(VERSION) \
 LDFLAGS_RELEASE := $(LDFLAGS) -s -w
 DESKTOP_DIST_DIR := dist/desktop
 
-.PHONY: build build-release install frontend frontend-dev dev desktop-dev desktop-build desktop-macos-app desktop-windows-installer desktop-app test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
+.PHONY: build build-release install frontend frontend-dev dev desktop-dev desktop-build desktop-macos-app desktop-macos-dmg desktop-windows-installer desktop-app test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
 
 # Ensure go:embed has at least one file (no-op if frontend is built)
 ensure-embed-dir:
@@ -75,6 +75,22 @@ desktop-macos-app:
 	cp -R desktop/src-tauri/target/release/bundle/macos/AgentsView.app \
 		$(DESKTOP_DIST_DIR)/macos/AgentsView.app
 	@echo "macOS app bundle copied to $(DESKTOP_DIST_DIR)/macos/AgentsView.app"
+
+# Build macOS DMG installer
+desktop-macos-dmg:
+	cd desktop && npm install && npm run tauri:build:macos-dmg
+	mkdir -p $(DESKTOP_DIST_DIR)/macos
+	rm -f $(DESKTOP_DIST_DIR)/macos/*.dmg
+	@dmg_count=$$(find desktop/src-tauri/target/release/bundle/dmg \
+		-maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' '); \
+	if [ "$$dmg_count" -eq 0 ]; then \
+		echo "error: no DMG installer found in bundle output" >&2; \
+		exit 1; \
+	fi; \
+	find desktop/src-tauri/target/release/bundle/dmg \
+		-maxdepth 1 -type f -name '*.dmg' \
+		-exec cp {} $(DESKTOP_DIST_DIR)/macos/ \;; \
+	echo "Copied $$dmg_count DMG installer(s) to $(DESKTOP_DIST_DIR)/macos/"
 
 # Build Windows NSIS installer bundle (.exe)
 # Run on Windows runner/host.
@@ -180,6 +196,7 @@ help:
 	@echo "  desktop-dev    - Run Tauri desktop wrapper in dev mode"
 	@echo "  desktop-build  - Build Tauri desktop app bundles"
 	@echo "  desktop-macos-app - Build macOS .app bundle only"
+	@echo "  desktop-macos-dmg - Build macOS DMG installer"
 	@echo "  desktop-windows-installer - Build Windows NSIS installer"
 	@echo "  desktop-app    - Alias for desktop-macos-app"
 	@echo ""

@@ -47,6 +47,14 @@ map_go_target() {
 }
 
 resolve_version() {
+  # In CI, AGENTSVIEW_VERSION is set from the triggering tag ref
+  # to avoid git-describe picking the wrong tag when multiple
+  # tags point at the same commit.
+  if [ -n "${AGENTSVIEW_VERSION:-}" ]; then
+    echo "$AGENTSVIEW_VERSION"
+    return 0
+  fi
+
   local resolved
   resolved="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || true)"
   if [ -n "$resolved" ]; then
@@ -61,6 +69,50 @@ resolve_version() {
   fi
 
   echo "dev"
+}
+
+version_to_semver() {
+  local raw="$1"
+  # Strip leading 'v'
+  raw="${raw#v}"
+  # git-describe: 0.10.0-3-gabcdef -> 0.10.0-dev.3
+  if [[ "$raw" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-g[0-9a-f]+(-dirty)?$ ]]; then
+    local base="${BASH_REMATCH[1]}"
+    local distance="${BASH_REMATCH[2]}"
+    echo "${base}-dev.${distance}"
+    return 0
+  fi
+  # Already semver, with optional prerelease suffix (possibly with -dirty).
+  # Identifiers are dot-separated, each non-empty, allowing [a-zA-Z0-9-].
+  if [[ "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*)?(-dirty)?$ ]]; then
+    echo "${raw%-dirty}"
+    return 0
+  fi
+  # Looks like a version (digits then dot) but isn't valid semver -- fail fast.
+  # Bare hex hashes starting with digits (e.g. 1abc234) fall through to
+  # the non-tag fallback below.
+  if [[ "$raw" =~ ^[0-9]+\. ]]; then
+    echo "error: malformed version tag: $raw" >&2
+    return 1
+  fi
+  # Non-tag fallback: bare hash, "dev", etc.
+  echo ""
+}
+
+patch_tauri_version() {
+  local version="$1"
+  local semver
+  semver="$(version_to_semver "$version")"
+  if [ -z "$semver" ]; then
+    echo "Skipping tauri.conf.json version patch (non-tag build: $version)"
+    return 0
+  fi
+  local conf="$TAURI_DIR/src-tauri/tauri.conf.json"
+  sed -i.bak \
+    "s/\"version\": \"[^\"]*\"/\"version\": \"$semver\"/" \
+    "$conf"
+  rm -f "$conf.bak"
+  echo "Patched tauri.conf.json version to $semver"
 }
 
 install_frontend_deps() {
@@ -103,6 +155,7 @@ main() {
 
   local version commit build_date ldflags tmp_dir build_bin
   version="$(resolve_version)"
+  patch_tauri_version "$version"
   commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
   build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   ldflags="-X main.version=$version -X main.commit=$commit -X main.buildDate=$build_date -s -w"

@@ -5,6 +5,7 @@ type ModalType =
   | "shortcuts"
   | "publish"
   | "resync"
+  | "update"
   | null;
 
 /** Block types that can be toggled visible/hidden. */

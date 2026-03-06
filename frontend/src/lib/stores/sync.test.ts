@@ -7,7 +7,7 @@ import {
 } from "vitest";
 import { commitsDisagree, sync } from "./sync.svelte.js";
 import * as api from "../api/client.js";
-import type { SyncStats } from "../api/types.js";
+import type { SyncStats, UpdateCheck } from "../api/types.js";
 
 vi.mock("../api/client.js", () => ({
   triggerSync: vi.fn(),
@@ -16,6 +16,7 @@ vi.mock("../api/client.js", () => ({
   getStats: vi.fn(),
   getVersion: vi.fn(),
   watchSession: vi.fn(),
+  checkForUpdate: vi.fn(),
 }));
 
 const MOCK_STATS: SyncStats = {
@@ -161,5 +162,67 @@ describe("SyncStore.triggerResync", () => {
     });
     expect(sync.syncing).toBe(false);
     expect(sync.lastSyncStats).toEqual(MOCK_STATS);
+  });
+});
+
+describe("SyncStore.checkForUpdate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const s = sync as unknown as Record<string, unknown>;
+    s.updateAvailable = false;
+    s.latestVersion = null;
+  });
+
+  it("skips API call when isDesktop is true", async () => {
+    const s = sync as unknown as Record<string, unknown>;
+    // Temporarily override isDesktop
+    const original = s.isDesktop;
+    Object.defineProperty(sync, "isDesktop", {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+
+    await sync.checkForUpdate();
+
+    expect(api.checkForUpdate).not.toHaveBeenCalled();
+    expect(sync.updateAvailable).toBe(false);
+
+    Object.defineProperty(sync, "isDesktop", {
+      value: original,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it("calls API and sets state when not desktop", async () => {
+    const mockResult: UpdateCheck = {
+      update_available: true,
+      current_version: "v0.9.0",
+      latest_version: "v1.0.0",
+    };
+    vi.mocked(api.checkForUpdate).mockResolvedValue(
+      mockResult,
+    );
+
+    const s = sync as unknown as Record<string, unknown>;
+    const original = s.isDesktop;
+    Object.defineProperty(sync, "isDesktop", {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+
+    await sync.checkForUpdate();
+
+    expect(api.checkForUpdate).toHaveBeenCalled();
+    expect(sync.updateAvailable).toBe(true);
+    expect(sync.latestVersion).toBe("v1.0.0");
+
+    Object.defineProperty(sync, "isDesktop", {
+      value: original,
+      writable: true,
+      configurable: true,
+    });
   });
 });

@@ -130,17 +130,50 @@
         width: 7px;
         height: 7px;
         border-radius: 999px;
+        flex-shrink: 0;
+      }
+
+      .stage[data-state="pending"] {
+        color: #8fa6c5;
+      }
+
+      .stage[data-state="pending"] .stage-dot {
+        background: #bccfe6;
+      }
+
+      .stage[data-state="active"] .stage-dot {
         background: var(--brand);
         box-shadow: 0 0 0 0 rgba(47, 124, 246, 0.35);
         animation: pulse 1.8s ease-in-out infinite;
       }
 
-      .stage:nth-child(2) .stage-dot {
-        animation-delay: 0.28s;
+      .stage[data-state="completed"] {
+        color: #2a6d3e;
       }
 
-      .stage:nth-child(3) .stage-dot {
-        animation-delay: 0.56s;
+      .stage[data-state="completed"] .stage-dot {
+        width: 14px;
+        height: 14px;
+        margin: -3.5px -3.5px;
+        background: #2a9d51;
+      }
+
+      .stage-check {
+        display: none;
+        width: 8px;
+        height: 8px;
+      }
+
+      .stage[data-state="completed"] .stage-check {
+        display: block;
+        position: absolute;
+      }
+
+      .stage-dot-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .foot {
@@ -217,13 +250,54 @@
         <div class="meter" aria-hidden="true"></div>
 
         <ul class="stage-list" aria-hidden="true">
-          <li class="stage"><span class="stage-dot"></span>Launching local service</li>
-          <li class="stage"><span class="stage-dot"></span>Connecting to session database</li>
-          <li class="stage"><span class="stage-dot"></span>Opening app shell</li>
+          <li class="stage" data-state="active">
+            <span class="stage-dot-wrap">
+              <span class="stage-dot"></span>
+              <svg class="stage-check" viewBox="0 0 8 8" fill="none">
+                <path d="M1.5 4L3.2 5.8L6.5 2.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            Launching local service
+          </li>
+          <li class="stage" data-state="pending">
+            <span class="stage-dot-wrap">
+              <span class="stage-dot"></span>
+              <svg class="stage-check" viewBox="0 0 8 8" fill="none">
+                <path d="M1.5 4L3.2 5.8L6.5 2.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            Connecting to session database
+          </li>
+          <li class="stage" data-state="pending">
+            <span class="stage-dot-wrap">
+              <span class="stage-dot"></span>
+              <svg class="stage-check" viewBox="0 0 8 8" fill="none">
+                <path d="M1.5 4L3.2 5.8L6.5 2.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            Opening app shell
+          </li>
         </ul>
 
         <div class="foot">Everything stays local to this machine.</div>
       </div>
     </main>
+    <script>
+      window.__setStage = function(activeIndex) {
+        var stages = document.querySelectorAll('.stage');
+        for (var i = 0; i < stages.length; i++) {
+          if (i < activeIndex) {
+            stages[i].setAttribute('data-state', 'completed');
+          } else if (i === activeIndex) {
+            stages[i].setAttribute('data-state', 'active');
+          } else {
+            stages[i].setAttribute('data-state', 'pending');
+          }
+        }
+      };
+      window.__setStatus = function(text) {
+        document.getElementById('status').textContent = text;
+      };
+    </script>
   </body>
 </html>

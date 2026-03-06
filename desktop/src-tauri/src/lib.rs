@@ -13,16 +13,21 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tauri::async_runtime::Receiver;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::plugin::Builder as PluginBuilder;
-use tauri::{App, AppHandle, Manager, RunEvent, Url, WebviewWindow};
+use tauri::{App, AppHandle, Emitter, Manager, RunEvent, Url, WebviewWindow};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 const HOST: &str = "127.0.0.1";
 const PREFERRED_PORT: u16 = 8080;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(125);
 const LOGIN_SHELL_ENV_TIMEOUT: Duration = Duration::from_secs(3);
+
 
 type DynError = Box<dyn Error>;
 type CommandRx = Receiver<CommandEvent>;
@@ -35,14 +40,39 @@ struct SidecarState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut updater_builder = tauri_plugin_updater::Builder::new();
+    // Override the placeholder pubkey from tauri.conf.json with
+    // the real key when baked in at compile time via env var.
+    if let Some(pubkey) = option_env!("AGENTSVIEW_UPDATER_PUBKEY") {
+        if !pubkey.is_empty() {
+            updater_builder = updater_builder.pubkey(pubkey.to_string());
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(updater_builder.build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(init_navigation_guard_plugin())
         .manage(SidecarState::default())
-        .setup(launch_backend)
+        .setup(|app| {
+            launch_backend(app)?;
+            setup_menu(app)?;
+            schedule_auto_update_check(app.handle().clone());
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("failed to build tauri app")
         .run(|app_handle, event| {
+            if let RunEvent::MenuEvent(event) = &event {
+                if event.id().0 == "check_updates" {
+                    let handle = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        check_for_updates(&handle, false).await;
+                    });
+                }
+            }
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 stop_backend(app_handle);
             }
@@ -94,8 +124,8 @@ fn init_navigation_guard_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlug
             if is_allowed_external_open_url(url) {
                 if let Err(err) = webview
                     .app_handle()
-                    .shell()
-                    .open(url.as_str().to_string(), None)
+                    .opener()
+                    .open_url(url.as_str(), Option::<&str>::None)
                 {
                     eprintln!("[agentsview] failed to open external URL in system browser: {err}");
                 }
@@ -369,7 +399,7 @@ where
 
     let drive = get("HOMEDRIVE", &mut lookup)?;
     let path = get("HOMEPATH", &mut lookup)?;
-    let mut combined = OsString::from(drive);
+    let mut combined = drive;
     combined.push(path);
     Some(PathBuf::from(combined))
 }
@@ -407,13 +437,14 @@ fn handle_sidecar_terminated(state: &SidecarState, startup_handled: &AtomicBool)
 
 fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
     let startup_handled = Arc::new(AtomicBool::new(false));
+    let first_output = Arc::new(AtomicBool::new(false));
     let timeout_window = window.clone();
     let timeout_state = startup_handled.clone();
     thread::spawn(move || {
         thread::sleep(READY_TIMEOUT);
         if !timeout_state.load(Ordering::SeqCst) {
             let _ = timeout_window.eval(
-                "document.getElementById('status').textContent = 'AgentsView backend did not become ready in time.';",
+                "window.__setStatus('AgentsView backend did not become ready in time.');",
             );
         }
     });
@@ -426,12 +457,28 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                     let chunk = String::from_utf8_lossy(&chunk_bytes);
                     eprintln!("[agentsview] {}", chunk.trim_end());
                     if !startup_handled.load(Ordering::SeqCst) {
+                        if !first_output.swap(true, Ordering::SeqCst) {
+                            let _ = window.eval(
+                                "window.__setStage(1); \
+                                 window.__setStatus('Starting database and syncing sessions...');",
+                            );
+                        }
+                        if let Some(status) = extract_startup_status(chunk.as_ref()) {
+                            let escaped = status.replace('\\', "\\\\").replace('\'', "\\'");
+                            let _ = window.eval(
+                                format!("window.__setStatus('{escaped}');").as_str(),
+                            );
+                        }
                         if let Some(port) = parse_listening_port_from_stdout_buffer(
                             &mut stdout_buffer,
                             chunk.as_ref(),
                         ) {
-                            save_sidecar_port(&window.app_handle(), port);
+                            save_sidecar_port(window.app_handle(), port);
                             startup_handled.store(true, Ordering::SeqCst);
+                            let _ = window.eval(
+                                "window.__setStage(2); \
+                                 window.__setStatus('Connecting to interface...');",
+                            );
                             redirect_when_ready(window.clone(), port);
                         }
                     }
@@ -448,7 +495,8 @@ fn forward_sidecar_logs(mut rx: CommandRx, window: WebviewWindow) {
                     let state = window.app_handle().state::<SidecarState>();
                     if handle_sidecar_terminated(&state, startup_handled.as_ref()) {
                         let _ = window.eval(
-                            "document.getElementById('status').textContent = 'AgentsView backend exited before startup completed.';",
+                            "window.__setStatus(\
+                             'AgentsView backend exited before startup completed.');",
                         );
                     }
                     break;
@@ -467,8 +515,12 @@ fn main_window(app: &App) -> Result<WebviewWindow, DynError> {
         .ok_or_else(|| io::Error::other("missing main window").into())
 }
 
+fn desktop_redirect_url(port: u16) -> String {
+    format!("http://{HOST}:{port}?desktop=1")
+}
+
 fn redirect_when_ready(window: WebviewWindow, port: u16) {
-    let target_url = format!("http://{HOST}:{port}");
+    let target_url = desktop_redirect_url(port);
 
     thread::spawn(move || {
         if wait_for_server(port, READY_TIMEOUT) {
@@ -481,6 +533,23 @@ fn redirect_when_ready(window: WebviewWindow, port: u16) {
             "document.getElementById('status').textContent = 'AgentsView backend did not start within 30 seconds.';",
         );
     });
+}
+
+/// Extracts the latest human-readable status text from a stdout
+/// chunk during startup. The Go server uses `\r` for in-place
+/// progress updates and `\n` for line breaks.
+fn extract_startup_status(chunk: &str) -> Option<String> {
+    // Split on \r or \n, take the last non-empty segment.
+    let segment = chunk
+        .rsplit(['\r', '\n'])
+        .map(|s| s.trim())
+        .find(|s| !s.is_empty())?;
+    // Only forward lines that look like sync output, not
+    // arbitrary log noise.
+    if segment.contains("sessions") || segment.contains("ync") || segment.contains("atching") {
+        return Some(segment.to_string());
+    }
+    None
 }
 
 fn parse_listening_port(line: &str) -> Option<u16> {
@@ -512,6 +581,162 @@ fn parse_listening_port_from_stdout_buffer(buffer: &mut String, chunk: &str) -> 
     }
 
     None
+}
+
+fn setup_menu(app: &mut App) -> Result<(), DynError> {
+    let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates...")
+        .build(app)?;
+
+    let app_submenu = SubmenuBuilder::new(app, "AgentsView")
+        .item(&check_updates)
+        .separator()
+        .quit()
+        .build()?;
+
+    let menu = MenuBuilder::new(app).item(&app_submenu).build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+static UPDATE_CHECK_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+// Guard that clears UPDATE_CHECK_ACTIVE on drop, ensuring the
+// flag is reset regardless of which return path is taken.
+struct UpdateGuard;
+
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATE_CHECK_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
+
+fn schedule_auto_update_check(handle: AppHandle) {
+    let disabled = std::env::var("AGENTSVIEW_DESKTOP_AUTOUPDATE")
+        .map(|v| v == "0")
+        .unwrap_or(false);
+    if disabled {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        check_for_updates(&handle, true).await;
+    });
+}
+
+async fn check_for_updates(handle: &AppHandle, silent: bool) {
+    if UPDATE_CHECK_ACTIVE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        if !silent {
+            handle
+                .dialog()
+                .message("An update check is already in progress.")
+                .title("Update Check")
+                .show(|_| {});
+        }
+        return;
+    }
+    let _guard = UpdateGuard;
+
+    let updater = match handle.updater() {
+        Ok(updater) => updater,
+        Err(err) => {
+            eprintln!("[agentsview] updater unavailable: {err}");
+            if !silent {
+                handle
+                    .dialog()
+                    .message("Could not check for updates. The updater is not configured.")
+                    .title("Update Check")
+                    .show(|_| {});
+            }
+            return;
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(update) => update,
+        Err(err) => {
+            eprintln!("[agentsview] update check failed: {err}");
+            if !silent {
+                handle
+                    .dialog()
+                    .message("Could not check for updates. Please try again later.")
+                    .title("Update Check")
+                    .show(|_| {});
+            }
+            return;
+        }
+    };
+
+    let Some(update) = update else {
+        if !silent {
+            handle
+                .dialog()
+                .message("You're running the latest version.")
+                .title("No Updates Available")
+                .show(|_| {});
+        }
+        return;
+    };
+
+    let version = update.version.clone();
+    let confirmed = dialog_confirm(
+        handle,
+        "Update Available",
+        &format!(
+            "Version {version} is available. \
+             Would you like to download and install it?"
+        ),
+    )
+    .await;
+
+    if !confirmed {
+        return;
+    }
+
+    if let Err(err) = update.download_and_install(|_, _| {}, || {}).await {
+        eprintln!("[agentsview] update install failed: {err}");
+        handle
+            .dialog()
+            .message(
+                "Failed to install the update. \
+                 Please try downloading manually from the releases page.",
+            )
+            .title("Update Failed")
+            .show(|_| {});
+        return;
+    }
+
+    let restart = dialog_confirm(
+        handle,
+        "Update Complete",
+        "Update installed. Restart now to apply?",
+    )
+    .await;
+
+    if restart {
+        let _ = handle.emit("restart", ());
+        handle.restart();
+    }
+}
+
+async fn dialog_confirm(
+    handle: &AppHandle,
+    title: &str,
+    message: &str,
+) -> bool {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    handle
+        .dialog()
+        .message(message)
+        .title(title)
+        .buttons(MessageDialogButtons::OkCancel)
+        .show(move |confirmed| {
+            let _ = tx.send(confirmed);
+        });
+    rx.await.unwrap_or(false)
 }
 
 fn stop_backend(app: &AppHandle) {
@@ -626,6 +851,41 @@ mod tests {
             parse_listening_port_from_stdout_buffer(&mut buf, "080 (started in 1.2s)\n"),
             Some(18080)
         );
+    }
+
+    #[test]
+    fn extract_startup_status_parses_progress_and_messages() {
+        // Carriage-return progress line
+        let chunk = "\r  25/100 sessions (25%) · 1250 messages";
+        assert_eq!(
+            extract_startup_status(chunk),
+            Some("25/100 sessions (25%) · 1250 messages".to_string())
+        );
+
+        // Multiple \r-delimited updates: takes the last one
+        let chunk = "\r  5/100 sessions (5%) · 25 messages\r  10/100 sessions (10%) · 50 messages";
+        assert_eq!(
+            extract_startup_status(chunk),
+            Some("10/100 sessions (10%) · 50 messages".to_string())
+        );
+
+        // Newline-delimited sync messages
+        assert_eq!(
+            extract_startup_status("Running initial sync...\n"),
+            Some("Running initial sync...".to_string())
+        );
+        assert_eq!(
+            extract_startup_status("Sync complete: 42 sessions synced in 125ms\n"),
+            Some("Sync complete: 42 sessions synced in 125ms".to_string())
+        );
+        assert_eq!(
+            extract_startup_status("Watching 50 directories for changes (12ms)\n"),
+            Some("Watching 50 directories for changes (12ms)".to_string())
+        );
+
+        // Unrelated output is ignored
+        assert_eq!(extract_startup_status("some random log line\n"), None);
+        assert_eq!(extract_startup_status(""), None);
     }
 
     #[test]
@@ -886,6 +1146,16 @@ mod tests {
             elapsed < Duration::from_secs(1),
             "timeout path took too long: {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn desktop_redirect_url_includes_desktop_query_param() {
+        let url = desktop_redirect_url(18080);
+        assert_eq!(url, "http://127.0.0.1:18080?desktop=1");
+
+        let url2 = desktop_redirect_url(8080);
+        assert!(url2.contains("?desktop=1"));
+        assert!(url2.starts_with("http://127.0.0.1:8080"));
     }
 
     #[test]
