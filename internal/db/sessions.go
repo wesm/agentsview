@@ -724,7 +724,7 @@ func (db *DB) FindPruneCandidates(
 		return nil, fmt.Errorf("at least one filter is required")
 	}
 
-	where := "1=1"
+	where := "deleted_at IS NULL"
 	args := []any{}
 
 	if f.Project != "" {
