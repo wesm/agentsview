@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -94,22 +95,15 @@ func (d *DB) CopyOrphanedDataFrom(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Copy session rows.
-	if _, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO sessions
-			(id, project, machine, agent, first_message,
-			 display_name, started_at, ended_at, message_count,
-			 user_message_count, file_path, file_size,
-			 file_mtime, file_hash, parent_session_id,
-			 relationship_type, deleted_at, created_at)
-		SELECT
-			id, project, machine, agent, first_message,
-			display_name, started_at, ended_at, message_count,
-			user_message_count, file_path, file_size,
-			file_mtime, file_hash, parent_session_id,
-			relationship_type, deleted_at, created_at
-		FROM old_db.sessions
-		WHERE id IN (SELECT id FROM _orphaned_ids)`,
+	// Copy session rows. Build column list dynamically so
+	// older source DBs missing display_name/deleted_at don't
+	// abort the migration.
+	orphanCols := orphanSessionCols(ctx, tx)
+
+	if _, err := tx.ExecContext(ctx,
+		"INSERT OR IGNORE INTO sessions ("+orphanCols+") "+
+			"SELECT "+orphanCols+" FROM old_db.sessions "+
+			"WHERE id IN (SELECT id FROM _orphaned_ids)",
 	); err != nil {
 		return 0, fmt.Errorf(
 			"copying orphaned sessions: %w", err,
@@ -267,16 +261,40 @@ func (d *DB) CopySessionMetadataFrom(
 	defer func() { _ = tx.Rollback() }()
 
 	// Merge display_name and deleted_at for sessions that
-	// exist in both DBs.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE main.sessions
-		SET display_name = old_s.display_name,
-		    deleted_at = old_s.deleted_at
-		FROM old_db.sessions old_s
-		WHERE main.sessions.id = old_s.id
-		  AND (old_s.display_name IS NOT NULL
-		       OR old_s.deleted_at IS NOT NULL)`); err != nil {
-		return fmt.Errorf("copying session metadata: %w", err)
+	// exist in both DBs.  Probe columns first so older source
+	// DBs that lack these columns don't abort the migration.
+	hasDisplayName := oldDBHasColumn(ctx, tx, "sessions", "display_name")
+	hasDeletedAt := oldDBHasColumn(ctx, tx, "sessions", "deleted_at")
+
+	if hasDisplayName && hasDeletedAt {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE main.sessions
+			SET display_name = old_s.display_name,
+			    deleted_at = old_s.deleted_at
+			FROM old_db.sessions old_s
+			WHERE main.sessions.id = old_s.id
+			  AND (old_s.display_name IS NOT NULL
+			       OR old_s.deleted_at IS NOT NULL)`); err != nil {
+			return fmt.Errorf("copying session metadata: %w", err)
+		}
+	} else if hasDisplayName {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE main.sessions
+			SET display_name = old_s.display_name
+			FROM old_db.sessions old_s
+			WHERE main.sessions.id = old_s.id
+			  AND old_s.display_name IS NOT NULL`); err != nil {
+			return fmt.Errorf("copying display_name: %w", err)
+		}
+	} else if hasDeletedAt {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE main.sessions
+			SET deleted_at = old_s.deleted_at
+			FROM old_db.sessions old_s
+			WHERE main.sessions.id = old_s.id
+			  AND old_s.deleted_at IS NOT NULL`); err != nil {
+			return fmt.Errorf("copying deleted_at: %w", err)
+		}
 	}
 
 	// Copy starred sessions (table may not exist in older DBs).
@@ -331,4 +349,53 @@ func oldDBHasTable(
 		name,
 	).Scan(&n)
 	return err == nil && n == 1
+}
+
+// orphanSessionCols returns the comma-separated column list for
+// copying sessions from old_db, including display_name and
+// deleted_at only when the source schema has them.
+func orphanSessionCols(ctx context.Context, tx *sql.Tx) string {
+	cols := []string{
+		"id", "project", "machine", "agent", "first_message",
+	}
+	if oldDBHasColumn(ctx, tx, "sessions", "display_name") {
+		cols = append(cols, "display_name")
+	}
+	cols = append(cols,
+		"started_at", "ended_at", "message_count",
+		"user_message_count", "file_path", "file_size",
+		"file_mtime", "file_hash", "parent_session_id",
+		"relationship_type",
+	)
+	if oldDBHasColumn(ctx, tx, "sessions", "deleted_at") {
+		cols = append(cols, "deleted_at")
+	}
+	cols = append(cols, "created_at")
+	return strings.Join(cols, ", ")
+}
+
+// oldDBHasColumn checks if a column exists in an old_db table
+// via PRAGMA table_info. Safe to call even if the table is missing.
+func oldDBHasColumn(
+	ctx context.Context, tx *sql.Tx, table, column string,
+) bool {
+	rows, err := tx.QueryContext(ctx,
+		"PRAGMA old_db.table_info("+table+")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ, dflt sql.NullString
+		var notNull, pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
 }

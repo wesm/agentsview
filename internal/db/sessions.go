@@ -337,13 +337,14 @@ func (db *DB) ListSessions(
 	return page, nil
 }
 
-// GetSession returns a single session by ID.
+// GetSession returns a single session by ID, excluding
+// soft-deleted (trashed) sessions.
 func (db *DB) GetSession(
 	ctx context.Context, id string,
 ) (*Session, error) {
 	row := db.getReader().QueryRowContext(
 		ctx,
-		"SELECT "+sessionBaseCols+" FROM sessions WHERE id = ?",
+		"SELECT "+sessionBaseCols+" FROM sessions WHERE id = ? AND deleted_at IS NULL",
 		id,
 	)
 
@@ -817,7 +818,7 @@ func (db *DB) RenameSession(id string, displayName *string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	_, err := db.getWriter().Exec(
-		"UPDATE sessions SET display_name = ? WHERE id = ?",
+		"UPDATE sessions SET display_name = ? WHERE id = ? AND deleted_at IS NULL",
 		displayName, id,
 	)
 	return err

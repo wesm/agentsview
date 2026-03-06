@@ -3412,12 +3412,17 @@ func TestCopySessionMetadataFrom(t *testing.T) {
 	}
 
 	// After copy: metadata, pin, and star should be merged.
-	s, err = dstDB.GetSession(ctx, "s1")
-	requireNoError(t, err, "GetSession after")
-	if s.DisplayName == nil || *s.DisplayName != dn {
-		t.Errorf("display_name = %v, want %q", s.DisplayName, dn)
+	// Use GetSessionFull because deleted_at was copied, so
+	// GetSession (which filters deleted_at IS NULL) returns nil.
+	sf, err := dstDB.GetSessionFull(ctx, "s1")
+	requireNoError(t, err, "GetSessionFull after")
+	if sf == nil {
+		t.Fatal("session should exist after metadata copy")
 	}
-	if s.DeletedAt == nil {
+	if sf.DisplayName == nil || *sf.DisplayName != dn {
+		t.Errorf("display_name = %v, want %q", sf.DisplayName, dn)
+	}
+	if sf.DeletedAt == nil {
 		t.Error("deleted_at should be set after copy")
 	}
 	pins, err = dstDB.ListPinnedMessages(ctx, "s1")
@@ -3587,5 +3592,34 @@ func TestMetadataQueriesExcludeTrashed(t *testing.T) {
 	}
 	if machines[0] != "laptop" {
 		t.Errorf("machine: got %q, want %q", machines[0], "laptop")
+	}
+}
+
+func TestGetSessionExcludesTrashed(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "s1", "proj")
+
+	// Before trashing: GetSession returns the session.
+	s, err := d.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession before trash")
+	if s == nil {
+		t.Fatal("session should exist before trash")
+	}
+
+	// After trashing: GetSession returns nil.
+	requireNoError(t, d.SoftDeleteSession("s1"), "soft delete")
+	s, err = d.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession after trash")
+	if s != nil {
+		t.Error("GetSession should return nil for trashed session")
+	}
+
+	// GetSessionFull still returns it.
+	sf, err := d.GetSessionFull(ctx, "s1")
+	requireNoError(t, err, "GetSessionFull after trash")
+	if sf == nil {
+		t.Error("GetSessionFull should still return trashed session")
 	}
 }
