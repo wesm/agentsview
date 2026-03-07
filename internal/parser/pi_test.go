@@ -382,4 +382,17 @@ func TestParsePiSession_ErrorCases(t *testing.T) {
 		_, _, err := ParsePiSession(path, "proj", "local")
 		assert.Error(t, err, "file without session header must return error")
 	})
+
+	t.Run("leading whitespace-only lines", func(t *testing.T) {
+		// Matches isPiSessionFile behavior which uses TrimSpace to skip
+		// whitespace-only lines before the session header.
+		header := `{"type":"session","id":"ws-sess","timestamp":"2025-06-01T10:00:00Z","cwd":"/Users/alice/code/my-project"}`
+		msg := `{"type":"message","id":"m1","timestamp":"2025-06-01T10:01:00Z","message":{"role":"user","content":"hello"}}`
+		content := "   \n\t\n" + header + "\n" + msg + "\n"
+		path := createTestFile(t, "ws-leading.jsonl", content)
+		sess, msgs, err := ParsePiSession(path, "proj", "local")
+		require.NoError(t, err, "whitespace-only leading lines must not cause parse failure")
+		assert.Equal(t, "pi:ws-sess", sess.ID)
+		assert.Len(t, msgs, 1)
+	})
 }

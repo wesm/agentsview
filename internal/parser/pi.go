@@ -30,12 +30,21 @@ func ParsePiSession(
 
 	lr := newLineReader(f, maxLineSize)
 
-	// --- Parse session header (first non-empty line) ---
-	headerLine, ok := lr.next()
-	if !ok {
-		return nil, nil, fmt.Errorf(
-			"not a pi session: missing session header in %s", path,
-		)
+	// --- Parse session header (first non-whitespace line) ---
+	// Skip whitespace-only lines to stay consistent with
+	// isPiSessionFile in discovery.go which uses TrimSpace.
+	var headerLine string
+	for {
+		line, ok := lr.next()
+		if !ok {
+			return nil, nil, fmt.Errorf(
+				"not a pi session: missing session header in %s", path,
+			)
+		}
+		if strings.TrimSpace(line) != "" {
+			headerLine = line
+			break
+		}
 	}
 
 	if !gjson.Valid(headerLine) {
