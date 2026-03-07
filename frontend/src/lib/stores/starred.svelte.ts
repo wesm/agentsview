@@ -3,7 +3,9 @@ import * as api from "../api/client.js";
 const STORAGE_KEY = "agentsview-starred-sessions";
 
 class StarredStore {
-  ids: Set<string> = $state(new Set());
+  // Seed from localStorage so legacy stars are visible immediately,
+  // before the async server load and migration complete.
+  ids: Set<string> = $state(readLocalStorage());
   filterOnly: boolean = $state(false);
   private loaded = false;
   private loading: Promise<void> | null = null;
@@ -14,6 +16,8 @@ class StarredStore {
   private refreshId = 0;
   /** Per-session promise chains to serialize server mutations. */
   private queues: Map<string, Promise<void>> = new Map();
+  private retryCount = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   async load() {
     if (this.loaded) return;
@@ -37,6 +41,7 @@ class StarredStore {
         // concurrent load() callers don't see partially-initialized
         // state. Only set when listStarred succeeded.
         this.loaded = true;
+        this.retryCount = 0;
       }
     } catch {
       const local = readLocalStorage();
@@ -56,9 +61,20 @@ class StarredStore {
           this.ids = merged;
         }
       }
+      this.scheduleRetry();
     } finally {
       this.loading = null;
     }
+  }
+
+  private scheduleRetry() {
+    if (this.retryCount >= 3) return;
+    const delay = 2000 * 2 ** this.retryCount;
+    this.retryCount++;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.load();
+    }, delay);
   }
 
   private async migrateLocalStorage() {
@@ -212,4 +228,8 @@ function removeFromLocalStorage(id: string) {
   }
 }
 
-export const starred = new StarredStore();
+export function createStarredStore(): StarredStore {
+  return new StarredStore();
+}
+
+export const starred = createStarredStore();
