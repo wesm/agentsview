@@ -29,6 +29,7 @@
     try {
       await api.restoreSession(id);
       trashedSessions = trashedSessions.filter((s) => s.id !== id);
+      sessions.clearRecentlyDeleted(id);
       // Reload the main sessions list so the sidebar reflects
       // the restored session immediately.
       sessions.load();

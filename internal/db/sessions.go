@@ -531,18 +531,31 @@ func (db *DB) ResetAllMtimes() error {
 
 // DeleteSession removes a session and its messages (cascading).
 // The session ID is recorded in excluded_sessions so the sync
-// engine does not re-import it from disk.
+// engine does not re-import it from disk. Both operations run
+// in a single transaction to prevent ghost exclusions when the
+// delete fails.
 func (db *DB) DeleteSession(id string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	w := db.getWriter()
-	if _, err := w.Exec(
+
+	tx, err := w.Begin()
+	if err != nil {
+		return fmt.Errorf("begin delete tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(
 		"INSERT OR IGNORE INTO excluded_sessions (id) VALUES (?)", id,
 	); err != nil {
 		return fmt.Errorf("excluding session %s: %w", id, err)
 	}
-	_, err := w.Exec("DELETE FROM sessions WHERE id = ?", id)
-	return err
+	if _, err := tx.Exec(
+		"DELETE FROM sessions WHERE id = ?", id,
+	); err != nil {
+		return fmt.Errorf("deleting session %s: %w", id, err)
+	}
+	return tx.Commit()
 }
 
 // DeleteSessionIfTrashed atomically deletes a session only if it
@@ -841,25 +854,37 @@ func (db *DB) ListTrashedSessions(
 
 // EmptyTrash permanently deletes all soft-deleted sessions.
 // Session IDs are recorded in excluded_sessions so the sync
-// engine does not re-import them. Returns the count of deleted rows.
+// engine does not re-import them. Both operations run in a
+// single transaction to prevent ghost exclusions when the
+// delete fails. Returns the count of deleted rows.
 func (db *DB) EmptyTrash() (int, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	w := db.getWriter()
+
+	tx, err := w.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("begin empty-trash tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// Record all trashed session IDs before deleting.
-	if _, err := w.Exec(
+	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO excluded_sessions (id)
 		 SELECT id FROM sessions WHERE deleted_at IS NOT NULL`,
 	); err != nil {
 		return 0, fmt.Errorf("excluding trashed sessions: %w", err)
 	}
-	res, err := w.Exec(
+	res, err := tx.Exec(
 		"DELETE FROM sessions WHERE deleted_at IS NOT NULL",
 	)
 	if err != nil {
 		return 0, fmt.Errorf("emptying trash: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit empty-trash: %w", err)
+	}
 	return int(n), nil
 }
 
