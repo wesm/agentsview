@@ -41,7 +41,7 @@ class StarredStore {
         // concurrent load() callers don't see partially-initialized
         // state. Only set when listStarred succeeded.
         this.loaded = true;
-        this.retryCount = 0;
+        this.cancelRetry();
       }
     } catch {
       const local = readLocalStorage();
@@ -67,7 +67,16 @@ class StarredStore {
     }
   }
 
+  private cancelRetry() {
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.retryCount = 0;
+  }
+
   private scheduleRetry() {
+    if (this.retryTimer !== null) return;
     if (this.retryCount >= 3) return;
     const delay = 2000 * 2 ** this.retryCount;
     this.retryCount++;

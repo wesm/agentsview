@@ -174,6 +174,36 @@ describe("StarredStore load retry", () => {
     expect(api.listStarred).toHaveBeenCalledTimes(4);
   });
 
+  it("does not create overlapping retry chains on repeated load()", async () => {
+    let callCount = 0;
+    vi.mocked(api.listStarred).mockImplementation(() => {
+      callCount++;
+      return Promise.reject(new Error("network"));
+    });
+
+    const store = createStarredStore();
+
+    // First load fails, schedules retry at 2s
+    await store.load();
+    expect(callCount).toBe(1);
+
+    // Manually call load() again before the retry fires — the
+    // pending timer should prevent a second timer from being
+    // scheduled.
+    await store.load();
+    expect(callCount).toBe(2);
+
+    // Only ONE retry should fire at 2s, not two
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(callCount).toBe(3);
+
+    // If overlapping timers existed we'd see an extra call here
+    await vi.advanceTimersByTimeAsync(2000);
+    // Next retry fires at 4s from second scheduleRetry
+    // but total calls should follow single-chain progression
+    expect(callCount).toBeLessThanOrEqual(4);
+  });
+
   it("does not retry after successful load", async () => {
     vi.mocked(api.listStarred).mockResolvedValue({
       session_ids: ["s1"],
