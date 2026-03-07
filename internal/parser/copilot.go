@@ -109,7 +109,8 @@ func (b *copilotSessionBuilder) handleAssistantMessage(
 	data gjson.Result, ts time.Time,
 ) {
 	content := strings.TrimSpace(data.Get("content").Str)
-	hasThinking := data.Get("reasoningText").Str != ""
+	reasoningText := strings.TrimSpace(data.Get("reasoningText").Str)
+	hasThinking := reasoningText != ""
 
 	var toolCalls []ParsedToolCall
 	data.Get("toolRequests").ForEach(
@@ -139,6 +140,16 @@ func (b *copilotSessionBuilder) handleAssistantMessage(
 	displayContent := content
 	if hasToolUse && content == "" {
 		displayContent = formatCopilotToolCalls(toolCalls)
+	}
+
+	// Prepend thinking block when reasoning text is present.
+	if hasThinking {
+		thinkBlock := "[Thinking]\n" + reasoningText + "\n[/Thinking]"
+		if displayContent != "" {
+			displayContent = thinkBlock + "\n\n" + displayContent
+		} else {
+			displayContent = thinkBlock
+		}
 	}
 
 	if displayContent == "" && !hasToolUse {

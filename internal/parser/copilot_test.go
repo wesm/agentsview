@@ -140,8 +140,41 @@ func TestParseCopilotSession_Reasoning(t *testing.T) {
 
 	_, msgs := parseAndValidateHelper(t, path, "m", 2)
 
-	if !msgs[1].HasThinking {
+	ast := msgs[1]
+	if !ast.HasThinking {
 		t.Error("expected HasThinking on assistant message with reasoningText")
+	}
+	if !strings.Contains(ast.Content, "[Thinking]\nLet me think about this carefully...\n[/Thinking]") {
+		t.Errorf("expected thinking block in content, got: %q", ast.Content)
+	}
+	if !strings.Contains(ast.Content, "Here is my analysis.") {
+		t.Errorf("expected visible content after thinking block, got: %q", ast.Content)
+	}
+	// Thinking block must precede the visible content.
+	thinkIdx := strings.Index(ast.Content, "[Thinking]")
+	visibleIdx := strings.Index(ast.Content, "Here is my analysis.")
+	if thinkIdx >= visibleIdx {
+		t.Errorf("thinking block should appear before visible content")
+	}
+}
+
+func TestParseCopilotSession_ReasoningOnly(t *testing.T) {
+	// A message with only reasoningText and no visible content or tool calls
+	// should still be emitted with thinking content.
+	path := writeCopilotJSONL(t,
+		`{"type":"session.start","data":{"sessionId":"reason-only"},"timestamp":"2025-01-15T10:00:00Z"}`,
+		`{"type":"user.message","data":{"content":"What do you think?"},"timestamp":"2025-01-15T10:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"","reasoningText":"Pondering the question..."},"timestamp":"2025-01-15T10:00:02Z"}`,
+	)
+
+	_, msgs := parseAndValidateHelper(t, path, "m", 2)
+
+	ast := msgs[1]
+	if !ast.HasThinking {
+		t.Error("expected HasThinking")
+	}
+	if !strings.Contains(ast.Content, "[Thinking]\nPondering the question...\n[/Thinking]") {
+		t.Errorf("expected thinking block in content, got: %q", ast.Content)
 	}
 }
 
