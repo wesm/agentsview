@@ -183,25 +183,26 @@ describe("StarredStore load retry", () => {
 
     const store = createStarredStore();
 
-    // First load fails, schedules retry at 2s
+    // First load fails, schedules retry at t=2s
     await store.load();
     expect(callCount).toBe(1);
 
-    // Manually call load() again before the retry fires — the
-    // pending timer should prevent a second timer from being
-    // scheduled.
+    // Second load() while retry is pending — no duplicate timer
     await store.load();
     expect(callCount).toBe(2);
 
-    // Only ONE retry should fire at 2s, not two
+    // t=2s: only the original retry fires
     await vi.advanceTimersByTimeAsync(2000);
     expect(callCount).toBe(3);
 
-    // If overlapping timers existed we'd see an extra call here
+    // t=4s: with overlapping timers a duplicate would fire here;
+    // with the fix, nothing fires — next retry is at t=6s.
     await vi.advanceTimersByTimeAsync(2000);
-    // Next retry fires at 4s from second scheduleRetry
-    // but total calls should follow single-chain progression
-    expect(callCount).toBeLessThanOrEqual(4);
+    expect(callCount).toBe(3);
+
+    // t=6s: next retry in the single chain fires (4s backoff)
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(callCount).toBe(4);
   });
 
   it("does not retry after successful load", async () => {
