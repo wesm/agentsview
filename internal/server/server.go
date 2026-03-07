@@ -162,6 +162,20 @@ func (s *Server) routes() {
 		"POST /api/v1/config/github", s.withTimeout(s.handleSetGithubConfig),
 	)
 
+	// Session management
+	s.mux.Handle("PATCH /api/v1/sessions/{id}/rename", s.withTimeout(s.handleRenameSession))
+	s.mux.Handle("DELETE /api/v1/sessions/{id}", s.withTimeout(s.handleDeleteSession))
+	s.mux.Handle("POST /api/v1/sessions/{id}/restore", s.withTimeout(s.handleRestoreSession))
+	s.mux.Handle("DELETE /api/v1/sessions/{id}/permanent", s.withTimeout(s.handlePermanentDeleteSession))
+	s.mux.Handle("GET /api/v1/trash", s.withTimeout(s.handleListTrash))
+	s.mux.Handle("DELETE /api/v1/trash", s.withTimeout(s.handleEmptyTrash))
+
+	// Pinned messages
+	s.mux.Handle("GET /api/v1/pins", s.withTimeout(s.handleListPins))
+	s.mux.Handle("GET /api/v1/sessions/{id}/pins", s.withTimeout(s.handleListSessionPins))
+	s.mux.Handle("POST /api/v1/sessions/{id}/messages/{messageId}/pin", s.withTimeout(s.handlePinMessage))
+	s.mux.Handle("DELETE /api/v1/sessions/{id}/messages/{messageId}/pin", s.withTimeout(s.handleUnpinMessage))
+
 	// SPA fallback: serve embedded frontend
 	// Do not use timeout handler for static assets to avoid buffering.
 	s.mux.Handle("/", http.HandlerFunc(s.handleSPA))

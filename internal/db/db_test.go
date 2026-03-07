@@ -3327,3 +3327,492 @@ func TestGetAgentsEmptyResultSerializesAsArray(t *testing.T) {
 		t.Errorf("JSON = %s, want []", b)
 	}
 }
+
+func TestRestoreSession(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "s1", "p")
+
+	t.Run("restore non-trashed returns 0", func(t *testing.T) {
+		n, err := d.RestoreSession("s1")
+		requireNoError(t, err, "RestoreSession")
+		if n != 0 {
+			t.Errorf("rows affected = %d, want 0", n)
+		}
+	})
+
+	t.Run("restore non-existent returns 0", func(t *testing.T) {
+		n, err := d.RestoreSession("no-such-session")
+		requireNoError(t, err, "RestoreSession")
+		if n != 0 {
+			t.Errorf("rows affected = %d, want 0", n)
+		}
+	})
+
+	t.Run("restore trashed returns 1", func(t *testing.T) {
+		requireNoError(t, d.SoftDeleteSession("s1"), "SoftDeleteSession")
+
+		// Should not appear in filtered list queries.
+		f := filterWith(func(f *SessionFilter) {})
+		page, err := d.ListSessions(ctx, f)
+		requireNoError(t, err, "ListSessions")
+		if len(page.Sessions) != 0 {
+			t.Fatal("soft-deleted session should not appear in list")
+		}
+
+		// Should appear in trash list.
+		trashed, err := d.ListTrashedSessions(ctx)
+		requireNoError(t, err, "ListTrashedSessions")
+		if len(trashed) != 1 {
+			t.Fatalf("trash count = %d, want 1", len(trashed))
+		}
+
+		n, err := d.RestoreSession("s1")
+		requireNoError(t, err, "RestoreSession")
+		if n != 1 {
+			t.Errorf("rows affected = %d, want 1", n)
+		}
+
+		// Should appear in list again.
+		page, err = d.ListSessions(ctx, f)
+		requireNoError(t, err, "ListSessions")
+		if len(page.Sessions) != 1 {
+			t.Fatal("restored session should appear in list")
+		}
+	})
+}
+
+func TestDeleteSessionExcludes(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+
+	if err := d.DeleteSession("s1"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	// Session should be gone.
+	requireSessionGone(t, d, "s1")
+
+	// Session should be excluded.
+	if !d.IsSessionExcluded("s1") {
+		t.Error("session should be excluded after permanent delete")
+	}
+
+	// UpsertSession should return ErrSessionExcluded.
+	err := d.UpsertSession(Session{
+		ID: "s1", Project: "p", Machine: "m", Agent: "claude",
+	})
+	if !errors.Is(err, ErrSessionExcluded) {
+		t.Fatalf("UpsertSession = %v, want ErrSessionExcluded", err)
+	}
+	requireSessionGone(t, d, "s1")
+}
+
+func TestEmptyTrashExcludes(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+	insertSession(t, d, "s2", "p")
+	insertSession(t, d, "s3", "p")
+
+	requireNoError(t, d.SoftDeleteSession("s1"), "SoftDeleteSession s1")
+	requireNoError(t, d.SoftDeleteSession("s2"), "SoftDeleteSession s2")
+
+	n, err := d.EmptyTrash()
+	requireNoError(t, err, "EmptyTrash")
+	if n != 2 {
+		t.Errorf("EmptyTrash deleted = %d, want 2", n)
+	}
+
+	// Both should be excluded.
+	if !d.IsSessionExcluded("s1") {
+		t.Error("s1 should be excluded")
+	}
+	if !d.IsSessionExcluded("s2") {
+		t.Error("s2 should be excluded")
+	}
+
+	// s3 should NOT be excluded.
+	if d.IsSessionExcluded("s3") {
+		t.Error("s3 should not be excluded")
+	}
+
+	// Re-upsert should return ErrSessionExcluded.
+	err = d.UpsertSession(Session{
+		ID: "s1", Project: "p", Machine: "m", Agent: "claude",
+	})
+	if !errors.Is(err, ErrSessionExcluded) {
+		t.Fatalf("UpsertSession s1 = %v, want ErrSessionExcluded", err)
+	}
+	requireSessionGone(t, d, "s1")
+
+	// s3 should still be upsertable.
+	s, _ := d.GetSession(context.Background(), "s3")
+	if s == nil {
+		t.Error("s3 should still be visible")
+	}
+}
+
+func TestCopyExcludedSessionsFrom(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source DB with excluded sessions.
+	srcPath := filepath.Join(dir, "src.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+
+	insertSession(t, srcDB, "s1", "p")
+	requireNoError(t, srcDB.DeleteSession("s1"), "DeleteSession")
+	if !srcDB.IsSessionExcluded("s1") {
+		t.Fatal("s1 should be excluded in src")
+	}
+	srcDB.Close()
+
+	// Destination DB (empty, simulates fresh resync DB).
+	dstPath := filepath.Join(dir, "dst.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+
+	// Copy excluded sessions.
+	if err := dstDB.CopyExcludedSessionsFrom(srcPath); err != nil {
+		t.Fatalf("CopyExcludedSessionsFrom: %v", err)
+	}
+
+	// s1 should be excluded in destination.
+	if !dstDB.IsSessionExcluded("s1") {
+		t.Error("s1 should be excluded in dst after copy")
+	}
+
+	// Upserting s1 should be rejected.
+	err = dstDB.UpsertSession(Session{
+		ID: "s1", Project: "p", Machine: "m", Agent: "claude",
+	})
+	if !errors.Is(err, ErrSessionExcluded) {
+		t.Errorf("UpsertSession = %v, want ErrSessionExcluded", err)
+	}
+}
+
+func TestCopySessionMetadataFrom(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Source DB: session with display_name, deleted_at, and a pin.
+	srcPath := filepath.Join(dir, "src.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	insertMessages(t, srcDB, Message{
+		SessionID: "s1", Ordinal: 1, Role: "user",
+		Content: "hello", ContentLength: 5,
+	})
+	dn := "my-custom-name"
+	requireNoError(t, srcDB.RenameSession("s1", &dn), "Rename")
+	requireNoError(t, srcDB.SoftDeleteSession("s1"), "SoftDelete")
+	// Pin message ordinal 1.
+	pinID, err := srcDB.PinMessage("s1", 1, nil)
+	if err != nil || pinID == 0 {
+		t.Fatalf("PinMessage in src: id=%d err=%v", pinID, err)
+	}
+	// Star the session.
+	if _, err := srcDB.getWriter().Exec(
+		"INSERT INTO starred_sessions (session_id) VALUES (?)", "s1",
+	); err != nil {
+		t.Fatalf("star session in src: %v", err)
+	}
+	srcDB.Close()
+
+	// Destination DB: same session re-synced (no user metadata).
+	dstPath := filepath.Join(dir, "dst.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj")
+	insertMessages(t, dstDB, Message{
+		SessionID: "s1", Ordinal: 1, Role: "user",
+		Content: "hello", ContentLength: 5,
+	})
+
+	// Before copy: no metadata, no pins.
+	s, err := dstDB.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession before")
+	if s.DisplayName != nil {
+		t.Errorf("display_name before = %v, want nil", *s.DisplayName)
+	}
+	if s.DeletedAt != nil {
+		t.Errorf("deleted_at before = %v, want nil", *s.DeletedAt)
+	}
+	pins, err := dstDB.ListPinnedMessages(ctx, "s1")
+	requireNoError(t, err, "ListPins before")
+	if len(pins) != 0 {
+		t.Errorf("pins before = %d, want 0", len(pins))
+	}
+	var starCount int
+	requireNoError(t, dstDB.getReader().QueryRow(
+		"SELECT count(*) FROM starred_sessions WHERE session_id = ?", "s1",
+	).Scan(&starCount), "count stars before")
+	if starCount != 0 {
+		t.Errorf("stars before = %d, want 0", starCount)
+	}
+
+	// Copy metadata.
+	if err := dstDB.CopySessionMetadataFrom(srcPath); err != nil {
+		t.Fatalf("CopySessionMetadataFrom: %v", err)
+	}
+
+	// After copy: metadata, pin, and star should be merged.
+	// Use GetSessionFull because deleted_at was copied, so
+	// GetSession (which filters deleted_at IS NULL) returns nil.
+	sf, err := dstDB.GetSessionFull(ctx, "s1")
+	requireNoError(t, err, "GetSessionFull after")
+	if sf == nil {
+		t.Fatal("session should exist after metadata copy")
+	}
+	if sf.DisplayName == nil || *sf.DisplayName != dn {
+		t.Errorf("display_name = %v, want %q", sf.DisplayName, dn)
+	}
+	if sf.DeletedAt == nil {
+		t.Error("deleted_at should be set after copy")
+	}
+	pins, err = dstDB.ListPinnedMessages(ctx, "s1")
+	requireNoError(t, err, "ListPins after")
+	if len(pins) != 1 {
+		t.Fatalf("pins after = %d, want 1", len(pins))
+	}
+	if pins[0].Ordinal != 1 {
+		t.Errorf("pin ordinal = %d, want 1", pins[0].Ordinal)
+	}
+	requireNoError(t, dstDB.getReader().QueryRow(
+		"SELECT count(*) FROM starred_sessions WHERE session_id = ?", "s1",
+	).Scan(&starCount), "count stars after")
+	if starCount != 1 {
+		t.Errorf("stars after = %d, want 1", starCount)
+	}
+}
+
+func TestCopySessionMetadataPreservesNewerValues(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Source DB: session with old display_name and deleted_at.
+	srcPath := filepath.Join(dir, "src.db")
+	srcDB, err := Open(srcPath)
+	requireNoError(t, err, "Open src")
+	insertSession(t, srcDB, "s1", "proj")
+	oldName := "old-name"
+	requireNoError(t, srcDB.RenameSession("s1", &oldName), "Rename src")
+	requireNoError(t, srcDB.SoftDeleteSession("s1"), "SoftDelete src")
+	srcDB.Close()
+
+	// Destination DB: same session but with newer display_name
+	// already set (simulates a user rename during resync).
+	dstPath := filepath.Join(dir, "dst.db")
+	dstDB, err := Open(dstPath)
+	requireNoError(t, err, "Open dst")
+	defer dstDB.Close()
+	insertSession(t, dstDB, "s1", "proj")
+	newerName := "newer-name"
+	requireNoError(t, dstDB.RenameSession("s1", &newerName), "Rename dst")
+
+	// Copy metadata — should NOT overwrite the newer display_name.
+	requireNoError(t, dstDB.CopySessionMetadataFrom(srcPath), "CopySessionMetadataFrom")
+
+	// display_name should be the newer value, not the old one.
+	sf, err := dstDB.GetSessionFull(ctx, "s1")
+	requireNoError(t, err, "GetSessionFull")
+	if sf == nil {
+		t.Fatal("session should exist")
+	}
+	if sf.DisplayName == nil || *sf.DisplayName != newerName {
+		t.Errorf("display_name = %v, want %q (newer value preserved)", sf.DisplayName, newerName)
+	}
+	// deleted_at should be filled from old_db since dst had NULL.
+	if sf.DeletedAt == nil {
+		t.Error("deleted_at should be set from old_db (was NULL in dst)")
+	}
+}
+
+func TestPinMessageIdempotent(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+	insertMessages(t, d, userMsg("s1", 1, "hello"))
+
+	// First pin should succeed.
+	id1, err := d.PinMessage("s1", 1, nil)
+	if err != nil || id1 == 0 {
+		t.Fatalf("first PinMessage: id=%d err=%v", id1, err)
+	}
+
+	// Idempotent re-pin with same note must not return 0.
+	id2, err := d.PinMessage("s1", 1, nil)
+	if err != nil {
+		t.Fatalf("idempotent PinMessage err: %v", err)
+	}
+	if id2 == 0 {
+		t.Fatal("idempotent PinMessage returned id=0; should return existing id")
+	}
+	if id2 != id1 {
+		t.Errorf("idempotent PinMessage id=%d, want %d", id2, id1)
+	}
+
+	// Re-pin with different note should succeed and return same id.
+	note := "important"
+	id2b, err := d.PinMessage("s1", 1, &note)
+	if err != nil {
+		t.Fatalf("re-pin with note err: %v", err)
+	}
+	if id2b != id1 {
+		t.Errorf("re-pin with note id=%d, want %d", id2b, id1)
+	}
+
+	// Pin with wrong session should return 0.
+	id3, err := d.PinMessage("nonexistent", 1, nil)
+	if err != nil {
+		t.Fatalf("wrong-session PinMessage err: %v", err)
+	}
+	if id3 != 0 {
+		t.Errorf("wrong-session PinMessage id=%d, want 0", id3)
+	}
+}
+
+func TestDeleteSessionIfTrashed(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "proj")
+
+	// Delete a non-trashed session should return 0.
+	n, err := d.DeleteSessionIfTrashed("s1")
+	if err != nil {
+		t.Fatalf("DeleteSessionIfTrashed non-trashed: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("non-trashed: rows=%d, want 0", n)
+	}
+
+	// Soft-delete, then permanent delete should succeed.
+	requireNoError(t, d.SoftDeleteSession("s1"), "soft delete")
+	n, err = d.DeleteSessionIfTrashed("s1")
+	if err != nil {
+		t.Fatalf("DeleteSessionIfTrashed trashed: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("trashed: rows=%d, want 1", n)
+	}
+
+	// Session should be gone.
+	ctx := context.Background()
+	s, err := d.GetSessionFull(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetSessionFull after delete: %v", err)
+	}
+	if s != nil {
+		t.Error("session should be nil after permanent delete")
+	}
+
+	// Session should be excluded.
+	if !d.IsSessionExcluded("s1") {
+		t.Error("session should be in excluded_sessions")
+	}
+
+	// Non-existent session should return 0.
+	n, err = d.DeleteSessionIfTrashed("nonexistent")
+	if err != nil {
+		t.Fatalf("DeleteSessionIfTrashed nonexistent: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("nonexistent: rows=%d, want 0", n)
+	}
+}
+
+func TestMetadataQueriesExcludeTrashed(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "s1", "proj-a", func(s *Session) {
+		s.Agent = "claude"
+		s.Machine = "laptop"
+	})
+	insertSession(t, d, "s2", "proj-b", func(s *Session) {
+		s.Agent = "codex"
+		s.Machine = "desktop"
+	})
+
+	// Before trashing: both projects, agents, machines visible.
+	projects, err := d.GetProjects(ctx)
+	requireNoError(t, err, "GetProjects before trash")
+	if len(projects) != 2 {
+		t.Fatalf("projects before trash: got %d, want 2", len(projects))
+	}
+
+	agents, err := d.GetAgents(ctx)
+	requireNoError(t, err, "GetAgents before trash")
+	if len(agents) != 2 {
+		t.Fatalf("agents before trash: got %d, want 2", len(agents))
+	}
+
+	machines, err := d.GetMachines(ctx)
+	requireNoError(t, err, "GetMachines before trash")
+	if len(machines) != 2 {
+		t.Fatalf("machines before trash: got %d, want 2", len(machines))
+	}
+
+	// Soft-delete s2: its project/agent/machine should disappear.
+	requireNoError(t, d.SoftDeleteSession("s2"), "soft delete s2")
+
+	projects, err = d.GetProjects(ctx)
+	requireNoError(t, err, "GetProjects after trash")
+	if len(projects) != 1 {
+		t.Errorf("projects after trash: got %d, want 1", len(projects))
+	}
+	if projects[0].Name != "proj-a" {
+		t.Errorf("project name: got %q, want %q", projects[0].Name, "proj-a")
+	}
+
+	agents, err = d.GetAgents(ctx)
+	requireNoError(t, err, "GetAgents after trash")
+	if len(agents) != 1 {
+		t.Errorf("agents after trash: got %d, want 1", len(agents))
+	}
+	if agents[0].Name != "claude" {
+		t.Errorf("agent name: got %q, want %q", agents[0].Name, "claude")
+	}
+
+	machines, err = d.GetMachines(ctx)
+	requireNoError(t, err, "GetMachines after trash")
+	if len(machines) != 1 {
+		t.Errorf("machines after trash: got %d, want 1", len(machines))
+	}
+	if machines[0] != "laptop" {
+		t.Errorf("machine: got %q, want %q", machines[0], "laptop")
+	}
+}
+
+func TestGetSessionExcludesTrashed(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	insertSession(t, d, "s1", "proj")
+
+	// Before trashing: GetSession returns the session.
+	s, err := d.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession before trash")
+	if s == nil {
+		t.Fatal("session should exist before trash")
+	}
+
+	// After trashing: GetSession returns nil.
+	requireNoError(t, d.SoftDeleteSession("s1"), "soft delete")
+	s, err = d.GetSession(ctx, "s1")
+	requireNoError(t, err, "GetSession after trash")
+	if s != nil {
+		t.Error("GetSession should return nil for trashed session")
+	}
+
+	// GetSessionFull still returns it.
+	sf, err := d.GetSessionFull(ctx, "s1")
+	requireNoError(t, err, "GetSessionFull after trash")
+	if sf == nil {
+		t.Error("GetSessionFull should still return trashed session")
+	}
+}

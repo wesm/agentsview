@@ -10,6 +10,7 @@
   import ToolBlock from "./ToolBlock.svelte";
   import CodeBlock from "./CodeBlock.svelte";
   import { ui } from "../../stores/ui.svelte.js";
+  import { pins } from "../../stores/pins.svelte.js";
   import { renderMarkdown } from "../../utils/markdown.js";
 
   interface Props {
@@ -42,6 +43,8 @@
     isUser ? "var(--user-bg)" : "var(--assistant-bg)",
   );
 
+  let pinned = $derived(pins.isPinned(message.id));
+
   let copyTimer: ReturnType<typeof setTimeout>;
 
   async function handleCopy() {
@@ -50,6 +53,18 @@
       clearTimeout(copyTimer);
       copied = true;
       copyTimer = setTimeout(() => { copied = false; }, 1500);
+    }
+  }
+
+  async function handleTogglePin() {
+    try {
+      await pins.togglePin(
+        message.session_id,
+        message.id,
+        message.ordinal,
+      );
+    } catch {
+      // silently fail
     }
   }
 </script>
@@ -92,6 +107,17 @@
           <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"/>
         </svg>
       {/if}
+    </button>
+    <button
+      type="button"
+      class="pin-btn"
+      class:pinned
+      title={pinned ? "Unpin message" : "Pin message"}
+      onclick={handleTogglePin}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M4.146.146A.5.5 0 014.5 0h7a.5.5 0 01.5.5c0 .68-.342 1.174-.646 1.479-.126.125-.25.224-.354.298v4.431l.078.048c.203.127.476.314.751.555C12.36 7.775 13 8.527 13 9.5a.5.5 0 01-.5.5H8.5v5.5a.5.5 0 01-1 0V10H3.5a.5.5 0 01-.5-.5c0-.973.64-1.725 1.17-2.189A6 6 0 015 6.708V2.277a3 3 0 01-.354-.298C4.342 1.674 4 1.179 4 .5a.5.5 0 01.146-.354z"/>
+      </svg>
     </button>
   </div>
 
@@ -197,6 +223,47 @@
   }
 
   .copy-btn:active {
+    transform: scale(0.92);
+  }
+
+  .pin-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .message:hover .pin-btn,
+  .pin-btn:focus-visible,
+  .pin-btn.pinned {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .pin-btn {
+      opacity: 1;
+    }
+  }
+
+  .pin-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-secondary);
+  }
+
+  .pin-btn.pinned {
+    color: var(--accent-blue);
+  }
+
+  .pin-btn:active {
     transform: scale(0.92);
   }
 
