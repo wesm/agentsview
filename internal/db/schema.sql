@@ -134,6 +134,12 @@ CREATE INDEX IF NOT EXISTS idx_insights_lookup
 CREATE INDEX IF NOT EXISTS idx_insights_created
     ON insights(created_at DESC);
 
+-- Starred sessions: persists user star/unstar decisions
+CREATE TABLE IF NOT EXISTS starred_sessions (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 -- Skipped files cache: persists skip decisions for files that
 -- produced no session (non-interactive, parse errors) so they
 -- survive process restarts without re-parsing.

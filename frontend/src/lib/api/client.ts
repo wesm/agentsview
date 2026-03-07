@@ -341,6 +341,46 @@ export function setGithubConfig(
   });
 }
 
+/* Starred */
+
+export async function listStarred(): Promise<{ session_ids: string[] }> {
+  return fetchJSON("/starred");
+}
+
+export async function starSession(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/sessions/${id}/star`, {
+    method: "PUT",
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, apiErrorMessage(res.status, body));
+  }
+}
+
+export async function unstarSession(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/sessions/${id}/star`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, apiErrorMessage(res.status, body));
+  }
+}
+
+export async function bulkStarSessions(
+  sessionIds: string[],
+): Promise<void> {
+  const res = await fetch(`${BASE}/starred/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_ids: sessionIds }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, apiErrorMessage(res.status, body));
+  }
+}
+
 /* Analytics */
 
 export interface AnalyticsParams {

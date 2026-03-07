@@ -162,6 +162,11 @@ func (s *Server) routes() {
 		"POST /api/v1/config/github", s.withTimeout(s.handleSetGithubConfig),
 	)
 
+	s.mux.Handle("GET /api/v1/starred", s.withTimeout(s.handleListStarred))
+	s.mux.Handle("PUT /api/v1/sessions/{id}/star", s.withTimeout(s.handleStarSession))
+	s.mux.Handle("DELETE /api/v1/sessions/{id}/star", s.withTimeout(s.handleUnstarSession))
+	s.mux.Handle("POST /api/v1/starred/bulk", s.withTimeout(s.handleBulkStar))
+
 	// SPA fallback: serve embedded frontend
 	// Do not use timeout handler for static assets to avoid buffering.
 	s.mux.Handle("/", http.HandlerFunc(s.handleSPA))
