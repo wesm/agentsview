@@ -261,7 +261,7 @@ func TestEvenerValidationAndFraming(t *testing.T) {
 }
 
 func TestEvenerVerifiedForkPrefix(t *testing.T) {
-	for _, variant := range []string{"verified", "missing parent", "different timestamp", "different kind", "nested", "subagent", "symlink parent"} {
+	for _, variant := range []string{"verified", "missing parent", "different timestamp", "different kind", "nested", "subagent", "symlink parent", "invalid parent metadata", "mismatched parent metadata", "symlink parent metadata"} {
 		t.Run(variant, func(t *testing.T) {
 			dir := t.TempDir()
 			a := evenerTestTurn("USER_INPUT", "shared")
@@ -275,6 +275,17 @@ func TestEvenerVerifiedForkPrefix(t *testing.T) {
 			}
 			if variant != "missing parent" && variant != "symlink parent" {
 				writeEvenerFixture(t, dir, parentID, nil, a, b)
+			}
+			parentMeta := filepath.Join(dir, parentID+".meta.json")
+			switch variant {
+			case "invalid parent metadata":
+				require.NoError(t, os.WriteFile(parentMeta, []byte(`{bad}`), 0o600))
+			case "mismatched parent metadata":
+				require.NoError(t, os.WriteFile(parentMeta, []byte(`{"id":"another-session"}`), 0o600))
+			case "symlink parent metadata":
+				target := filepath.Join(t.TempDir(), "parent.meta.json")
+				require.NoError(t, os.WriteFile(target, []byte(`{"id":"parent"}`), 0o600))
+				require.NoError(t, os.Symlink(target, parentMeta))
 			}
 			if variant == "nested" {
 				writeEvenerFixture(t, dir, "middle", map[string]any{"parent_session_id": "parent"}, a, b)

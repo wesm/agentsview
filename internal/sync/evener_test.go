@@ -161,6 +161,18 @@ func TestEvenerRelationshipsAndParentArrival(t *testing.T) {
 	before := engine.SourceMtime("evener:fork")
 	require.NoError(t, os.WriteFile(filepath.Join(sessions, "demo.transcript.jsonl"), parent, 0o600))
 	assert.NotEqual(t, before, engine.SourceMtime("evener:fork"))
+	parentMeta := filepath.Join(sessions, "demo.meta.json")
+	for _, invalid := range []string{`{bad}`, `{"id":"another-session"}`} {
+		require.NoError(t, os.WriteFile(parentMeta, []byte(invalid), 0o600))
+		assert.Positive(t, engine.SyncAll(ctx, nil).Failed)
+		messages, err = database.GetMessages(ctx, "evener:fork", 0, 100, true)
+		require.NoError(t, err)
+		require.Len(t, messages, 4, "invalid parent metadata prevents prefix ownership")
+		assert.Equal(t, 20, messages[1].OutputTokens)
+	}
+	before = engine.SourceMtime("evener:fork")
+	require.NoError(t, os.Remove(parentMeta))
+	assert.NotEqual(t, before, engine.SourceMtime("evener:fork"), "parent metadata removal refreshes child")
 	subagent := strings.Replace(string(parent), `"session_id":"demo"`, `"session_id":"worker","parent_session_id":"demo"`, 1)
 	require.NoError(t, os.WriteFile(filepath.Join(sessions, "worker.transcript.jsonl"), []byte(subagent), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(sessions, "worker.meta.json"), []byte(`{"id":"worker","parent_session_id":"demo","is_subagent":true}`), 0o600))

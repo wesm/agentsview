@@ -111,18 +111,11 @@ type evenerTranscript struct {
 }
 
 func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSession, []ParsedMessage, error) {
-	transcript, err := readEvenerTranscript(ctx, path)
+	transcript, meta, metaPresent, err := readEvenerSource(ctx, path)
 	if err != nil {
 		return nil, nil, err
 	}
 	h := transcript.header
-	meta, metaPresent, err := readEvenerMeta(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	if meta.ParentSessionID != "" && h.ParentSessionID != "" && meta.ParentSessionID != h.ParentSessionID {
-		return nil, nil, fmt.Errorf("evener parent identities disagree")
-	}
 	parentID := h.ParentSessionID
 	if meta.ParentSessionID != "" {
 		parentID = meta.ParentSessionID
@@ -144,7 +137,7 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 		count := meta.DivergenceTurn - 1
 		parentInfo, statErr := os.Lstat(parentPath)
 		if count <= len(transcript.entries) && statErr == nil && parentInfo.Mode().IsRegular() {
-			parent, readErr := readEvenerTranscript(ctx, parentPath)
+			parent, _, _, readErr := readEvenerSource(ctx, parentPath)
 			if readErr == nil && !parent.truncated && len(parent.entries) >= count {
 				equal := true
 				for i := range count {
@@ -260,6 +253,23 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 		return nil, nil, err
 	}
 	return sess, messages, ctx.Err()
+}
+
+// Fork verification uses the same source validation as the parent's import,
+// without recursively parsing its ancestry or normalized messages.
+func readEvenerSource(ctx context.Context, path string) (evenerTranscript, evenerMeta, bool, error) {
+	transcript, err := readEvenerTranscript(ctx, path)
+	if err != nil {
+		return transcript, evenerMeta{}, false, err
+	}
+	meta, present, err := readEvenerMeta(path)
+	if err != nil {
+		return transcript, meta, present, err
+	}
+	if meta.ParentSessionID != "" && transcript.header.ParentSessionID != "" && meta.ParentSessionID != transcript.header.ParentSessionID {
+		return transcript, meta, present, fmt.Errorf("evener parent identities disagree")
+	}
+	return transcript, meta, present, nil
 }
 
 // readEvenerTranscript accepts only newline-framed v2 records. A valid JSON
@@ -533,12 +543,20 @@ func evenerForkParentPath(path string, meta evenerMeta) string {
 
 func readEvenerMeta(path string) (evenerMeta, bool, error) {
 	var meta evenerMeta
-	data, err := os.ReadFile(strings.TrimSuffix(path, ".transcript.jsonl") + ".meta.json")
+	metaPath := strings.TrimSuffix(path, ".transcript.jsonl") + ".meta.json"
+	info, err := os.Lstat(metaPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return meta, false, nil
 	}
 	if err != nil {
 		return meta, false, fmt.Errorf("read Evener metadata: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return meta, true, fmt.Errorf("evener metadata is not a regular file")
+	}
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return meta, true, fmt.Errorf("read Evener metadata: %w", err)
 	}
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return meta, true, fmt.Errorf("decode Evener metadata: %w", err)
