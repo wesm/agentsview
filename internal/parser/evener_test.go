@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"encoding/json/v2"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,9 +16,7 @@ import (
 func writeEvenerFixture(t *testing.T, dir, id string, header map[string]any, turns ...map[string]any) string {
 	t.Helper()
 	h := map[string]any{"kind": "header", "format_version": 2, "session_id": id, "created_at": "2026-01-01T00:00:00Z", "model": "model-a", "profile_id": "provider-a", "working_dir": dir}
-	for k, v := range header {
-		h[k] = v
-	}
+	maps.Copy(h, header)
 	records := []any{h}
 	for i, turn := range turns {
 		records = append(records, map[string]any{"kind": "entry", "seq": i, "turn": turn})
@@ -117,7 +116,7 @@ func TestEvenerKindsAndContent(t *testing.T) {
 		for _, want := range []string{"answer", "image", "audio", "notes.pdf", "reference", "future detail"} {
 			assert.Contains(t, msgs[0].Content, want)
 		}
-		assert.NotContains(t, msgs[0].Content, "reasoning")
+		assert.Contains(t, msgs[0].Content, "[Thinking]\nreasoning\n[/Thinking]")
 		assert.NotContains(t, msgs[0].Content, "c2VjcmV0")
 	})
 	t.Run("diagnostics", func(t *testing.T) {
@@ -351,4 +350,103 @@ func TestEvenerParentTranscriptDependency(t *testing.T) {
 	writeEvenerMeta(t, path, map[string]any{"id": "mismatch", "parent_session_id": "parent", "divergence_turn": 3})
 	_, err := evenerParentTranscriptPath(path)
 	require.Error(t, err)
+}
+
+func TestEvenerHeaderContextPreservesInitialInstructions(t *testing.T) {
+	path := writeEvenerFixture(t, t.TempDir(), "session", map[string]any{
+		"system_prompt": "Use the repository conventions.",
+		"task":          "Inspect the build failure.",
+		"agent_tasks":   []any{map[string]any{"id": 1, "type": "test", "description": "Run the focused checks", "prompt": "Run the focused checks", "status": "pending"}},
+	}, evenerTestTurn("USER_INPUT", "Please fix the build."))
+	sess, msgs, err := parseEvenerSession(context.Background(), path, "test")
+	require.NoError(t, err)
+	require.Len(t, msgs, 4)
+	for i, msg := range msgs[:3] {
+		assert.Equal(t, RoleSystem, msg.Role)
+		assert.True(t, msg.IsSystem)
+		assert.Equal(t, i, msg.Ordinal)
+		assert.Empty(t, msg.TokenUsage)
+	}
+	assert.Contains(t, msgs[0].Content, "repository conventions")
+	assert.Contains(t, msgs[1].Content, "Inspect the build failure")
+	assert.Contains(t, msgs[2].Content, "Run the focused checks")
+	assert.Equal(t, "Please fix the build.", sess.FirstMessage)
+	assert.Equal(t, 1, sess.UserMessageCount)
+	assert.Equal(t, 3, msgs[3].Ordinal)
+}
+
+func TestEvenerCompactionMarksBoundaryWithoutRemovingHistory(t *testing.T) {
+	for _, kind := range []string{"CHECKPOINT", "SUMMARY"} {
+		t.Run(kind, func(t *testing.T) {
+			path := writeEvenerFixture(t, t.TempDir(), "session", nil, evenerTestTurn("USER_INPUT", "Before"), evenerTestTurn(kind, "Retained summary"), evenerTestTurn("USER_INPUT", "After"))
+			_, msgs, err := parseEvenerSession(context.Background(), path, "test")
+			require.NoError(t, err)
+			require.Len(t, msgs, 3)
+			assert.Equal(t, "Before", msgs[0].Content)
+			assert.True(t, msgs[1].IsCompactBoundary)
+			assert.True(t, msgs[1].IsSystem)
+			assert.Equal(t, "Retained summary", msgs[1].Content)
+			assert.Equal(t, "After", msgs[2].Content)
+		})
+	}
+}
+
+func TestEvenerRelationshipRequiresMetadataEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		meta map[string]any
+		want RelationshipType
+	}{
+		{name: "missing sidecar"},
+		{name: "no explicit classification", meta: map[string]any{"id": "child"}},
+		{name: "fork", meta: map[string]any{"id": "child", "parent_session_id": "parent", "divergence_turn": 1}, want: RelFork},
+		{name: "subagent", meta: map[string]any{"id": "child", "is_subagent": true}, want: RelSubagent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeEvenerFixture(t, t.TempDir(), "child", map[string]any{"parent_session_id": "parent", "parent_tool_call_id": "spawn-call", "depth": 2}, evenerTestTurn("USER_INPUT", "Own message"))
+			if tc.meta != nil {
+				writeEvenerMeta(t, path, tc.meta)
+			}
+			sess, msgs, err := parseEvenerSession(context.Background(), path, "test")
+			require.NoError(t, err)
+			assert.Equal(t, "evener:parent", sess.ParentSessionID)
+			assert.Equal(t, tc.want, sess.RelationshipType)
+			require.Len(t, msgs, 1)
+		})
+	}
+}
+
+func TestEvenerRedactedThinkingOmitsOpaquePayload(t *testing.T) {
+	turn := evenerTestTurn("ASSISTANT", "")
+	turn["message"] = map[string]any{"content": []any{map[string]any{"kind": "redacted_thinking", "thinking": map[string]any{"text": "opaque-encrypted-payload", "redacted": true}}, map[string]any{"kind": "text", "text": "Visible answer"}}}
+	path := writeEvenerFixture(t, t.TempDir(), "session", nil, turn)
+	_, msgs, err := parseEvenerSession(context.Background(), path, "test")
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.True(t, msgs[0].HasThinking)
+	assert.Contains(t, msgs[0].ThinkingText, "redacted")
+	assert.NotContains(t, msgs[0].ThinkingText, "opaque-encrypted-payload")
+	assert.Contains(t, msgs[0].Content, "Visible answer")
+	assert.NotContains(t, msgs[0].Content, "opaque-encrypted-payload")
+}
+
+func TestEvenerContentUsesTranscriptRenderingMarkers(t *testing.T) {
+	turn := evenerTestTurn("ASSISTANT", "")
+	turn["message"] = map[string]any{"content": []any{
+		map[string]any{"kind": "text", "text": "Before reasoning"},
+		map[string]any{"kind": "thinking", "thinking": map[string]any{"text": "Consider the input"}},
+		map[string]any{"kind": "tool_call", "tool_call": map[string]any{"id": "call-1", "name": "exec_command", "arguments": map[string]any{"cmd": "pwd"}}},
+		map[string]any{"kind": "text", "text": "After the tool"},
+	}}
+	path := writeEvenerFixture(t, t.TempDir(), "session", nil, turn)
+	_, msgs, err := parseEvenerSession(context.Background(), path, "test")
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	content := msgs[0].Content
+	assert.Contains(t, content, "[Thinking]\nConsider the input\n[/Thinking]")
+	assert.Contains(t, content, "[Tool: exec_command]\n\nAfter the tool")
+	assert.Equal(t, "Consider the input", msgs[0].ThinkingText)
+	require.Len(t, msgs[0].ToolCalls, 1)
+	assert.JSONEq(t, `{"cmd":"pwd"}`, msgs[0].ToolCalls[0].InputJSON)
+	assert.NotContains(t, content, `{"cmd":"pwd"}`, "tool arguments belong to the structured tool block")
 }

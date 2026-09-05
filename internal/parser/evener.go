@@ -16,17 +16,20 @@ import (
 )
 
 type evenerHeader struct {
-	Kind             string    `json:"kind"`
-	FormatVersion    int       `json:"format_version"`
-	SessionID        string    `json:"session_id"`
-	ParentSessionID  string    `json:"parent_session_id"`
-	ParentToolCallID string    `json:"parent_tool_call_id"`
-	CreatedAt        time.Time `json:"created_at"`
-	ProfileID        string    `json:"profile_id"`
-	Model            string    `json:"model"`
-	WorkingDir       string    `json:"working_dir"`
-	BuildVersion     string    `json:"build_version"`
-	Depth            int       `json:"depth"`
+	Kind             string         `json:"kind"`
+	FormatVersion    int            `json:"format_version"`
+	SessionID        string         `json:"session_id"`
+	ParentSessionID  string         `json:"parent_session_id"`
+	ParentToolCallID string         `json:"parent_tool_call_id"`
+	CreatedAt        time.Time      `json:"created_at"`
+	ProfileID        string         `json:"profile_id"`
+	Model            string         `json:"model"`
+	WorkingDir       string         `json:"working_dir"`
+	BuildVersion     string         `json:"build_version"`
+	Depth            int            `json:"depth"`
+	SystemPrompt     string         `json:"system_prompt"`
+	Task             string         `json:"task"`
+	AgentTasks       jsontext.Value `json:"agent_tasks"`
 }
 
 type evenerMeta struct {
@@ -118,7 +121,7 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 		return nil, nil, err
 	}
 	if meta.ParentSessionID != "" && h.ParentSessionID != "" && meta.ParentSessionID != h.ParentSessionID {
-		return nil, nil, fmt.Errorf("Evener parent identities disagree")
+		return nil, nil, fmt.Errorf("evener parent identities disagree")
 	}
 	parentID := h.ParentSessionID
 	if meta.ParentSessionID != "" {
@@ -130,7 +133,7 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 		sess.ParentSessionID = "evener:" + parentID
 		if meta.DivergenceTurn > 0 {
 			sess.RelationshipType = RelFork
-		} else if meta.IsSubagent || h.ParentToolCallID != "" || h.Depth > 0 {
+		} else if meta.IsSubagent {
 			sess.RelationshipType = RelSubagent
 		}
 	}
@@ -144,7 +147,7 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 			parent, readErr := readEvenerTranscript(ctx, parentPath)
 			if readErr == nil && len(parent.entries) >= count {
 				equal := true
-				for i := 0; i < count; i++ {
+				for i := range count {
 					if !bytes.Equal(transcript.entries[i].raw, parent.entries[i].raw) {
 						equal = false
 						break
@@ -158,6 +161,23 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 	}
 	model, provider := h.Model, h.ProfileID
 	var messages []ParsedMessage
+	// Initial instructions are system context, never the first human prompt
+	// or an additional usage-bearing response.
+	for _, initial := range []struct{ kind, content string }{
+		{"system_prompt", h.SystemPrompt},
+		{"initial_task", h.Task},
+		{"agent_tasks", string(h.AgentTasks)},
+	} {
+		content := strings.TrimSpace(initial.content)
+		if content == "" || (initial.kind == "agent_tasks" && (content == "null" || content == "[]")) {
+			continue
+		}
+		messages = append(messages, ParsedMessage{
+			Ordinal: len(messages), Role: RoleSystem, IsSystem: true,
+			Content: content, ContentLength: len(content), Timestamp: h.CreatedAt,
+			SourceType: "header", SourceSubtype: initial.kind,
+		})
+	}
 	type callLocation struct{ message, call int }
 	calls := map[string]callLocation{}
 	for i, entry := range transcript.entries {
@@ -263,7 +283,7 @@ func readEvenerTranscript(ctx context.Context, path string) (evenerTranscript, e
 	for lineNo := 1; ; lineNo++ {
 		line, complete, readErr := readEvenerLine(reader)
 		if readErr != nil {
-			return out, fmt.Errorf("Evener line %d: %w", lineNo, readErr)
+			return out, fmt.Errorf("evener line %d: %w", lineNo, readErr)
 		}
 		if !complete {
 			out.truncated = len(line) > 0
@@ -281,7 +301,7 @@ func readEvenerTranscript(ctx context.Context, path string) (evenerTranscript, e
 				return out, fmt.Errorf("unsupported Evener transcript: require semantic format_version 2")
 			}
 			if out.header.SessionID == "" || filepath.Base(path) != out.header.SessionID+".transcript.jsonl" {
-				return out, fmt.Errorf("Evener filename and header identity disagree")
+				return out, fmt.Errorf("evener filename and header identity disagree")
 			}
 			headerSeen = true
 			continue
@@ -302,7 +322,7 @@ func readEvenerTranscript(ctx context.Context, path string) (evenerTranscript, e
 			return out, fmt.Errorf("decode Evener turn %d: %w", lineNo, err)
 		}
 		if turn.Kind == "" {
-			return out, fmt.Errorf("Evener line %d has no semantic turn kind", lineNo)
+			return out, fmt.Errorf("evener line %d has no semantic turn kind", lineNo)
 		}
 		if err := envelope.Turn.Canonicalize(); err != nil {
 			return out, err
@@ -362,6 +382,8 @@ func evenerMessage(entry evenerEntry, ordinal int) ParsedMessage {
 		msg.Role = RoleAssistant
 	case "TOOL", "TOOL_RESULTS":
 		msg.Role = RoleTool
+	case "CHECKPOINT", "SUMMARY":
+		msg.IsCompactBoundary = true
 	}
 	msg.IsSystem = msg.Role == RoleSystem
 	var content, thinking []string
@@ -371,13 +393,17 @@ func evenerMessage(entry evenerEntry, ordinal int) ParsedMessage {
 			content = append(content, part.Text)
 		case "thinking", "redacted_thinking":
 			msg.HasThinking = true
-			if part.Thinking != nil {
-				thinking = append(thinking, part.Thinking.Text)
-				thinking = append(thinking, part.Thinking.Summary...)
-			}
+			text := "[thinking unavailable]"
 			if part.Kind == "redacted_thinking" {
-				thinking = append(thinking, "[redacted thinking]")
+				text = "[redacted thinking]"
+			} else if part.Thinking != nil {
+				parts := append([]string{part.Thinking.Text}, part.Thinking.Summary...)
+				if readable := strings.TrimSpace(strings.Join(parts, "\n")); readable != "" {
+					text = readable
+				}
 			}
+			thinking = append(thinking, text)
+			content = append(content, "[Thinking]\n"+text+"\n[/Thinking]")
 		case "image", "audio":
 			content = append(content, "["+part.Kind+"]")
 		case "document":
@@ -400,7 +426,7 @@ func evenerMessage(entry evenerEntry, ordinal int) ParsedMessage {
 					args = call.ParsedArguments
 				}
 				msg.ToolCalls = append(msg.ToolCalls, ParsedToolCall{ToolUseID: call.ID, ToolName: call.Name, Category: NormalizeToolCategory(call.Name), InputJSON: string(args)})
-				content = append(content, "[tool call: "+call.Name+"] "+string(args))
+				content = append(content, "[Tool: "+call.Name+"]\n")
 			}
 		case "tool_result":
 			if part.ToolResult != nil {
@@ -517,7 +543,7 @@ func readEvenerMeta(path string) (evenerMeta, bool, error) {
 		return meta, true, fmt.Errorf("decode Evener metadata: %w", err)
 	}
 	if meta.ID == "" || filepath.Base(path) != meta.ID+".transcript.jsonl" {
-		return meta, true, fmt.Errorf("Evener metadata identity does not match transcript")
+		return meta, true, fmt.Errorf("evener metadata identity does not match transcript")
 	}
 	return meta, true, nil
 }
