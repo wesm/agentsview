@@ -49,9 +49,9 @@ func (s evenerSourceSet) SourcesForChangedPath(ctx context.Context, req ChangedP
 	if err != nil {
 		return nil, err
 	}
-	if s.remote && strings.HasSuffix(req.Path, evenerTranscriptSuffix) {
+	if s.remote && (strings.HasSuffix(req.Path, evenerTranscriptSuffix) || strings.HasSuffix(req.Path, ".meta.json")) {
 		// Remote delta imports have no periodic reconciliation to revisit
-		// children when a parent arrives or its copied prefix changes. Returning
+		// children when a parent transcript or its metadata changes. Returning
 		// no exact sources requests the existing provider-local fallback.
 		return nil, nil
 	}
@@ -190,10 +190,18 @@ func (s evenerSourceSet) ComputeMultiFileStatHash(path string) uint64 {
 	if err != nil {
 		return 0
 	}
+	parentMeta := ""
+	if parent != "" {
+		parentMeta = evenerMetadataPath(parent)
+		info, err := os.Lstat(parentMeta)
+		if err != nil && !os.IsNotExist(err) || err == nil && !info.Mode().IsRegular() {
+			return 0
+		}
+	}
 	if evenerParentFileInfo(parent) == nil {
 		parent = ""
 	}
-	return fileStatTupleDigest(0xE7, path, meta, parent)
+	return fileStatTupleDigest(0xE7, path, meta, parent, parentMeta)
 }
 
 // evenerParentFileInfo excludes symlinks before either freshness path reads
@@ -247,13 +255,23 @@ func evenerFingerprintSource(src singleFileSource) (SourceFingerprint, error) {
 		return SourceFingerprint{}, err
 	}
 	if parent != "" {
-		info := evenerParentFileInfo(parent)
-		if info == nil {
-			_, _ = fmt.Fprintln(h, "parent:unavailable")
-		} else if err := addSiblingMetadataFingerprintPart(h, "parent", parent, info); err != nil {
-			// An optional parent that cannot be read cannot prove a copied
-			// prefix. Retain child history and track future availability.
-			_, _ = fmt.Fprintln(h, "parent:unavailable")
+		for _, dependency := range []struct{ label, path string }{
+			{"parent", parent},
+			{"parent_metadata", evenerMetadataPath(parent)},
+		} {
+			info, err := os.Lstat(dependency.path)
+			switch {
+			case os.IsNotExist(err):
+				_, _ = fmt.Fprintf(h, "%s:missing\n", dependency.label)
+			case err != nil || !info.Mode().IsRegular():
+				_, _ = fmt.Fprintf(h, "%s:unavailable\n", dependency.label)
+			default:
+				if err := addSiblingMetadataFingerprintPart(h, dependency.label, dependency.path, info); err != nil {
+					// Missing metadata permits parent import; inaccessible
+					// metadata does not. Keep their freshness markers distinct.
+					_, _ = fmt.Fprintf(h, "%s:unavailable\n", dependency.label)
+				}
+			}
 		}
 	}
 	fp.Hash = fmt.Sprintf("%x", h.Sum(nil))

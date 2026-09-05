@@ -374,7 +374,7 @@ func TestEvenerProviderTruncatedTranscriptDefersReplacement(t *testing.T) {
 	assert.False(t, partial.ForceReplace)
 }
 
-func TestEvenerProviderRemoteTranscriptChangesRequestReconciliation(t *testing.T) {
+func TestEvenerProviderRemoteChangesRequestReconciliation(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sessions", "session.transcript.jsonl")
 	writeSourceFile(t, path, "{}\n")
@@ -385,7 +385,8 @@ func TestEvenerProviderRemoteTranscriptChangesRequestReconciliation(t *testing.T
 	}{
 		{"local transcript", false, false, 1},
 		{"remote transcript", true, false, 0},
-		{"remote metadata", true, true, 1},
+		{"remote metadata", true, true, 0},
+		{"local metadata", false, true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := ProviderConfig{Roots: []string{root}}
@@ -401,6 +402,58 @@ func TestEvenerProviderRemoteTranscriptChangesRequestReconciliation(t *testing.T
 			sources, err := provider.SourcesForChangedPath(t.Context(), ChangedPathRequest{Path: changedPath, EventKind: "write"})
 			require.NoError(t, err)
 			assert.Len(t, sources, tc.want)
+		})
+	}
+}
+
+func TestEvenerProviderParentMetadataFingerprint(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sessions")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	child := writeEvenerFixture(t, dir, "child", map[string]any{"parent_session_id": "parent"}, evenerTestTurn("USER_INPUT", "copied"))
+	writeEvenerMeta(t, child, map[string]any{"id": "child", "parent_session_id": "parent", "divergence_turn": 2})
+	writeEvenerFixture(t, dir, "parent", nil, evenerTestTurn("USER_INPUT", "copied"))
+	provider, ok := NewProvider(AgentEvener, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(t.Context(), FindSourceRequest{RawSessionID: "child"})
+	require.NoError(t, err)
+	require.True(t, found)
+	fingerprint, err := provider.Fingerprint(t.Context(), source)
+	require.NoError(t, err)
+	hasher := provider.(MultiFileStatHasher)
+	digest := hasher.ComputeMultiFileStatHash(child)
+	meta := filepath.Join(dir, "parent.meta.json")
+	for _, content := range []string{`{"id":"broken"}`, `{"id":"parent"}`, `{bad}`} {
+		writeSourceFile(t, meta, content)
+		changed, err := provider.Fingerprint(t.Context(), source)
+		require.NoError(t, err)
+		assert.NotEqual(t, fingerprint.Hash, changed.Hash)
+		assert.NotEqual(t, digest, hasher.ComputeMultiFileStatHash(child))
+		assert.Equal(t, fingerprint.Size, changed.Size, "parent metadata is a dependency, not child source bytes")
+		fingerprint = changed
+		digest = hasher.ComputeMultiFileStatHash(child)
+	}
+	require.NoError(t, os.Remove(meta))
+	missing, err := provider.Fingerprint(t.Context(), source)
+	require.NoError(t, err)
+	assert.NotEqual(t, fingerprint.Hash, missing.Hash)
+	for _, kind := range []string{"symlink", "directory"} {
+		t.Run(kind, func(t *testing.T) {
+			if kind == "symlink" {
+				target := filepath.Join(t.TempDir(), "metadata")
+				writeSourceFile(t, target, `{"id":"parent"}`)
+				require.NoError(t, os.Symlink(target, meta))
+			} else {
+				require.NoError(t, os.Mkdir(meta, 0700))
+			}
+			blocked, err := provider.Fingerprint(t.Context(), source)
+			require.NoError(t, err)
+			assert.NotEqual(t, missing.Hash, blocked.Hash, "absent metadata and invalid metadata change parent eligibility")
+			assert.Zero(t, hasher.ComputeMultiFileStatHash(child), "nonregular parent metadata must not be followed by stat freshness")
+			require.NoError(t, os.Remove(meta))
+			restored, err := provider.Fingerprint(t.Context(), source)
+			require.NoError(t, err)
+			assert.Equal(t, missing.Hash, restored.Hash)
 		})
 	}
 }

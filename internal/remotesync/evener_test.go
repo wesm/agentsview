@@ -105,21 +105,33 @@ func TestEvenerRemoteDeltaRefreshesForkWhenParentArrives(t *testing.T) {
 	require.Len(t, messages, 4)
 	parentPath := filepath.Join(local, "demo.transcript.jsonl")
 	for _, tc := range []struct {
-		name, content         string
-		wantCount, wantOutput int
+		name, content, metadata string
+		wantCount, wantOutput   int
+		wantFailure             bool
 	}{
-		{"arrival", string(parent), 1, 0},
-		{"rewritten prefix", strings.Replace(string(parent), "Investigate the orchard synchronization bug", "Inspect another workspace.", 1), 4, 20},
+		{"arrival", string(parent), "", 1, 0, false},
+		{"invalid parent metadata", "", `{"id":"wrong"}`, 4, 20, true},
+		{"repaired parent metadata", "", `{"id":"demo"}`, 1, 0, false},
+		{"rewritten prefix", strings.Replace(string(parent), "Investigate the orchard synchronization bug", "Inspect another workspace.", 1), "", 4, 20, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.NoError(t, os.WriteFile(parentPath, []byte(tc.content), 0600))
-			relative, err := mirrorRelativeLocalChangePath(root, parentPath)
+			changedPath, content := parentPath, tc.content
+			if tc.metadata != "" {
+				changedPath, content = filepath.Join(local, "demo.meta.json"), tc.metadata
+			}
+			require.NoError(t, os.WriteFile(changedPath, []byte(content), 0600))
+			relative, err := mirrorRelativeLocalChangePath(root, changedPath)
 			require.NoError(t, err)
 			pending, err := importer.PreparePending(t.Context(), DeltaImportRequest{Journal: MirrorChangeJournal{Version: mirrorJournalVersion, Entries: []MirrorChangeEntry{{Path: relative}}}})
 			require.NoError(t, err)
 			stats, err := pending.Execute(t.Context())
-			require.NoError(t, err)
-			require.Zero(t, stats.Failed)
+			if tc.wantFailure {
+				require.Error(t, err)
+				assert.Positive(t, stats.Failed)
+			} else {
+				require.NoError(t, err)
+				require.Zero(t, stats.Failed)
+			}
 			messages, err := database.GetMessages(t.Context(), "remote~evener:fork", 0, 100, true)
 			require.NoError(t, err)
 			require.Len(t, messages, tc.wantCount)
