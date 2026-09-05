@@ -92,8 +92,19 @@ func TestEvenerArchiveLifecycle(t *testing.T) {
 	require.Len(t, messages, 4)
 	assert.Equal(t, "The orchard is synchronized.", messages[3].Content)
 
-	// Replacing a source must remove obsolete messages instead of appending.
+	// An unfinished rewrite cannot replace the complete archive with a prefix.
 	lines := strings.Split(strings.TrimSpace(string(source)), "\n")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines[:2], "\n")+"\n"+tail[:len(tail)/2]), 0o600))
+	rewrite := engine.SyncAll(ctx, nil)
+	assert.Positive(t, rewrite.Failed)
+	messages, err = database.GetMessages(ctx, session.ID, 0, 100, true)
+	require.NoError(t, err)
+	require.Len(t, messages, 4)
+	assert.Equal(t, "The orchard is synchronized.", messages[3].Content)
+	require.Len(t, messages[1].ToolCalls, 1)
+	assert.Equal(t, 20, messages[1].OutputTokens)
+
+	// Replacing a source must remove obsolete messages instead of appending.
 	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines[:2], "\n")+"\n"), 0o600))
 	replaced := engine.SyncAll(ctx, nil)
 	require.Zero(t, replaced.Failed)
@@ -119,4 +130,51 @@ func TestEvenerArchiveLifecycle(t *testing.T) {
 	messages, err = database.GetMessages(ctx, session.ID, 0, 100, true)
 	require.NoError(t, err)
 	assert.Len(t, messages, 1)
+}
+
+func TestEvenerRelationshipsAndParentArrival(t *testing.T) {
+	database := openTestDB(t)
+	root := t.TempDir()
+	sessions := filepath.Join(root, "sessions")
+	require.NoError(t, os.MkdirAll(sessions, 0o755))
+	parent, err := os.ReadFile("testdata/evener/demo.transcript.jsonl")
+	require.NoError(t, err)
+	child := strings.Replace(string(parent), `"session_id":"demo"`, `"session_id":"fork","parent_session_id":"demo"`, 1)
+	child += "{\"kind\":\"entry\",\"seq\":4,\"turn\":{\"kind\":\"USER_INPUT\",\"message\":{\"role\":\"user\",\"content\":[{\"kind\":\"text\",\"text\":\"Try the fork approach\"}]}}}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "fork.transcript.jsonl"), []byte(child), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "fork.meta.json"), []byte(`{"id":"fork","parent_session_id":"demo","divergence_turn":4}`), 0o600))
+	engine := NewEngine(database, EngineConfig{AgentDirs: map[parser.AgentType][]string{parser.AgentEvener: {root}}, Machine: "local"})
+	t.Cleanup(engine.Close)
+	ctx := t.Context()
+	require.Zero(t, engine.SyncAll(ctx, nil).Failed)
+	messages, err := database.GetMessages(ctx, "evener:fork", 0, 100, true)
+	require.NoError(t, err)
+	require.Len(t, messages, 4, "unavailable parent keeps shared content")
+	before := engine.SourceMtime("evener:fork")
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "demo.transcript.jsonl"), parent, 0o600))
+	assert.NotEqual(t, before, engine.SourceMtime("evener:fork"))
+	subagent := strings.Replace(string(parent), `"session_id":"demo"`, `"session_id":"worker","parent_session_id":"demo"`, 1)
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "worker.transcript.jsonl"), []byte(subagent), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "worker.meta.json"), []byte(`{"id":"worker","parent_session_id":"demo","is_subagent":true}`), 0o600))
+	require.Zero(t, engine.SyncAll(ctx, nil).Failed)
+	for _, tc := range []struct {
+		id, relationship string
+		count, output    int
+	}{{"fork", string(parser.RelFork), 1, 0}, {"worker", string(parser.RelSubagent), 3, 20}} {
+		session, err := database.GetSessionFull(ctx, "evener:"+tc.id)
+		require.NoError(t, err)
+		require.NotNil(t, session)
+		require.NotNil(t, session.ParentSessionID)
+		assert.Equal(t, "evener:demo", *session.ParentSessionID)
+		assert.Equal(t, tc.relationship, session.RelationshipType)
+		messages, err := database.GetMessages(ctx, session.ID, 0, 100, true)
+		require.NoError(t, err)
+		assert.Len(t, messages, tc.count)
+		output := 0
+		for _, msg := range messages {
+			output += msg.OutputTokens
+		}
+		assert.Equal(t, tc.output, output)
+	}
+	assert.Zero(t, engine.SyncAll(ctx, nil).Synced)
 }
