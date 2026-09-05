@@ -2663,3 +2663,48 @@ func TestDisabledAgentsExplicitEmptyArrayEnablesDefaults(t *testing.T) {
 	assert.Empty(t, cfg.DisabledAgents)
 	assert.NotEmpty(t, cfg.ResolveDirs(parser.AgentGemini))
 }
+
+func TestResolveDirs_EvenerPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name, state, override string
+		configured            bool
+	}{
+		{name: "home default"},
+		{name: "XDG state default", state: "state"},
+		{name: "explicit root", state: "state", override: "override", configured: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := setupTestEnv(t)
+			t.Setenv("XDG_STATE_HOME", "")
+			t.Setenv("EVENER_DIR", "")
+			home, err := os.UserHomeDir()
+			require.NoError(t, err)
+			want := filepath.Join(home, ".local", "state", "evener")
+			if tc.state != "" {
+				state := filepath.Join(t.TempDir(), tc.state)
+				t.Setenv("XDG_STATE_HOME", state)
+				want = filepath.Join(state, "evener")
+			}
+			if tc.override != "" {
+				want = filepath.Join(t.TempDir(), tc.override)
+				t.Setenv("EVENER_DIR", want)
+			}
+			writeConfig(t, dir, map[string]any{})
+			cfg, err := LoadMinimal()
+			require.NoError(t, err)
+			assert.Equal(t, []string{want}, cfg.ResolveDirs(parser.AgentType("evener")))
+			assert.Equal(t, tc.configured, cfg.IsUserConfigured(parser.AgentType("evener")))
+		})
+	}
+	t.Run("config root", func(t *testing.T) {
+		dir := setupTestEnv(t)
+		t.Setenv("EVENER_DIR", "")
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		want := filepath.Join(t.TempDir(), "sessions")
+		writeConfig(t, dir, map[string]any{"evener_dirs": []string{want}})
+		cfg, err := LoadMinimal()
+		require.NoError(t, err)
+		assert.Equal(t, []string{want}, cfg.ResolveDirs(parser.AgentType("evener")))
+		assert.True(t, cfg.IsUserConfigured(parser.AgentType("evener")))
+	})
+}

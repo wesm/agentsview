@@ -1203,6 +1203,8 @@ func providerFactoryForDef(def AgentDef) ProviderFactory {
 		return newQwenPawProviderFactory(def)
 	case AgentQoder:
 		return newQoderProviderFactory(def)
+	case AgentEvener:
+		return newEvenerProviderFactory(def)
 	case AgentReasonix:
 		return newReasonixProviderFactory(def)
 	case AgentOmnigent:
