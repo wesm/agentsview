@@ -1,6 +1,7 @@
 # Evener provider support
 
-Status: proposed design for review. Implementation has not started.
+Status: revised to follow existing Agentsview provider behavior. Implementation
+has not started.
 
 ## Outcome and scope
 
@@ -92,7 +93,7 @@ unreadable roots are errors, not proof that their archived sessions vanished.
 | `TOOL`, `TOOL_RESULTS` | Tool results linked by call ID, preserving error state and repeated result events |
 | `SYSTEM`, `ENVIRONMENT`, `HOOK_COMPLETED`, `ATTENTION_RESOLUTION` | System-classified records with readable content and meaningful event details |
 | `CHECKPOINT`, `SUMMARY` | Explicit compaction records; retain the preceding history |
-| `MODEL_SWITCH` | Visible model-change record; update fallback model context for subsequent messages |
+| `MODEL_SWITCH` | Visible model-change record; consume structured switch facts when present |
 | `TURN_FAILURE` | Visible diagnostic; do not mark a later successful continuation as failed |
 | Metadata | Session name and explicit presence, fork/subagent distinction, and available environment metadata |
 
@@ -120,31 +121,41 @@ from the current import. Do not infer successful termination from EOF alone.
 
 ## Usage and cost
 
-Use assistant-turn usage as the accounting source. Do not additionally sum
-metadata cumulative totals or API logs. Preserve explicit zero versus absent
-optional measurements. Keep actual reasoning counts separate from estimates;
-reasoning is not an additional charge on top of output tokens.
+Report recorded conversation usage, following other providers. Use
+assistant-turn usage as the source; do not additionally sum metadata cumulative
+totals or API logs. This is not a provider invoice reconciliation feature.
+Preserve explicit zero versus absent optional measurements. Keep actual
+reasoning counts separate from estimates; reasoning is not an additional
+charge on top of output tokens.
 
 Evener normalizes uncached input, cache reads, and cache writes separately.
 Map these to Agentsview's normalized usage representation, including distinct
 cache-write lifetimes. Context size includes the applicable input/cache
-categories. Use each response's recorded model and provider; fall back to the
-session's model timeline only when per-response information is absent. Prices
-come from Agentsview's existing catalog and unknown prices remain unknown.
+categories. Use each response's recorded model and provider. Fall back to the
+header model until a switch; after a switch without structured facts, leave
+unattributed usage unpriced rather than extracting a model from display prose.
+The separate Evener producer PR adds structured facts to model-switch turns;
+use those facts when present. Prices come from Agentsview's existing catalog
+and unknown prices remain unknown.
 
-Populate the existing message source identity for usage deduplication. Prefer
-provider-scoped response identity, including endpoint/storage scope when
-present. Copies of a response in forked transcripts must have the same key.
-For records lacking response identity, use proven fork ancestry and source
-entry position to identify the copied prefix; never deduplicate unrelated
-messages solely because their text or token counts match. If ancestry cannot
-be established, expose the accounting limitation instead of guessing equality.
+Follow the existing Codex fork policy in `internal/parser/codex.go`: omit a
+verified replayed parent prefix from the child's normalized messages and usage,
+and preserve the parent relationship. Evener supplies a 1-based
+`divergence_turn` over all source entries, so entries before that boundary are
+the candidate copied prefix. Verify against the available parent transcript;
+do not use parsed-message ordinals or timestamps as the boundary.
 
-Retain copied history in each fork's transcript. Verify both per-session usage
-and cross-session aggregates against Agentsview's existing dedup semantics,
-including importing a child before its parent and repeating remote sync.
-SQLite and PostgreSQL must agree on the resulting normalized records and
-aggregate totals. DuckDB and export paths consume the same records.
+When the parent cannot be resolved or the boundary cannot be verified, retain
+child content, matching Codex's conservative behavior. Document that shared
+history can then contribute usage in both sessions. Do not introduce recursive
+ancestry-derived identities, a new billing deduplication scheme, or a separate
+accounting-warning subsystem. Spawned subagents without a copied prefix retain
+all their own usage. Use existing source-ID deduplication only where the
+producer supplies a dependable identity.
+
+Test an ordinary fork, a fork of a fork, missing parents, subagents, and
+repeated sync using the established provider test patterns. Backend storage
+and export consume the normalized results through existing generic paths.
 
 ## Freshness, incremental sync, and reconciliation
 
@@ -153,24 +164,27 @@ change must invalidate freshness. Use the existing multi-file stat/hash
 capability and companion mechanisms where they fit; do not hide a sidecar
 behind a transcript-only size/mtime cache key.
 
-Stream discovery and parsing with bounded memory. Map an ordinary changed
+Use the existing streaming discovery and line-reader helpers. Map an ordinary changed
 transcript or sidecar directly to its session. Watch the stable state/project
 containers needed to discover newly created project and session directories.
 Do not scan every session on each file event.
 
-Incremental append must be behaviorally equivalent to full parsing. Use the
-existing full-reparse fallback when metadata, model context, tool pairing,
-replacement, truncation, or identity makes an appended tail unsafe to apply.
-Only declare incremental capability once those transitions are covered by
-tests; correctness does not depend on accepting every append incrementally.
+Use existing provider full-parse and append mechanisms. Fall back to a full
+parse of the affected session when an append cannot safely preserve model
+context, tool pairing, or fork filtering. No new checkpoint or scheduling
+framework is needed. Check an active long-session fixture to catch repeated
+whole-tree work; optimize only a demonstrated bottleneck. Declare only the
+incremental capabilities actually implemented and tested.
 
 Consume newline-complete entries only. Leave a live unfinished final record
 for retry, keeping its offset unconsumed. Distinguish that from a malformed
 complete record; report corruption and avoid marking the source current or
 replacing good archive content with an incomplete parse. Bound record size
 with an explicit diagnostic, accounting for Evener's large media records.
-Unknown additive fields are tolerated; an unknown semantic kind receives an
-explicit unsupported-record outcome rather than silently vanishing.
+Unknown additive fields are tolerated. Preserve an unknown semantic kind as a
+system record with its readable message and source kind, without inferring
+usage or user-message counts. Use existing malformed-line diagnostics and
+retry conventions for invalid records rather than adding a new error UI.
 
 Reconciliation uses provider-owned scopes. Incomplete discovery or parse
 failure never authorizes deletion. Source disappearance and tombstones follow
@@ -179,19 +193,17 @@ of adding this provider.
 
 ## Existing remote mechanisms
 
-Integrate with SSH discovery/transfer and raw capture using the same canonical
-session identity as local discovery. Transfer the transcript and metadata
-sidecar together, including metadata-only updates. Read materialized companions
-through the existing resolver so stored paths remain canonical remote paths.
-Exclude API logs, credentials, and unrelated state from capture plans.
+Agentsview owns transport, capture, and remote archive replication. HTTP remote
+sync is its current path; SSH is documented in `internal/ssh/sync.go` as a
+deprecated compatibility transport. Do not build or extend these transports.
 
-S3 requires dedicated Evener keep/identity and companion handling, rather than
-blindly enabling the default single-file adapter. Use the existing provider
-hooks for sidecar folding and hydration; keep transport generic. Test the
-`raw/evener` namespace, metadata-only refresh, optional missing companions,
-duplicate roots, and stable identity across temporary extraction directories.
-Do not claim S3 parity if its companion contract cannot be met; that would
-require an explicit design revision before delivery.
+Our contribution is the Evener provider: register its identity, source roots,
+file selection, and optional metadata companion using existing hooks. Verify
+that generic archive export/import preserves its normalized records. Reuse
+existing capture plumbing where provider participation is required, excluding
+API logs, credentials, and unrelated state. No new remote service, S3 adapter,
+or SSH-specific discovery algorithm is part of this change. Capabilities that
+need transport work remain unsupported; do not claim support by setting flags.
 
 ## UI and documentation
 
@@ -228,12 +240,14 @@ parity run uses only a dedicated disposable test database.
 2. Lifecycle tests cover creation, append, partial tail completion, truncation,
    replacement, rename, sidecar-only change, deletion, and retry recovery.
 3. Accounting tests cover multiple billing providers, both cache-write
-   lifetimes, absent identity, nested forks, subagents, and repeated imports.
+   lifetimes, verified fork prefixes, missing parents, subagents, and repeated
+   imports using existing provider conventions.
 4. Discovery and changed-path tests compare small and large source trees and
    prove routine event work is bounded to affected sources.
-5. Real sync-to-archive tests verify search, export, relationships, usage, and
-   idempotence. Remote tests verify companions and canonical identity. Backend
-   parity tests use disposable storage only.
+5. Real sync-to-archive tests verify search, export/import, relationships,
+   usage, and idempotence. Reuse the existing generic backend and remote
+   contracts; add coverage where Evener introduces different normalized data.
+   Any backend integration tests use disposable storage only.
 6. Run relevant Go checks with CGO and `fts5`, formatting and vet before Go
    commits, frontend checks and tests, and browser acceptance. Record any
    unavailable integration environment accurately.
