@@ -107,14 +107,14 @@ func evenerClassifyPath(root, path string, allowMissing bool) (singleFileMatch, 
 	if !ok {
 		return singleFileMatch{}, false
 	}
-	if strings.HasSuffix(path, ".meta.json") {
-		path = strings.TrimSuffix(path, ".meta.json") + evenerTranscriptSuffix
+	if stem, ok := strings.CutSuffix(path, ".meta.json"); ok {
+		path = stem + evenerTranscriptSuffix
 		rel = strings.TrimSuffix(rel, ".meta.json") + evenerTranscriptSuffix
 	}
-	if !strings.HasSuffix(path, evenerTranscriptSuffix) {
+	id, ok := strings.CutSuffix(filepath.Base(path), evenerTranscriptSuffix)
+	if !ok {
 		return singleFileMatch{}, false
 	}
-	id := strings.TrimSuffix(filepath.Base(path), evenerTranscriptSuffix)
 	if !evenerSafeID(id) {
 		return singleFileMatch{}, false
 	}
@@ -173,7 +173,23 @@ func (s evenerSourceSet) ComputeMultiFileStatHash(path string) uint64 {
 	if err != nil {
 		return 0
 	}
+	if evenerParentFileInfo(parent) == nil {
+		parent = ""
+	}
 	return fileStatTupleDigest(0xE7, path, meta, parent)
+}
+
+// evenerParentFileInfo excludes symlinks before either freshness path reads
+// an optional parent; unverifiable parents leave the child's history intact.
+func evenerParentFileInfo(path string) os.FileInfo {
+	if path == "" {
+		return nil
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	return info
 }
 
 func evenerFingerprintSource(src singleFileSource) (SourceFingerprint, error) {
@@ -182,7 +198,7 @@ func evenerFingerprintSource(src singleFileSource) (SourceFingerprint, error) {
 		return SourceFingerprint{}, err
 	}
 	if !info.Mode().IsRegular() {
-		return SourceFingerprint{}, fmt.Errorf("Evener transcript is not a regular file")
+		return SourceFingerprint{}, fmt.Errorf("evener transcript is not a regular file")
 	}
 	// The warm stat-digest gate uses the primary transcript's mtime. Metadata
 	// freshness is represented by the per-file digest and required content hash.
@@ -199,7 +215,7 @@ func evenerFingerprintSource(src singleFileSource) (SourceFingerprint, error) {
 		return SourceFingerprint{}, err
 	default:
 		if !mi.Mode().IsRegular() {
-			return SourceFingerprint{}, fmt.Errorf("Evener metadata is not a regular file")
+			return SourceFingerprint{}, fmt.Errorf("evener metadata is not a regular file")
 		}
 		fp.Size += mi.Size()
 		if err := addSiblingMetadataFingerprintPart(h, "metadata", meta, mi); err != nil {
@@ -214,18 +230,13 @@ func evenerFingerprintSource(src singleFileSource) (SourceFingerprint, error) {
 		return SourceFingerprint{}, err
 	}
 	if parent != "" {
-		info, err := os.Lstat(parent)
-		switch {
-		case os.IsNotExist(err):
-		case err != nil:
-			return SourceFingerprint{}, err
-		default:
-			if !info.Mode().IsRegular() {
-				return SourceFingerprint{}, fmt.Errorf("Evener parent transcript is not a regular file")
-			}
-			if err := addSiblingMetadataFingerprintPart(h, "parent", parent, info); err != nil {
-				return SourceFingerprint{}, err
-			}
+		info := evenerParentFileInfo(parent)
+		if info == nil {
+			_, _ = fmt.Fprintln(h, "parent:unavailable")
+		} else if err := addSiblingMetadataFingerprintPart(h, "parent", parent, info); err != nil {
+			// An optional parent that cannot be read cannot prove a copied
+			// prefix. Retain child history and track future availability.
+			_, _ = fmt.Fprintln(h, "parent:unavailable")
 		}
 	}
 	fp.Hash = fmt.Sprintf("%x", h.Sum(nil))
@@ -263,11 +274,11 @@ func (s evenerSourceSet) Parse(ctx context.Context, req ParseRequest) (ParseOutc
 	if err != nil {
 		return out, err
 	}
-	for i := range out.Results {
-		if out.Results[i].Result.Session.IsTruncated {
-			out.Results[i].DataVersion = DataVersionNeedsRetry
-			out.Results[i].RetryReason = "incomplete Evener transcript tail"
-			out.ResultSetComplete = false
+	for _, result := range out.Results {
+		if result.Result.Session.IsTruncated {
+			// A writer may have replaced the file with a shorter unfinished
+			// transcript. Do not replace archived history until it is framed.
+			return ParseOutcome{ResultSetComplete: false}, nil
 		}
 	}
 	out.ForceReplace = len(out.Results) > 0
@@ -317,10 +328,10 @@ func (p *evenerProvider) PlanRawCapture(ctx context.Context, source SourceRef) (
 	}
 	src, ok := source.Opaque.(singleFileSource)
 	if !ok || src.Root == "" || src.Path == "" || isS3URI(src.Root) {
-		return RawCapturePlan{}, invalidRawCapturePlan("Evener source is not a local discovered transcript")
+		return RawCapturePlan{}, invalidRawCapturePlan("evener source is not a local discovered transcript")
 	}
 	if _, ok := evenerClassifyPath(src.Root, src.Path, false); !ok {
-		return RawCapturePlan{}, invalidRawCapturePlan("Evener source is outside its configured layout")
+		return RawCapturePlan{}, invalidRawCapturePlan("evener source is outside its configured layout")
 	}
 	plan := RawCapturePlan{ConfiguredRoot: src.Root, CaptureRoot: src.Root, SourceKey: source.Key}
 	for _, path := range []string{src.Path, evenerMetadataPath(src.Path)} {
@@ -332,7 +343,7 @@ func (p *evenerProvider) PlanRawCapture(ctx context.Context, source SourceRef) (
 			return RawCapturePlan{}, err
 		}
 		if !info.Mode().IsRegular() {
-			return RawCapturePlan{}, invalidRawCapturePlan("Evener capture source is not a regular file")
+			return RawCapturePlan{}, invalidRawCapturePlan("evener capture source is not a regular file")
 		}
 		rel, err := filepath.Rel(src.Root, path)
 		if err != nil {

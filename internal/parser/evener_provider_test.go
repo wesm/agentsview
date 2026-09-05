@@ -131,7 +131,7 @@ func TestEvenerProviderFingerprintTracksEachFile(t *testing.T) {
 func TestEvenerProviderChangedPathStaysLocal(t *testing.T) {
 	for _, count := range []int{1, 250} {
 		root := t.TempDir()
-		for i := 0; i < count; i++ {
+		for i := range count {
 			writeSourceFile(t, filepath.Join(root, "projects", fmt.Sprintf("project-%d", i), "sessions", "other.transcript.jsonl"), "{}\n")
 		}
 		owner := filepath.Join(root, "projects", "target", "sessions", "good.transcript.jsonl")
@@ -202,10 +202,9 @@ func TestEvenerProviderParseReplacementAndRetry(t *testing.T) {
 	writeSourceFile(t, path, header+entry+`{"kind":"entry"`)
 	out, err = provider.Parse(context.Background(), ParseRequest{Source: sources[0]})
 	require.NoError(t, err)
-	require.Len(t, out.Results, 1)
+	assert.Empty(t, out.Results)
 	assert.False(t, out.ResultSetComplete)
-	assert.Equal(t, DataVersionNeedsRetry, out.Results[0].DataVersion)
-	assert.NotEmpty(t, out.Results[0].RetryReason)
+	assert.False(t, out.ForceReplace)
 	writeSourceFile(t, path, "broken\n")
 	_, err = provider.Parse(context.Background(), ParseRequest{Source: sources[0]})
 	require.Error(t, err)
@@ -284,4 +283,93 @@ func TestEvenerProviderMetadataRemovalClearsSourceTitle(t *testing.T) {
 	require.Len(t, after.Results, 1)
 	assert.Empty(t, after.Results[0].Result.Session.SessionName)
 	assert.True(t, after.Results[0].Result.Session.SessionNamePresent, "absence is an authoritative empty provider title")
+}
+
+func TestEvenerProviderUnavailableParentRetainsChild(t *testing.T) {
+	for _, kind := range []string{"symlink", "directory", "unreadable"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "sessions")
+			require.NoError(t, os.MkdirAll(dir, 0700))
+			copied := evenerTestTurn("USER_INPUT", "copied")
+			child := writeEvenerFixture(t, dir, "child", map[string]any{"parent_session_id": "parent"}, copied, evenerTestTurn("USER_INPUT", "new"))
+			writeEvenerMeta(t, child, map[string]any{"id": "child", "parent_session_id": "parent", "divergence_turn": 2})
+			parent := filepath.Join(dir, "parent.transcript.jsonl")
+			target := ""
+			switch kind {
+			case "symlink":
+				target = writeEvenerFixture(t, t.TempDir(), "parent", nil, copied)
+				require.NoError(t, os.Symlink(target, parent))
+			case "directory":
+				require.NoError(t, os.Mkdir(parent, 0700))
+			case "unreadable":
+				writeEvenerFixture(t, dir, "parent", nil, copied)
+				require.NoError(t, os.Chmod(parent, 0000))
+				probe, err := os.Open(parent)
+				if err == nil {
+					require.NoError(t, probe.Close())
+					t.Skip("process can read permission-denied files")
+				}
+				require.True(t, os.IsPermission(err))
+			}
+			provider, ok := NewProvider(AgentEvener, ProviderConfig{Roots: []string{root}})
+			require.True(t, ok)
+			source, found, err := provider.FindSource(t.Context(), FindSourceRequest{RawSessionID: "child"})
+			require.NoError(t, err)
+			require.True(t, found)
+			before, err := provider.Parse(t.Context(), ParseRequest{Source: source})
+			require.NoError(t, err)
+			require.Len(t, before.Results, 1)
+			require.Len(t, before.Results[0].Result.Messages, 2)
+			fingerprint, err := provider.Fingerprint(t.Context(), source)
+			require.NoError(t, err)
+			hasher := provider.(MultiFileStatHasher)
+			digest := hasher.ComputeMultiFileStatHash(child)
+			if target != "" {
+				writeSourceFile(t, target, "outside changed\n")
+				after, err := provider.Fingerprint(t.Context(), source)
+				require.NoError(t, err)
+				assert.Equal(t, fingerprint, after)
+				assert.Equal(t, digest, hasher.ComputeMultiFileStatHash(child))
+			}
+			require.NoError(t, os.Remove(parent))
+			writeEvenerFixture(t, dir, "parent", nil, copied)
+			available, err := provider.Fingerprint(t.Context(), source)
+			require.NoError(t, err)
+			assert.NotEqual(t, fingerprint.Hash, available.Hash)
+			assert.NotEqual(t, digest, hasher.ComputeMultiFileStatHash(child))
+			after, err := provider.Parse(t.Context(), ParseRequest{Source: source})
+			require.NoError(t, err)
+			require.Len(t, after.Results, 1)
+			require.Len(t, after.Results[0].Result.Messages, 1)
+			assert.Equal(t, "new", after.Results[0].Result.Messages[0].Content)
+		})
+	}
+}
+
+func TestEvenerProviderTruncatedTranscriptDefersReplacement(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sessions")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	path := writeEvenerFixture(t, dir, "session", nil, evenerTestTurn("USER_INPUT", "first"), evenerTestTurn("ASSISTANT", "answer"))
+	provider, ok := NewProvider(AgentEvener, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(t.Context(), FindSourceRequest{RawSessionID: "session"})
+	require.NoError(t, err)
+	require.True(t, found)
+	complete, err := provider.Parse(t.Context(), ParseRequest{Source: source})
+	require.NoError(t, err)
+	require.Len(t, complete.Results, 1)
+	require.Len(t, complete.Results[0].Result.Messages, 2)
+	writeEvenerFixture(t, dir, "session", nil, evenerTestTurn("USER_INPUT", "replacement"))
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	require.NoError(t, err)
+	_, err = f.WriteString(`{"kind":"entry","turn":`)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	partial, err := provider.Parse(t.Context(), ParseRequest{Source: source})
+	require.NoError(t, err)
+	assert.Empty(t, partial.Results, "no partial rows may replace existing history")
+	assert.False(t, partial.ResultSetComplete, "an incomplete source must be retried")
+	assert.False(t, partial.ForceReplace)
 }
