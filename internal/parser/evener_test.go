@@ -317,19 +317,32 @@ func TestEvenerVerifiedForkPrefix(t *testing.T) {
 }
 
 func TestEvenerDelegateStructuredState(t *testing.T) {
-	call := evenerTestTurn("ASSISTANT", "")
-	call["message"] = map[string]any{"content": []any{map[string]any{"kind": "tool_call", "tool_call": map[string]any{"id": "delegate-call", "name": "delegate", "arguments": map[string]any{"task": "inspect"}}}}}
-	result := evenerTestTurn("TOOL_RESULTS", "")
-	result["message"] = map[string]any{"content": []any{map[string]any{"kind": "tool_result", "tool_result": map[string]any{"tool_call_id": "delegate-call", "content": "Worker started", "tool_state": map[string]any{"delegate_id": "delegate-1", "type": "delegate", "transcript_ref": "local:child", "status": "running", "structured_result": map[string]any{"detail": "retained"}}}}}}
-	path := writeEvenerFixture(t, t.TempDir(), "session", nil, call, result)
-	_, messages, err := parseEvenerSession(context.Background(), path, "test")
-	require.NoError(t, err)
-	require.Len(t, messages, 2)
-	require.Len(t, messages[0].ToolCalls, 1)
-	assert.Equal(t, "evener:child", messages[0].ToolCalls[0].SubagentSessionID)
-	require.Len(t, messages[0].ToolCalls[0].ResultEvents, 1)
-	assert.Equal(t, "running", messages[0].ToolCalls[0].ResultEvents[0].Status)
-	assert.Contains(t, messages[1].Content, "retained")
+	for _, name := range []string{"delegate", "delegate_send", "job_status"} {
+		t.Run(name, func(t *testing.T) {
+			call := evenerTestTurn("ASSISTANT", "")
+			call["message"] = map[string]any{"content": []any{map[string]any{"kind": "tool_call", "tool_call": map[string]any{"id": "delegate-call", "name": name, "arguments": map[string]any{"task": "inspect"}}}}}
+			result := evenerTestTurn("TOOL_RESULTS", "")
+			result["message"] = map[string]any{"content": []any{map[string]any{"kind": "tool_result", "tool_result": map[string]any{"tool_call_id": "delegate-call", "content": "Worker started", "tool_state": map[string]any{"delegate_id": "delegate-1", "type": "delegate", "transcript_ref": "local:child", "status": "running", "structured_result": map[string]any{"detail": "retained"}}}}}}
+			dir := t.TempDir()
+			path := writeEvenerFixture(t, dir, "session", nil, call)
+			_, pending, err := parseEvenerSession(context.Background(), path, "test")
+			require.NoError(t, err)
+			require.Len(t, pending, 1)
+			require.Len(t, pending[0].ToolCalls, 1)
+			assert.Equal(t, "Other", pending[0].ToolCalls[0].Category)
+			assert.Empty(t, pending[0].ToolCalls[0].SubagentSessionID)
+			writeEvenerFixture(t, dir, "session", nil, call, result)
+			_, messages, err := parseEvenerSession(context.Background(), path, "test")
+			require.NoError(t, err)
+			require.Len(t, messages, 2)
+			require.Len(t, messages[0].ToolCalls, 1)
+			assert.Equal(t, "Task", messages[0].ToolCalls[0].Category)
+			assert.Equal(t, "evener:child", messages[0].ToolCalls[0].SubagentSessionID)
+			require.Len(t, messages[0].ToolCalls[0].ResultEvents, 1)
+			assert.Equal(t, "running", messages[0].ToolCalls[0].ResultEvents[0].Status)
+			assert.Contains(t, messages[1].Content, "retained")
+		})
+	}
 }
 
 func TestEvenerParentTranscriptDependency(t *testing.T) {

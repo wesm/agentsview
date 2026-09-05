@@ -145,7 +145,7 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 		parentInfo, statErr := os.Lstat(parentPath)
 		if count <= len(transcript.entries) && statErr == nil && parentInfo.Mode().IsRegular() {
 			parent, readErr := readEvenerTranscript(ctx, parentPath)
-			if readErr == nil && len(parent.entries) >= count {
+			if readErr == nil && !parent.truncated && len(parent.entries) >= count {
 				equal := true
 				for i := range count {
 					if !bytes.Equal(transcript.entries[i].raw, parent.entries[i].raw) {
@@ -232,6 +232,7 @@ func parseEvenerSession(ctx context.Context, path, machine string) (*ParsedSessi
 					}
 					if json.Unmarshal(result.ToolState, &state) == nil && state.Type == "delegate" {
 						if id, ok := strings.CutPrefix(state.TranscriptRef, "local:"); ok && id != "" && !strings.ContainsAny(id, "/\\:") {
+							tc.Category = "Task"
 							tc.SubagentSessionID = "evener:" + id
 							event.SubagentSessionID = tc.SubagentSessionID
 						}

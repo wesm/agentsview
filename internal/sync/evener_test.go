@@ -150,6 +150,14 @@ func TestEvenerRelationshipsAndParentArrival(t *testing.T) {
 	messages, err := database.GetMessages(ctx, "evener:fork", 0, 100, true)
 	require.NoError(t, err)
 	require.Len(t, messages, 4, "unavailable parent keeps shared content")
+	// An unfinished parent is not archived, so its copied history stays in
+	// the complete child until both sources can be imported.
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "demo.transcript.jsonl"), append(append([]byte{}, parent...), []byte(`{"kind":"entry","seq":4`)...), 0o600))
+	assert.Positive(t, engine.SyncAll(ctx, nil).Failed)
+	messages, err = database.GetMessages(ctx, "evener:fork", 0, 100, true)
+	require.NoError(t, err)
+	require.Len(t, messages, 4, "unfinished parent cannot own the copied prefix")
+	assert.Equal(t, 20, messages[1].OutputTokens)
 	before := engine.SourceMtime("evener:fork")
 	require.NoError(t, os.WriteFile(filepath.Join(sessions, "demo.transcript.jsonl"), parent, 0o600))
 	assert.NotEqual(t, before, engine.SourceMtime("evener:fork"))
