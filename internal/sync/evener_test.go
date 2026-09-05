@@ -198,3 +198,28 @@ func TestEvenerRelationshipsAndParentArrival(t *testing.T) {
 	}
 	assert.Zero(t, engine.SyncAll(ctx, nil).Synced)
 }
+
+func TestEvenerRemoteImportDoesNotStampStatDigest(t *testing.T) {
+	database := openTestDB(t)
+	root := t.TempDir()
+	path := filepath.Join(root, "sessions", "demo.transcript.jsonl")
+	source, err := os.ReadFile("testdata/evener/demo.transcript.jsonl")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, source, 0o600))
+	rewrite := func(p string) string { return "remote:" + p }
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentEvener: {root}},
+		Machine:   "remote", PathRewriter: rewrite, Ephemeral: true,
+	})
+	t.Cleanup(engine.Close)
+	for range 2 {
+		stats := engine.SyncAll(t.Context(), nil)
+		require.Zero(t, stats.Failed)
+		for _, key := range []string{path, rewrite(path)} {
+			_, exists, err := database.GetProviderStatHash(t.Context(), parser.AgentEvener, key)
+			require.NoError(t, err)
+			assert.False(t, exists, "remote freshness must verify content")
+		}
+	}
+}

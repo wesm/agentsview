@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,14 +35,30 @@ func (s evenerSourceSet) Discover(ctx context.Context) ([]SourceRef, error) {
 }
 
 func (s evenerSourceSet) DiscoverEach(ctx context.Context, yield func(SourceRef) error) error {
-	seen := make(map[string]bool)
-	return s.singleFileSourceSet.DiscoverEach(ctx, func(source SourceRef) error {
-		if seen[source.Key] {
-			return nil
+	for index, root := range s.roots {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		seen[source.Key] = true
-		return yield(source)
-	})
+		if err := ReportRawCaptureDiscoveryProgress(ctx); err != nil {
+			return err
+		}
+		if isS3URI(root) {
+			continue
+		}
+		err := evenerDiscoverEach(ctx, root, func(match singleFileMatch) error {
+			// Compare configured roots rather than retaining every discovered source.
+			for _, earlier := range s.roots[:index] {
+				if _, ok := evenerClassifyPath(earlier, match.Path, false); ok {
+					return nil
+				}
+			}
+			return yield(s.sourceRef(root, match))
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s evenerSourceSet) SourcesForChangedPath(ctx context.Context, req ChangedPathRequest) ([]SourceRef, error) {
@@ -59,47 +76,52 @@ func (s evenerSourceSet) SourcesForChangedPath(ctx context.Context, req ChangedP
 }
 
 func evenerDiscoverEach(ctx context.Context, root string, yield func(singleFileMatch) error) error {
-	// Limit discovery to session directories; API logs and other state trees
-	// are neither session sources nor useful discovery work.
-	dirs := []string{filepath.Join(root, "sessions")}
-	if filepath.Base(root) == "sessions" {
-		dirs = []string{root}
-	}
-	projects, err := os.ReadDir(filepath.Join(root, "projects"))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	for _, project := range projects {
-		if project.IsDir() {
-			dirs = append(dirs, filepath.Join(root, "projects", project.Name(), "sessions"))
-		}
-	}
-	for _, dir := range dirs {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		entries, err := os.ReadDir(dir)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
+	// Visit only session directories, with bounded batches even for flat archives.
+	scanSessions := func(dir string) error {
+		return streamDirectoryEntries(ctx, dir, func(entry os.DirEntry) error {
 			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), evenerTranscriptSuffix) {
-				continue
+				return nil
 			}
 			if match, ok := evenerClassifyPath(root, filepath.Join(dir, entry.Name()), false); ok {
 				if err := yield(match); err != nil {
-					return err
+					return discoveryYieldError{cause: err}
 				}
 			}
+			return nil
+		})
+	}
+	dir := filepath.Join(root, "sessions")
+	if filepath.Base(root) == "sessions" {
+		dir = root
+	}
+	if err := scanSessions(dir); err != nil {
+		if cause, ok := discoveryYieldCause(err); ok {
+			return cause
+		}
+		if !os.IsNotExist(err) || errors.Is(err, errStreamingDirectoryChanged) {
+			return err
 		}
 	}
-	return nil
+	err := streamDirectoryEntries(ctx, filepath.Join(root, "projects"), func(project os.DirEntry) error {
+		if !project.IsDir() {
+			return nil
+		}
+		err := scanSessions(filepath.Join(root, "projects", project.Name(), "sessions"))
+		if _, ok := discoveryYieldCause(err); ok {
+			return err
+		}
+		if os.IsNotExist(err) && !errors.Is(err, errStreamingDirectoryChanged) {
+			return nil
+		}
+		return err
+	})
+	if cause, ok := discoveryYieldCause(err); ok {
+		return cause
+	}
+	if os.IsNotExist(err) && !errors.Is(err, errStreamingDirectoryChanged) {
+		return nil
+	}
+	return err
 }
 
 func evenerWatchRoots(roots []string) []WatchRoot {
@@ -356,6 +378,13 @@ func (f evenerProviderFactory) NewProvider(cfg ProviderConfig) Provider {
 }
 
 type evenerProvider struct{ *SourceSetProvider }
+
+var _ StreamingRawCaptureSourceProvider = (*evenerProvider)(nil)
+
+func (p *evenerProvider) DiscoverRawCaptureSourcesEach(ctx context.Context, yield func(SourceRef) error) (bool, error) {
+	err := p.DiscoverEach(withRawCaptureStreamingTraversal(ctx), yield)
+	return err == nil, err
+}
 
 func (p *evenerProvider) PlanRawCapture(ctx context.Context, source SourceRef) (RawCapturePlan, error) {
 	if err := ctx.Err(); err != nil {

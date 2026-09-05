@@ -457,3 +457,59 @@ func TestEvenerProviderParentMetadataFingerprint(t *testing.T) {
 		})
 	}
 }
+
+func TestEvenerRawDiscoveryStreamsWithProgress(t *testing.T) {
+	for _, count := range []int{1, 200} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			root := t.TempDir()
+			sessions := filepath.Join(root, "projects", "demo", "sessions")
+			for i := range count {
+				writeSourceFile(t, filepath.Join(sessions, fmt.Sprintf("session-%d.transcript.jsonl", i)), "{}\n")
+			}
+			writeSourceFile(t, filepath.Join(sessions, "ignored.api.jsonl"), "{}\n")
+			provider, ok := NewProvider(AgentEvener, ProviderConfig{Roots: []string{root, sessions}})
+			require.True(t, ok)
+			steps, largestBatch, yielded := 0, 0, 0
+			ctx := WithRawCaptureDiscoveryProgress(t.Context(), func() error { steps++; return nil })
+			ctx = WithStreamingDiscoveryBufferObserver(ctx, func(n int) { largestBatch = max(largestBatch, n) })
+			complete, err := StreamRawCaptureSources(ctx, provider, func(source SourceRef) error {
+				yielded++
+				plan, err := provider.(RawCaptureProvider).PlanRawCapture(ctx, source)
+				require.NoError(t, err)
+				require.Len(t, plan.Entries, 1)
+				return nil
+			})
+			require.NoError(t, err)
+			assert.True(t, complete)
+			assert.Equal(t, count, yielded)
+			assert.GreaterOrEqual(t, steps, count)
+			assert.Positive(t, largestBatch)
+			assert.LessOrEqual(t, largestBatch, streamingDirectoryBatchSize)
+			stop := fmt.Errorf("pause audit")
+			ctx = WithRawCaptureDiscoveryProgress(t.Context(), func() error { return stop })
+			complete, err = StreamRawCaptureSources(ctx, provider, func(SourceRef) error { t.Fatal("yield after pause"); return nil })
+			assert.ErrorIs(t, err, stop)
+			assert.False(t, complete)
+			steps = 0
+			ctx = WithRawCaptureDiscoveryProgress(t.Context(), func() error {
+				steps++
+				if steps == 3 {
+					return stop
+				}
+				return nil
+			})
+			complete, err = StreamRawCaptureSources(ctx, provider, func(SourceRef) error { return nil })
+			assert.ErrorIs(t, err, stop)
+			assert.False(t, complete)
+			assert.Equal(t, 3, steps)
+			cancelled, cancel := context.WithCancel(t.Context())
+			cancel()
+			complete, err = StreamRawCaptureSources(cancelled, provider, func(SourceRef) error { return nil })
+			assert.ErrorIs(t, err, context.Canceled)
+			assert.False(t, complete)
+			complete, err = StreamRawCaptureSources(t.Context(), provider, func(SourceRef) error { return stop })
+			assert.ErrorIs(t, err, stop)
+			assert.False(t, complete)
+		})
+	}
+}
