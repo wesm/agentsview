@@ -2187,3 +2187,31 @@ add an archived or maintained mirror without replacing the original identity.
 - **Agentsview:** `internal/parser/codebuff.go` and
   `internal/parser/codebuff_provider.go`; single-file provider with JSON array
   parsing.
+
+## Evener (`evener`)
+
+- **Evidence class:** source.
+- **Producer revision:** `da7c06396c9848abfae362dcffce3861a6a0c95a`, checked
+  2026-09-05. This revision includes the structured model-switch addition in
+  Evener PR #889; older v2 transcripts need not contain that field.
+- **Format:** newline-framed semantic transcript v2; header followed by entries
+  containing a sequence number and semantic turn. Optional metadata is a
+  sibling `<session-id>.meta.json`.
+- **Upstream:** [transcript writer and framing](https://github.com/prime-radiant-inc/evener/blob/da7c06396c9848abfae362dcffce3861a6a0c95a/agent/transcript/transcript.go),
+  [turn schema](https://github.com/prime-radiant-inc/evener/blob/da7c06396c9848abfae362dcffce3861a6a0c95a/agent/schema/turn.go),
+  [message and usage types](https://github.com/prime-radiant-inc/evener/blob/da7c06396c9848abfae362dcffce3861a6a0c95a/llm/types.go),
+  [metadata](https://github.com/prime-radiant-inc/evener/blob/da7c06396c9848abfae362dcffce3861a6a0c95a/agent/schema/snapshot.go),
+  and [fork writer](https://github.com/prime-radiant-inc/evener/blob/da7c06396c9848abfae362dcffce3861a6a0c95a/agent/fork.go).
+- **Usage:** assistant turns persist uncached input and output plus optional
+  cache reads, 5-minute cache writes, 1-hour cache writes, and reasoning counts.
+  Reasoning is part of output, not an additional output total. Metadata running
+  totals and API logs are not added to these per-turn facts. Catalog pricing
+  is computed by Agentsview, not supplied by the transcript.
+- **Forks:** the producer copies complete turns before the 1-based divergence
+  index; verify that prefix against the parent before suppressing replayed
+  child history. Missing parents retain child history, like Codex.
+- **Model switches:** structured values identify configured provider/model
+  transitions, not automatic fallbacks or response aliases. Per-response
+  identities take precedence; do not parse display prose for billing facts.
+- **Agentsview:** `internal/parser/evener.go` and `evener_provider.go`. Fixtures
+  are synthetic and cover semantic content, usage, metadata and fork behavior.
