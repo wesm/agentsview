@@ -18409,6 +18409,12 @@ func openCodeUsageOnlyArchiveLooksIncomplete(
 	)
 	for _, message := range parsed {
 		parsedByIdentity[openCodeMessageStorageIdentity(message)] = message
+		// Older archives have no source UUID. Index the ordinal/role as
+		// well so those rows can adopt the source identity on replacement.
+		// Stored rows with UUIDs still require that exact UUID to match.
+		parsedByIdentity[openCodeMessageIdentity{
+			ordinal: message.Ordinal, role: message.Role,
+		}] = message
 	}
 	for _, storedMessage := range stored {
 		parsedMessage, ok := parsedByIdentity[openCodeMessageStorageIdentity(storedMessage)]

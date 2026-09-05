@@ -9424,6 +9424,56 @@ func TestSyncAllUsageOnlyOpenCodeMissingUsageMessagePreservesArchive(
 		"a partial OpenCode source cannot replace retained usage rows")
 }
 
+func TestSyncAllUsageOnlyOpenCodeUpdatesLegacyMessageIdentity(t *testing.T) {
+	opencodeDir := t.TempDir()
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentOpenCode: {opencodeDir},
+		},
+		Machine: "local", ArchiveContent: config.ArchiveContentUsage,
+	})
+	t.Cleanup(engine.Close)
+	oc := createOpenCodeStorageFixture(t, opencodeDir)
+	const sessionID = "oc-legacy-usage"
+	sessionPath := oc.addSession(t, "global", sessionID,
+		"/workspace/project", "Usage archive", 1704067200000, 1704067205000)
+	oc.addMessage(t, sessionID, "msg-user", "user", 1704067200000, nil)
+	oc.addTextPart(t, sessionID, "msg-user", "text-user", "question", 1704067200000)
+	writeAssistant := func(output int) {
+		oc.addMessage(t, sessionID, "msg-assistant", "assistant", 1704067201000,
+			map[string]any{
+				"modelID": "gpt-5.2-codex",
+				"tokens":  map[string]any{"input": 100, "output": output},
+			})
+		oc.addTextPart(t, sessionID, "msg-assistant", "text-assistant", "answer", 1704067201000)
+	}
+	writeAssistant(10)
+	require.Equal(t, 1, engine.SyncAll(t.Context(), nil).Synced)
+	messages, err := database.GetAllMessages(t.Context(), "opencode:"+sessionID)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	require.Equal(t, 1, messages[0].Ordinal, "user rows are absent from the usage archive")
+	// Released parsers did not store OpenCode message IDs. Preserve the
+	// sparse ordinal and usage while reproducing that persisted shape.
+	messages[0].SourceUUID = ""
+	require.NoError(t, database.ReplaceSessionMessages("opencode:"+sessionID, messages))
+
+	writeAssistant(25)
+	future := time.Now().Add(2 * time.Second)
+	require.NoError(t, os.Chtimes(sessionPath, future, future))
+	engine.SyncAll(t.Context(), nil)
+
+	usage, err := database.GetSessionUsage(t.Context(), "opencode:"+sessionID, true)
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	assert.Equal(t, 25, usage.TotalOutputTokens, "a complete rewritten source replaces legacy usage")
+	messages, err = database.GetAllMessages(t.Context(), "opencode:"+sessionID)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	assert.Equal(t, "msg-assistant", messages[0].SourceUUID, "the rewrite stores the source identity")
+}
+
 func TestSyncAllOpenCodeStoragePreservesLegacySQLiteArchive(
 	t *testing.T,
 ) {

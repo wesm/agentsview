@@ -26,6 +26,10 @@ written.
 - Resync copies archived rows with `ATTACH`, which bypasses the write path.
   `applyArchiveContentToCopiedSessionsTx` mirrors the Go projection in SQL for
   the orphan and trash copies. Keep the two in step when either changes.
+- Copied tool renderings use exact reconstructed text where possible. When
+  stored inputs cannot reconstruct a recognizable tool rendering, transcript
+  projection keeps the preceding prose and tool label but discards the
+  remaining message tail, whose argument boundaries are unknown.
 - Compute derived values (signals, secret findings) from the projected messages
   so a later recompute from stored rows reproduces them.
 

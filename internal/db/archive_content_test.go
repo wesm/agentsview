@@ -582,6 +582,32 @@ func TestCopiedTranscriptsDropUnrecoverableToolText(t *testing.T) {
 			want: "Inspecting files.\n[Bash]",
 		},
 		{
+			// Codex summary is outside arguments and is not stored in InputJSON.
+			name: "codex-summary", agent: "codex", version: 100,
+			message: Message{Role: "assistant", HasToolUse: true,
+				Content:   "Inspecting files.\n[Bash: inspect credentials]\n$ cat credentials.txt",
+				ToolCalls: []ToolCall{{ToolName: "exec_command", Category: "Bash", InputJSON: `{"cmd":"cat credentials.txt"}`}},
+			},
+			want: "Inspecting files.\n[Bash]",
+		},
+		{
+			name: "codex-custom-summary", agent: "codex", version: 100,
+			message: Message{Role: "assistant", HasToolUse: true,
+				Content:   "Inspecting files.\n[Tool: inspect]\ninspect credentials.txt",
+				ToolCalls: []ToolCall{{ToolName: "inspect", Category: "Other", InputJSON: `{"path":"credentials.txt"}`}},
+			},
+			want: "Inspecting files.\n[Tool]",
+		},
+		{
+			// Codex also accepts command arguments as non-JSON text.
+			name: "codex-raw-command", agent: "codex", version: 100,
+			message: Message{Role: "assistant", HasToolUse: true,
+				Content:   "Inspecting files.\n[Bash]\n$ cat credentials.txt",
+				ToolCalls: []ToolCall{{ToolName: "exec_command", Category: "Bash", InputJSON: "cat credentials.txt"}},
+			},
+			want: "Inspecting files.\n[Bash]",
+		},
+		{
 			name: "legacy-codex", agent: "codex", version: 99,
 			message: Message{Role: "user", Model: "model-a", Content: "unpaired agent result"},
 		},

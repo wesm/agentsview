@@ -684,11 +684,10 @@ func redactCopiedToolUseRenderingsTx(
 	ctx context.Context, tx *sql.Tx, tempIDsTable string,
 ) error {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT m.id, m.content, s.agent, tc.tool_name, tc.category,
+		SELECT m.id, m.content, tc.tool_name, tc.category,
 		       COALESCE(tc.input_json, '')
 		  FROM messages m
 		  JOIN tool_calls tc ON tc.message_id = m.id
-		  JOIN sessions s ON s.id = m.session_id
 		 WHERE m.session_id IN (SELECT id FROM `+tempIDsTable+`)
 		 ORDER BY m.id, tc.call_index`)
 	if err != nil {
@@ -697,7 +696,6 @@ func redactCopiedToolUseRenderingsTx(
 	type pending struct {
 		id      int64
 		content string
-		agent   string
 		calls   []ToolCall
 	}
 	// Rows arrive ordered by message, so each message's calls are
@@ -705,16 +703,16 @@ func redactCopiedToolUseRenderingsTx(
 	var entries []pending
 	for rows.Next() {
 		var id int64
-		var content, agent string
+		var content string
 		var call ToolCall
 		if err := rows.Scan(
-			&id, &content, &agent, &call.ToolName, &call.Category, &call.InputJSON,
+			&id, &content, &call.ToolName, &call.Category, &call.InputJSON,
 		); err != nil {
 			rows.Close()
 			return fmt.Errorf("scanning copied tool rendering: %w", err)
 		}
 		if len(entries) == 0 || entries[len(entries)-1].id != id {
-			entries = append(entries, pending{id: id, content: content, agent: agent})
+			entries = append(entries, pending{id: id, content: content})
 		}
 		last := &entries[len(entries)-1]
 		last.calls = append(last.calls, call)
@@ -725,10 +723,7 @@ func redactCopiedToolUseRenderingsTx(
 	}
 	rows.Close()
 	for _, entry := range entries {
-		content := entry.content
-		if entry.agent == string(parser.AgentOpenHands) {
-			content = redactCopiedOpenHandsSummaries(content, entry.calls)
-		}
+		content := redactCopiedUnrecoverableToolRenderings(entry.content, entry.calls)
 		redacted, _ := redactToolUseRenderings(content, entry.calls)
 		if redacted == entry.content {
 			continue
@@ -745,23 +740,68 @@ func redactCopiedToolUseRenderingsTx(
 	return nil
 }
 
-// OpenHands summaries are not persisted separately and may contain brackets
-// and newlines. Their end cannot be recovered reliably, so discard the tail
-// starting at a summary-bearing tool header, including any appended thinking.
-// The thought before the action stays. Calls whose renderer ignores the event
-// summary continue through the normal exact-rendering replacement.
-func redactCopiedOpenHandsSummaries(content string, calls []ToolCall) string {
+// Copied rows lack exact rendering boundaries. Event summaries (for example
+// Codex and OpenHands) are not part of input_json and cannot be regenerated.
+// Keep exact renderings on the normal replacement path; for an unrecognized
+// rendering, retain preceding prose and the tool label, discarding the tail
+// because arguments and subsequent prose cannot be separated reliably.
+func redactCopiedUnrecoverableToolRenderings(content string, calls []ToolCall) string {
+	type knownRendering struct {
+		full     string
+		complete bool
+	}
+	var known []knownRendering
+	labels := make(map[string]bool)
 	for _, call := range calls {
-		label := call.ToolName
-		switch label {
-		case "file_editor", "delegate", "task_tracker":
+		full, redacted := toolUseRenderingToReplace(content, call)
+		if full != "" {
+			path := parser.ResolveFilePathFromJSON(call.InputJSON)
+			known = append(known, knownRendering{
+				full:     full,
+				complete: full != redacted || path != "" && strings.Contains(full, path),
+			})
+		}
+		labels[call.Category], labels[call.ToolName] = true, true
+		for _, pair := range parser.ToolUseRenderingCandidates(call.Category, call.ToolName, "{}") {
+			if inside, ok := strings.CutPrefix(pair.Full, "["); ok {
+				label, _, _ := strings.Cut(inside, "]")
+				label, _, _ = strings.Cut(label, ":")
+				labels[label] = true
+			}
+		}
+	}
+	slices.SortFunc(known, func(a, b knownRendering) int {
+		return cmp.Compare(len(b.full), len(a.full))
+	})
+	for offset := 0; offset < len(content); {
+		index := strings.IndexByte(content[offset:], '[')
+		if index < 0 {
+			break
+		}
+		index += offset
+		tail := content[index:]
+		matched := false
+		for _, rendering := range known {
+			// A bare header can be a prefix of an unknown rendering.
+			// A command prefix is not a complete rendering either.
+			end := len(rendering.full)
+			if strings.HasPrefix(tail, rendering.full) &&
+				(len(tail) == end || rendering.complete && tail[end] == '\n') {
+				offset, matched = index+end, true
+				break
+			}
+		}
+		if matched {
 			continue
-		case "terminal":
-			label = "Bash"
 		}
-		if before, _, found := strings.Cut(content, "["+label+": "); found {
-			content = before + "[" + label + "]"
+		for label := range labels {
+			if label != "" && (strings.HasPrefix(tail, "["+label+":") ||
+				strings.HasPrefix(tail, "["+label+"]\n$ ") ||
+				strings.HasPrefix(tail, "["+label+"] ")) {
+				return content[:index] + "[" + label + "]"
+			}
 		}
+		offset = index + 1
 	}
 	return content
 }

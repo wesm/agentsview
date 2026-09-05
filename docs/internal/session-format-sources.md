@@ -746,6 +746,12 @@ add an archived or maintained mirror without replacing the original identity.
   watermark index, which OpenCode's schema does not have and which is not
   agentsview's to add — but only the changed batch and one stored page are
   ever held in memory.
+- **Archive message identity:** Reverified 2026-09-05 against `message-v2.ts` at
+  the pinned revision: hydrated messages expose the persisted message row ID
+  as `info.id`. Agentsview's pre-version-100 parsers did not retain that ID in
+  `source_uuid`. Usage archive comparisons match those stored rows by ordinal
+  and role until a complete source rewrite records the ID; rows that already
+  have an ID require an exact identity match.
 - **Agentsview:** `internal/parser/opencode.go`,
   `internal/parser/opencode_provider.go`, and
   `internal/parser/opencode_storage_state.go`; legacy and database layouts are
