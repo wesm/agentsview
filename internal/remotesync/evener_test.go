@@ -3,6 +3,7 @@ package remotesync
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,4 +81,53 @@ func TestEvenerEmptyRemoteRootDoesNotExportUnrelatedState(t *testing.T) {
 	assert.Empty(t, manifest.Files)
 	_, allowed := SelectAllowedFiles(targets, []string{secret})
 	assert.False(t, allowed)
+}
+
+func TestEvenerRemoteDeltaRefreshesForkWhenParentArrives(t *testing.T) {
+	database := dbtest.OpenTestDB(t)
+	root := t.TempDir()
+	remoteDir := "/remote/evener"
+	local := filepath.Join(remappedRemotePath(root, remoteDir), "sessions")
+	require.NoError(t, os.MkdirAll(local, 0700))
+	parent, err := os.ReadFile(filepath.Join("..", "sync", "testdata", "evener", "demo.transcript.jsonl"))
+	require.NoError(t, err)
+	child := strings.Replace(string(parent), `"session_id":"demo"`, `"session_id":"fork","parent_session_id":"demo"`, 1)
+	child += "{\"kind\":\"entry\",\"seq\":4,\"turn\":{\"kind\":\"USER_INPUT\",\"message\":{\"content\":[{\"kind\":\"text\",\"text\":\"child-only\"}]}}}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(local, "fork.transcript.jsonl"), []byte(child), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(local, "fork.meta.json"), []byte(`{"id":"fork","parent_session_id":"demo","divergence_turn":4}`), 0600))
+	targets := TargetSet{Dirs: map[parser.AgentType][]string{parser.AgentEvener: {remoteDir}}}
+	importer := Importer{Host: "remote", DB: database, Root: root, Targets: targets}
+	stats, err := importer.ImportExtracted(t.Context(), targets, root)
+	require.NoError(t, err)
+	require.Zero(t, stats.Failed)
+	messages, err := database.GetMessages(t.Context(), "remote~evener:fork", 0, 100, true)
+	require.NoError(t, err)
+	require.Len(t, messages, 4)
+	parentPath := filepath.Join(local, "demo.transcript.jsonl")
+	for _, tc := range []struct {
+		name, content         string
+		wantCount, wantOutput int
+	}{
+		{"arrival", string(parent), 1, 0},
+		{"rewritten prefix", strings.Replace(string(parent), "Investigate the orchard synchronization bug", "Inspect another workspace.", 1), 4, 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, os.WriteFile(parentPath, []byte(tc.content), 0600))
+			relative, err := mirrorRelativeLocalChangePath(root, parentPath)
+			require.NoError(t, err)
+			pending, err := importer.PreparePending(t.Context(), DeltaImportRequest{Journal: MirrorChangeJournal{Version: mirrorJournalVersion, Entries: []MirrorChangeEntry{{Path: relative}}}})
+			require.NoError(t, err)
+			stats, err := pending.Execute(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, stats.Failed)
+			messages, err := database.GetMessages(t.Context(), "remote~evener:fork", 0, 100, true)
+			require.NoError(t, err)
+			require.Len(t, messages, tc.wantCount)
+			output := 0
+			for _, message := range messages {
+				output += message.OutputTokens
+			}
+			assert.Equal(t, tc.wantOutput, output)
+		})
+	}
 }

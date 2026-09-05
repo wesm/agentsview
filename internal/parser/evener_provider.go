@@ -13,18 +13,21 @@ const evenerTranscriptSuffix = ".transcript.jsonl"
 
 func newEvenerProviderFactory(def AgentDef) ProviderFactory {
 	return evenerProviderFactory{NewSourceSetFactory(def, evenerProviderCapabilities(), func(cfg ProviderConfig) SourceSet {
-		return evenerSourceSet{NewSingleFileSourceSet(def.Type, cfg.Roots,
+		return evenerSourceSet{singleFileSourceSet: NewSingleFileSourceSet(def.Type, cfg.Roots,
 			WithStreamingFileDiscovery(evenerDiscoverEach),
 			WithFileWatchRoots(evenerWatchRoots),
 			WithFileChangedPathClassifier(evenerClassifyPath),
 			WithFileLookup(evenerFindFile),
 			WithFileFingerprint(evenerFingerprintSource),
 			WithFileParse(evenerFileParser(context.Background())),
-		)}
+		), remote: cfg.PathRewriter != nil}
 	})}
 }
 
-type evenerSourceSet struct{ singleFileSourceSet }
+type evenerSourceSet struct {
+	singleFileSourceSet
+	remote bool
+}
 
 func (s evenerSourceSet) Discover(ctx context.Context) ([]SourceRef, error) {
 	return collectDiscoveredSources(ctx, s.DiscoverEach)
@@ -39,6 +42,20 @@ func (s evenerSourceSet) DiscoverEach(ctx context.Context, yield func(SourceRef)
 		seen[source.Key] = true
 		return yield(source)
 	})
+}
+
+func (s evenerSourceSet) SourcesForChangedPath(ctx context.Context, req ChangedPathRequest) ([]SourceRef, error) {
+	sources, err := s.singleFileSourceSet.SourcesForChangedPath(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if s.remote && strings.HasSuffix(req.Path, evenerTranscriptSuffix) {
+		// Remote delta imports have no periodic reconciliation to revisit
+		// children when a parent arrives or its copied prefix changes. Returning
+		// no exact sources requests the existing provider-local fallback.
+		return nil, nil
+	}
+	return sources, nil
 }
 
 func evenerDiscoverEach(ctx context.Context, root string, yield func(singleFileMatch) error) error {

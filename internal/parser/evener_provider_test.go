@@ -373,3 +373,34 @@ func TestEvenerProviderTruncatedTranscriptDefersReplacement(t *testing.T) {
 	assert.False(t, partial.ResultSetComplete, "an incomplete source must be retried")
 	assert.False(t, partial.ForceReplace)
 }
+
+func TestEvenerProviderRemoteTranscriptChangesRequestReconciliation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sessions", "session.transcript.jsonl")
+	writeSourceFile(t, path, "{}\n")
+	for _, tc := range []struct {
+		name             string
+		remote, metadata bool
+		want             int
+	}{
+		{"local transcript", false, false, 1},
+		{"remote transcript", true, false, 0},
+		{"remote metadata", true, true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := ProviderConfig{Roots: []string{root}}
+			if tc.remote {
+				cfg.PathRewriter = func(path string) string { return "remote:" + path }
+			}
+			provider, ok := NewProvider(AgentEvener, cfg)
+			require.True(t, ok)
+			changedPath := path
+			if tc.metadata {
+				changedPath = evenerMetadataPath(path)
+			}
+			sources, err := provider.SourcesForChangedPath(t.Context(), ChangedPathRequest{Path: changedPath, EventKind: "write"})
+			require.NoError(t, err)
+			assert.Len(t, sources, tc.want)
+		})
+	}
+}
