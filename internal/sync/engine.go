@@ -19073,6 +19073,14 @@ func (e *Engine) SourceMtime(sessionID string) int64 {
 		return obj.LastModified.UnixNano()
 	}
 
+	if def.Type == parser.AgentEvener {
+		// Session polling must notice metadata and parent changes too.
+		// This opaque stat token is compared for equality, not ordering.
+		if hasher := e.providerStatHashers[def.Type]; hasher != nil {
+			return int64(hasher.ComputeMultiFileStatHash(path))
+		}
+		return 0
+	}
 	if usesCompositeSidecarFreshness(def.Type, path) {
 		mtime, err := parser.ClaudeLayoutCompositeMtime(path)
 		if err != nil {
