@@ -7,6 +7,9 @@ description: Release history for AgentsView
 
 **Improvements**
 
+- Browse and search Evener v2 sessions, including thinking, tools, session
+  names, fork relationships, and recorded token usage.
+
 - Session exports now identify the logical archive separately from its database
   generation, so analytics can recognize the same sessions after a full resync.
   JSON and NDJSON add `archive_id` to session-summary schema v6; pricing,
