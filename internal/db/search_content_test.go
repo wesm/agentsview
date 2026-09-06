@@ -85,16 +85,61 @@ func TestSearchContentRedactsStraddlingSecret(t *testing.T) {
 		"reveal snippet should show raw bytes")
 }
 
-// TestCaseInsensitiveIndexUnicodeOffset pins that the returned offset indexes
+// TestCaseInsensitiveSpanUnicodeOffset pins that the returned offsets index
 // the original string, not strings.ToLower(s). The Kelvin sign U+212A is three
 // bytes but lowercases to one ('k'), so a ToLower-based index would report a
 // byte offset shifted left of the real match position.
-func TestCaseInsensitiveIndexUnicodeOffset(t *testing.T) {
+func TestCaseInsensitiveSpanUnicodeOffset(t *testing.T) {
 	body := strings.Repeat("K", 5) + "match here"
-	got := CaseInsensitiveIndex(body, "MATCH")
+	start, end, ok := CaseInsensitiveSpan(body, "MATCH")
+	require.True(t, ok, "CaseInsensitiveSpan did not find the match")
 	want := strings.Index(body, "match") // real offset into the original string
-	assert.Equal(t, want, got,
-		"CaseInsensitiveIndex offset into original body")
+	assert.Equal(t, want, start,
+		"CaseInsensitiveSpan start into original body")
+	assert.Equal(t, want+len("match"), end,
+		"CaseInsensitiveSpan end into original body")
+}
+
+// TestCaseInsensitiveSpanEndTracksMatchedBytes pins that the end offset is
+// taken from the matched bytes rather than from the pattern. U+212A KELVIN
+// SIGN is three bytes and folds to the one-byte "k", so start+len(pattern)
+// lands inside a rune of the body when the body carries the long form and
+// overshoots the match when the pattern does. snippetBounds snaps only its
+// padding edges and leaves the span alone, so a span that is not rune-aligned
+// reaches the slice unrepaired.
+func TestCaseInsensitiveSpanEndTracksMatchedBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		body    string
+		pattern string
+		match   string
+	}{
+		{"body rune longer than pattern", "a\u212Ab", "k", "\u212A"},
+		{"body rune shorter than pattern", "akb", "\u212A", "k"},
+		{"multi rune phrase", "the Key word", "key", "Key"},
+		{"ascii unaffected", "the key word", "KEY", "key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end, ok := CaseInsensitiveSpan(tc.body, tc.pattern)
+			require.True(t, ok, "no match for %q in %q", tc.pattern, tc.body)
+			assert.Equal(t, tc.match, tc.body[start:end],
+				"span does not cover exactly the matched bytes")
+			assert.True(t, utf8.ValidString(tc.body[start:end]),
+				"span splits a rune: %d..%d of %q", start, end, tc.body)
+		})
+	}
+}
+
+// TestFTSSnippetRangeRuneAligned pins the same guarantee for the shared
+// snippet-centering helper every backend calls (SQLite, the PostgreSQL keyword
+// and hybrid legs, DuckDB).
+func TestFTSSnippetRangeRuneAligned(t *testing.T) {
+	body := "prefix a\u212Ab suffix"
+	start, end := FTSSnippetRange("k", body)
+	assert.Equal(t, "\u212A", body[start:end],
+		"FTS snippet range does not cover the matched bytes")
+	assert.True(t, utf8.RuneStart(body[end]),
+		"FTS snippet range end %d splits a rune in %q", end, body)
 }
 
 // TestSubstringSnippetUnicodeOffset guards against the snippet panic and
