@@ -2217,4 +2217,7 @@ add an archived or maintained mirror without replacing the original identity.
   are synthetic and cover semantic content, usage, metadata and fork behavior.
   Capture discovery uses bounded directory batches and the raw-audit progress
   contract. Remote imports verify content hashes rather than trusting copied
-  filesystem timestamps; neither path changes the producer format above.
+  filesystem timestamps. SSH discovery honors an absolute `XDG_STATE_HOME`
+  when `EVENER_DIR` is unset and transfers only transcript/metadata pairs,
+  excluding API logs, credentials, and symlinked descendants. These transport
+  selections do not change the producer format above.
