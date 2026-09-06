@@ -78,6 +78,23 @@ describe("ActivityTimeline", () => {
     unmount(component);
   });
 
+  it("changes long ranges to Week without fetching while the parent defers", async () => {
+    analytics.from = "2025-01-01";
+    analytics.to = "2025-12-31";
+    analytics.granularity = "day";
+    const fetch = vi.spyOn(analytics, "fetchActivity").mockResolvedValue("ok");
+    const component = mount(ActivityTimeline, { target: document.body, props: { deferInitialFetch: true } });
+    await tick();
+    expect(analytics.granularity).toBe("week");
+    expect(fetch).not.toHaveBeenCalled();
+    const month = [...document.querySelectorAll<HTMLButtonElement>(".granularity-toggle button")].find((button) => button.textContent?.trim() === "Month");
+    month!.click();
+    await tick();
+    expect(analytics.granularity).toBe("month");
+    expect(fetch).toHaveBeenCalledOnce();
+    await unmount(component);
+  });
+
   it("keeps daily date labels readable in a two-week range", async () => {
     Object.defineProperty(HTMLElement.prototype, "clientWidth", {
       configurable: true,

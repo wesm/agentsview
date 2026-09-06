@@ -241,6 +241,7 @@
   }
 
   function refreshAnalytics(): Promise<void> {
+    cancelInitialLoad();
     const refresh = analytics.fetchAll();
     if (router.isRootPath || suppressSessionDateRefresh) return refresh;
     const state = currentAnalyticsPanelDate();
@@ -315,6 +316,41 @@
   let analyticsDateUrlInitComplete = $state(false);
   let lastAnalyticsDateUrlSignature: string | null = $state(null);
   let sessionDateIntentEstablished = false;
+  const INITIAL_LOAD_CEILING_MS = 2000;
+  let initialLoadTimer: ReturnType<typeof setTimeout> | undefined;
+  // Child mount effects run before the page's first-load effect.
+  let initialLoadDeferred = $state(sessions.loading);
+
+  function cancelInitialLoad() {
+    clearTimeout(initialLoadTimer);
+    initialLoadTimer = undefined;
+    initialLoadDeferred = false;
+  }
+
+  function releaseInitialLoad() {
+    if (!initialLoadDeferred) return;
+    cancelInitialLoad();
+    void analytics.fetchAll();
+  }
+
+  function startAnalyticsLoad(deferrable = false) {
+    cancelInitialLoad();
+    if (deferrable && sessions.loading) {
+      initialLoadDeferred = true;
+      initialLoadTimer = setTimeout(releaseInitialLoad, INITIAL_LOAD_CEILING_MS);
+    } else {
+      void analytics.fetchAll();
+    }
+  }
+
+  $effect(() => {
+    if (initialLoadDeferred && !sessions.loading) {
+      untrack(() => {
+        clearTimeout(initialLoadTimer);
+        initialLoadTimer = setTimeout(releaseInitialLoad, 0);
+      });
+    }
+  });
 
   onMount(() => {
     // The URL-date effect owns the initial load so deep links and stored yoke
@@ -410,7 +446,7 @@
     }
 
     if (changed && analyticsDateUrlInitComplete) {
-      untrack(() => analytics.fetchAll());
+      untrack(() => startAnalyticsLoad());
     }
   });
 
@@ -425,7 +461,7 @@
           analytics.applyRollingWindow(
             ANALYTICS_DEFAULT_WINDOW_DAYS,
           );
-          analytics.fetchAll();
+          startAnalyticsLoad(lastAnalyticsDateUrlSignature === null && !analyticsDateUrlInitRan);
         }
         lastAnalyticsDateUrlSignature = "root-landing";
         analyticsDateUrlInitRan = false;
@@ -460,7 +496,7 @@
       if (!state) {
         if (hasDateParams) {
           if (firstRun) {
-            analytics.fetchAll();
+            startAnalyticsLoad(firstRun);
           }
           lastAnalyticsDateUrlSignature = dateSignature;
           analyticsDateUrlInitRan = true;
@@ -504,7 +540,7 @@
           }
         }
         if (changed || firstRun) {
-          analytics.fetchAll();
+          startAnalyticsLoad(firstRun);
         }
         lastAnalyticsDateUrlSignature = dateSignature;
         analyticsDateUrlInitRan = true;
@@ -521,7 +557,7 @@
         yokedDates.updateFromPanel(state);
       }
       if (changed || firstRun) {
-        analytics.fetchAll();
+        startAnalyticsLoad(firstRun);
       }
       if (sessionChanged && !firstRun) {
         sessions.load();
@@ -533,6 +569,7 @@
   });
 
   onDestroy(() => {
+    cancelInitialLoad();
     analytics.cancelInFlightReads();
     const state = currentAnalyticsPanelDate();
     if (state) {
@@ -615,6 +652,7 @@
           </h3>
         </div>
         <ActivityTimeline
+          deferInitialFetch={initialLoadDeferred}
           onRangeSelect={handleActivityRangeSelect}
           onRangeClear={handleActivityRangeClear}
         />
