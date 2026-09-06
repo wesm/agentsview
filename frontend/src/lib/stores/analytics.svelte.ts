@@ -452,7 +452,6 @@ class AnalyticsStore {
     onSuccess: (data: T) => void,
     hasExistingData: () => boolean = () => false,
   ): Promise<FetchResult> {
-    this.fetchStartHandler?.();
     const v = ++this.versions[panel];
     const signal = this.nextAbortSignal(panel);
     // Only show the skeleton when we don't already have data to
@@ -544,6 +543,7 @@ class AnalyticsStore {
   }
 
   async fetchAll() {
+    this.fetchStartHandler?.();
     const fetchVersion = ++this.fetchAllVersion;
     this.rollDates();
     const results = await Promise.all([
