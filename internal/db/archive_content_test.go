@@ -1125,3 +1125,61 @@ func TestUsageArchiveClearsTextLeftByAnEarlierPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageOnlyTitleChangesRollBackWhenCleanupFails(t *testing.T) {
+	for _, name := range []string{"refresh", "rename"} {
+		t.Run(name, func(t *testing.T) {
+			database := testDB(t)
+			title, prompt, note := "provider title", "original prompt", "pinned note"
+			require.NoError(t, database.UpsertSession(Session{
+				ID: "title-update", Project: "project", Agent: "claude", Machine: "local",
+				SessionName: &title, FirstMessage: &prompt,
+			}))
+			require.NoError(t, database.RenameSession("title-update", &title))
+			require.NoError(t, database.InsertMessages([]Message{{
+				SessionID: "title-update", Ordinal: 0, Role: "assistant", Content: "reply",
+			}}))
+			messages, err := database.GetAllMessages(t.Context(), "title-update")
+			require.NoError(t, err)
+			require.Len(t, messages, 1)
+			_, err = database.PinMessage("title-update", messages[0].ID, &note)
+			require.NoError(t, err)
+			before, err := database.GetSessionFull(t.Context(), "title-update")
+			require.NoError(t, err)
+			require.NotNil(t, before)
+			_, err = database.getWriter().Exec(`
+				CREATE TRIGGER fail_title_cleanup
+				BEFORE UPDATE OF note ON pinned_messages
+				BEGIN SELECT RAISE(ABORT, 'injected note cleanup failure'); END`)
+			require.NoError(t, err)
+
+			database.SetArchiveContent(config.ArchiveContentUsage)
+			update := database.RefreshSessionName
+			if name == "rename" {
+				update = database.RenameSession
+			}
+			require.ErrorContains(t, update("title-update", &title), "injected note cleanup failure")
+			after, err := database.GetSessionFull(t.Context(), "title-update")
+			require.NoError(t, err)
+			assert.Equal(t, before, after, "cleanup failure must roll back the entire title update")
+			pins, err := database.ListPinnedMessages(t.Context(), "title-update", "")
+			require.NoError(t, err)
+			require.Len(t, pins, 1)
+			assert.Equal(t, &note, pins[0].Note)
+
+			_, err = database.getWriter().Exec("DROP TRIGGER fail_title_cleanup")
+			require.NoError(t, err)
+			require.NoError(t, update("title-update", &title))
+			after, err = database.GetSessionFull(t.Context(), "title-update")
+			require.NoError(t, err)
+			require.NotNil(t, after)
+			assert.Nil(t, after.FirstMessage)
+			assert.Nil(t, after.DisplayName)
+			assert.Nil(t, after.SessionName)
+			pins, err = database.ListPinnedMessages(t.Context(), "title-update", "")
+			require.NoError(t, err)
+			require.Len(t, pins, 1)
+			assert.Nil(t, pins[0].Note)
+		})
+	}
+}

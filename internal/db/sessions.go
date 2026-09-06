@@ -2406,8 +2406,12 @@ func (db *DB) RefreshSessionName(id string, sessionName *string) error {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	writer := db.getWriter()
-	_, err := writer.Exec(
+	tx, err := db.getWriter().Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.Exec(
 		`UPDATE sessions
 		 SET session_name = ?,
 		     local_modified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -2418,9 +2422,11 @@ func (db *DB) RefreshSessionName(id string, sessionName *string) error {
 		return err
 	}
 	if db.usageOnlyStorage() {
-		return clearUsageOnlyTextTx(writer, id)
+		if err := clearUsageOnlyTextTx(tx, id); err != nil {
+			return err
+		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // FindSessionIDsByPartial returns up to limit session IDs that contain the
@@ -5493,8 +5499,12 @@ func (db *DB) RenameSession(id string, displayName *string) error {
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	writer := db.getWriter()
-	_, err := writer.Exec(
+	tx, err := db.getWriter().Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.Exec(
 		`UPDATE sessions
 		 SET display_name = ?,
 		     local_modified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -5505,9 +5515,11 @@ func (db *DB) RenameSession(id string, displayName *string) error {
 		return err
 	}
 	if db.usageOnlyStorage() {
-		return clearUsageOnlyTextTx(writer, id)
+		if err := clearUsageOnlyTextTx(tx, id); err != nil {
+			return err
+		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // ListTrashedSessions returns sessions that have been soft-deleted.
