@@ -431,6 +431,10 @@ type Emitter interface {
 type EngineConfig struct {
 	AgentDirs      map[parser.AgentType][]string
 	SourceMachines map[parser.AgentType]map[string]string
+	// RootAliases lists configured roots folded into each effective root
+	// because they resolve to the same directory. Codex reads sidecar files
+	// from every alias while scanning transcripts once.
+	RootAliases map[parser.AgentType]map[string][]string
 	// DisabledAgents identifies providers omitted from this local filesystem
 	// engine. Remote import engines leave it empty and import every transferred
 	// provider.
@@ -529,6 +533,8 @@ type Engine struct {
 	deferredSourceCwd       *sourceCwdReconciliationBatch
 	agentDirs               map[parser.AgentType][]string
 	sourceMachines          map[parser.AgentType]map[string]string
+	rootAliases             map[parser.AgentType]map[string][]string
+	releaseCodexAliases     func()
 	preserveAgents          []parser.AgentType
 	machine                 string
 	blockedResultCategories map[string]bool
@@ -865,6 +871,20 @@ func NewEngine(
 	for agent, roots := range cfg.SourceMachines {
 		sourceMachines[agent] = maps.Clone(roots)
 	}
+	rootAliases := make(map[parser.AgentType]map[string][]string, len(cfg.RootAliases))
+	for agent, byRoot := range cfg.RootAliases {
+		cloned := make(map[string][]string, len(byRoot))
+		for root, list := range byRoot {
+			cloned[root] = append([]string(nil), list...)
+		}
+		rootAliases[agent] = cloned
+	}
+	var releaseCodexAliases func()
+	if cfg.Ephemeral {
+		releaseCodexAliases = parser.RegisterTemporaryCodexAliases(rootAliases[parser.AgentCodex])
+	} else {
+		InstallRootAliases(rootAliases)
+	}
 	providerFactories := parser.ProviderFactories()
 	if cfg.ProviderFactories != nil {
 		providerFactories = cfg.ProviderFactories
@@ -900,6 +920,8 @@ func NewEngine(
 		lstat:                   os.Lstat,
 		agentDirs:               dirs,
 		sourceMachines:          sourceMachines,
+		rootAliases:             rootAliases,
+		releaseCodexAliases:     releaseCodexAliases,
 		preserveAgents:          disabledAgents,
 		machine:                 cfg.Machine,
 		blockedResultCategories: blockedCategorySet(cfg.BlockedResultCategories),
@@ -1090,6 +1112,9 @@ func pathWithinRoot(path, root string) bool {
 // the scheduler. Call once when the engine's owner shuts down;
 // safe to call repeatedly.
 func (e *Engine) Close() {
+	if e.releaseCodexAliases != nil {
+		e.releaseCodexAliases()
+	}
 	e.signalSched.stop()
 }
 
@@ -14867,11 +14892,18 @@ func (e *Engine) codexFingerprintFreshness(
 	}
 	statFresh := storedMtime == effectiveMtime
 	if effectiveMtime < storedMtime {
-		indexPath := parser.CodexSessionIndexPath(path)
-		if indexPath != "" {
-			if _, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) {
-				statFresh = true
+		// Only an index that is absent from every home means the stored
+		// mtime came from a since-removed sidecar.
+		indexPaths := parser.CodexSessionIndexPaths(path)
+		allAbsent := len(indexPaths) > 0
+		for _, indexPath := range indexPaths {
+			if _, err := os.Stat(indexPath); !errors.Is(err, os.ErrNotExist) {
+				allAbsent = false
+				break
 			}
+		}
+		if allAbsent {
+			statFresh = true
 		}
 	}
 	if effectiveMtime > storedMtime {
@@ -14980,8 +15012,20 @@ func (e *Engine) classifyCodexIndexPath(
 	indexDir := filepath.Dir(path)
 	var sessionRoots []string
 	for _, agDir := range e.agentDirs[parser.AgentCodex] {
-		if agDir != "" && filepath.Dir(agDir) == indexDir {
+		if agDir == "" {
+			continue
+		}
+		if filepath.Dir(agDir) == indexDir {
 			sessionRoots = append(sessionRoots, agDir)
+			continue
+		}
+		// An alias home's index describes the same transcripts as the
+		// effective root it was folded into.
+		for _, alias := range e.rootAliases[parser.AgentCodex][agDir] {
+			if filepath.Dir(alias) == indexDir {
+				sessionRoots = append(sessionRoots, agDir)
+				break
+			}
 		}
 	}
 	if len(sessionRoots) == 0 {
