@@ -2631,7 +2631,7 @@ func TestGetAnalyticsTools(t *testing.T) {
 }
 
 func TestAnalyticsToolsToolCallsQueryAggregatesInSQL(t *testing.T) {
-	q := analyticsToolsQuery("(?,?)", "", false)
+	q := analyticsToolsQuery("(?,?)", "", "", false)
 	normalized := strings.Join(strings.Fields(strings.ToLower(q)), " ")
 
 	assert.Contains(t, normalized,
@@ -3179,7 +3179,7 @@ func TestGetAnalyticsSkillsDateBoundaries(t *testing.T) {
 }
 
 func TestAnalyticsSkillsToolCallsQueryAggregatesInSQL(t *testing.T) {
-	q := analyticsSkillsQuery("(?,?)", "")
+	q := analyticsSkillsQuery("(?,?)", "", "")
 	normalized := strings.Join(strings.Fields(strings.ToLower(q)), " ")
 
 	assert.Contains(t, normalized,
@@ -5000,4 +5000,127 @@ func TestSQLiteTimeModifier(t *testing.T) {
 		}.sqliteTimeModifier()
 		assert.False(t, ok)
 	})
+}
+
+func TestGetAnalyticsToolsExcludesOutOfRangeToolCallRowsInSQL(t *testing.T) {
+	d := testDB(t)
+	ids := []string{"in", "pre", "post", "fallback"}
+	dates := []string{"2025-06-01T12:00:00Z", "2023-01-01T12:00:00Z", "2027-01-01T12:00:00Z", "2025-06-01T12:00:00Z"}
+	for i, id := range ids {
+		insertSession(t, d, id, "window", func(s *Session) { s.StartedAt = new(dates[i]) })
+		count := []int{2, 40, 40, 1}[i]
+		for n := 0; n < count; n++ {
+			ts := dates[i]
+			if id == "fallback" {
+				ts = ""
+			}
+			m := asstMsgAt(id, n, "read", ts)
+			m.ToolCalls = []ToolCall{{SessionID: id, ToolName: "Read", Category: "Read"}}
+			insertMessages(t, d, m)
+		}
+	}
+	f := AnalyticsFilter{From: "2025-06-01", To: "2025-06-01", Timezone: "UTC"}
+	resp, err := d.GetAnalyticsTools(context.Background(), f)
+	require.NoError(t, err)
+	assert.Equal(t, 3, resp.TotalCalls)
+	require.Len(t, resp.ByTool, 1)
+	assert.Equal(t, 2, resp.ByTool[0].SessionCount)
+	t.Logf("TotalCalls == %d; sessions == %d", resp.TotalCalls, resp.ByTool[0].SessionCount)
+	ph, args := inPlaceholders(ids)
+	modelPred, modelArgs := sqliteAnalyticsCSVPredicate("m.model", f.Model)
+	args = append(args, modelArgs...)
+	from, to := f.messageWindowBoundsUTC()
+	windowPred, windowArgs := analyticsMessageWindowPred("m.timestamp", from, to)
+	args = append(args, windowArgs...)
+	q := analyticsToolsQuery(ph, modelPred, windowPred, true)
+	rows, err := d.getReader().QueryContext(context.Background(), q, args...)
+	require.NoError(t, err)
+	defer rows.Close()
+	admitted, fallback := 0, 0
+	for rows.Next() {
+		var sid, cat, tool, ts string
+		var count int
+		require.NoError(t, rows.Scan(&sid, &cat, &tool, &count, &ts))
+		admitted += count
+		if sid == "fallback" {
+			fallback += count
+		}
+	}
+	require.NoError(t, rows.Err())
+	t.Run("fallback", func(t *testing.T) {
+		assert.Equal(t, 1, fallback)
+		t.Logf("empty timestamp fallback calls == %d", fallback)
+	})
+	assert.Equal(t, 3, admitted, "SQL admitted tool call rows")
+	t.Logf("SQL admitted tool call rows == %d", admitted)
+}
+
+func TestGetAnalyticsSkillsKeepsUTCPlus14BoundaryCall(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "boundary", "window", func(s *Session) { s.StartedAt = new("2023-01-01T00:00:00Z") })
+	m := asstMsgAt("boundary", 0, "skill", "2025-05-31T10:00:00Z")
+	m.ToolCalls = []ToolCall{{SessionID: "boundary", ToolName: "Skill", SkillName: "review"}}
+	insertMessages(t, d, m)
+	resp, err := d.GetAnalyticsSkills(context.Background(), AnalyticsFilter{From: "2025-06-01", To: "2025-06-01", Timezone: "Pacific/Kiritimati"}, "day")
+	require.NoError(t, err)
+	assert.Equal(t, 1, resp.TotalSkillCalls)
+	require.Len(t, resp.BySkill, 1)
+	assert.Equal(t, "2025-05-31T10:00:00Z", resp.BySkill[0].LastUsedAt)
+	t.Log("boundary 2025-05-31T10:00:00 retained")
+}
+
+func TestGetAnalyticsSkillsPreservesSubMinuteLastUsedAt(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "minute", "window", func(s *Session) { s.StartedAt = new("2025-06-01T12:00:00Z") })
+	for n, ts := range []string{"2025-06-01T12:00:10Z", "2025-06-01T12:00:10.900Z"} {
+		m := asstMsgAt("minute", n, "skill", ts)
+		m.ToolCalls = []ToolCall{{SessionID: "minute", ToolName: "Skill", SkillName: "review"}}
+		insertMessages(t, d, m)
+	}
+	resp, err := d.GetAnalyticsSkills(context.Background(), AnalyticsFilter{From: "2025-06-01", To: "2025-06-01", Timezone: "UTC"}, "day")
+	require.NoError(t, err)
+	assert.Equal(t, 2, resp.TotalSkillCalls)
+	require.Len(t, resp.BySkill, 1)
+	assert.Equal(t, "2025-06-01T12:00:10.900Z", resp.BySkill[0].LastUsedAt)
+	t.Logf("calls == %d; LastUsedAt == %s", resp.TotalSkillCalls, resp.BySkill[0].LastUsedAt)
+}
+
+func TestGetAnalyticsToolsChunksSessionsAtMaxSQLVars(t *testing.T) {
+	d := testDB(t)
+	ids := make([]string, maxSQLVars+1)
+	for n := range ids {
+		ids[n] = fmt.Sprintf("chunk-%d", n)
+		insertSession(t, d, ids[n], "window", func(s *Session) { s.StartedAt = new("2025-06-01T12:00:00Z") })
+		m := asstMsgAt(ids[n], 0, "read", "2025-06-01T12:00:00Z")
+		m.Model = "model-a"
+		m.ToolCalls = []ToolCall{{SessionID: ids[n], ToolName: "Read", Category: "Read"}}
+		other := asstMsgAt(ids[n], 1, "write", "2025-06-01T12:00:00Z")
+		other.Model = "model-b"
+		other.ToolCalls = []ToolCall{{SessionID: ids[n], ToolName: "Write", Category: "Write"}}
+		insertMessages(t, d, m, other)
+	}
+	f := AnalyticsFilter{From: "2025-06-01", To: "2025-06-01", Timezone: "UTC", Model: "model-a"}
+	resp, err := d.GetAnalyticsTools(context.Background(), f)
+	require.NoError(t, err)
+	ph, args := inPlaceholders(ids)
+	modelPred, modelArgs := sqliteAnalyticsCSVPredicate("m.model", f.Model)
+	from, to := f.messageWindowBoundsUTC()
+	pred, windowArgs := analyticsMessageWindowPred("m.timestamp", from, to)
+	args = append(append(args, modelArgs...), windowArgs...)
+	rows, err := d.getReader().QueryContext(context.Background(), analyticsToolsQuery(ph, modelPred, pred, true), args...)
+	require.NoError(t, err)
+	defer rows.Close()
+	var all []ToolAnalyticsRow
+	for rows.Next() {
+		var r ToolAnalyticsRow
+		var ts string
+		require.NoError(t, rows.Scan(&r.SessionID, &r.Category, &r.ToolName, &r.Count, &ts))
+		r.Agent = defaultAgent
+		r.Date = "2025-06-01"
+		all = append(all, r)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, BuildToolsAnalytics(all), resp)
+	assert.Equal(t, 501, resp.TotalCalls)
+	t.Log("chunked and unchunked responses match; TotalCalls == 501")
 }

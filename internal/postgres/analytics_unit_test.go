@@ -161,7 +161,7 @@ func (c *analyticsProbeConn) QueryContext(
 			if !strings.Contains(normalized, "left join messages") {
 				return nil, errors.New("skill query must join messages")
 			}
-			if strings.Contains(normalized, "to_char(m.timestamp") {
+			if strings.Contains(normalized, "to_char(") {
 				return nil, errors.New(
 					"skill query must scan native message timestamps")
 			}
@@ -195,7 +195,7 @@ func (c *analyticsProbeConn) QueryContext(
 			return nil, errors.New(
 				"tool call query must group by tool_name")
 		}
-		if strings.Contains(normalized, "to_char(m.timestamp") {
+		if strings.Contains(normalized, "to_char(") {
 			return &analyticsProbeRows{
 				columns: []string{
 					"session_id", "category", "tool_name", "count", "timestamp",
@@ -427,4 +427,38 @@ func TestGetAnalyticsSummaryModelsFollowFilteredSessions(t *testing.T) {
 	)
 	require.NoError(t, err, "GetAnalyticsSummary")
 	assert.Equal(t, []string{"model-s1"}, resp.Models)
+}
+
+func TestGetAnalyticsToolsWindowsMessagesInSQL(t *testing.T) {
+	assertAnalyticsMessageWindowQuery(t, false)
+}
+func TestGetAnalyticsSkillsWindowsMessagesInSQL(t *testing.T) {
+	assertAnalyticsMessageWindowQuery(t, true)
+}
+
+func assertAnalyticsMessageWindowQuery(t *testing.T, skills bool) {
+	t.Helper()
+	state := &analyticsProbeState{}
+	store := &Store{pg: newAnalyticsProbeDB(t, state)}
+	f := db.AnalyticsFilter{From: "2024-06-01", To: "2024-06-30", Model: "model-a"}
+	if skills {
+		resp, err := store.GetAnalyticsSkills(context.Background(), f, "week")
+		require.NoError(t, err)
+		assert.Equal(t, 3, resp.TotalSkillCalls)
+	} else {
+		resp, err := store.GetAnalyticsTools(context.Background(), f)
+		require.NoError(t, err)
+		assert.Equal(t, 4, resp.TotalCalls)
+	}
+	require.Len(t, state.queries, 2)
+	q := strings.Join(strings.Fields(state.queries[1]), " ")
+	assert.Contains(t, q, "m.model = $3")
+	assert.Contains(t, q, "m.timestamp IS NULL OR (m.timestamp >= $4::timestamptz AND m.timestamp < $5::timestamptz)")
+	assert.Contains(t, q, "date_trunc('minute', m.timestamp)")
+	assert.Contains(t, q, "MAX(m.timestamp)")
+	assert.Contains(t, q, "m.ordinal = tc.message_ordinal")
+	assert.Equal(t, []any{"s1", "s2", "model-a", "2024-05-31T10:00:00Z", "2024-07-01T14:00:00Z"}, state.args[1])
+	assert.Contains(t, state.queries[0], "wm.session_id = sessions.id")
+	assert.Equal(t, []any{"model-a", "2024-05-31T10:00:00Z", "2024-07-01T14:00:00Z", "2024-05-31T10:00:00Z", "2024-07-01T14:00:00Z"}, state.args[0])
+	t.Log("typed UTC bounds and minute grouping captured; model and window arguments paired")
 }

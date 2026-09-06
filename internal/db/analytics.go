@@ -224,6 +224,50 @@ func (f AnalyticsFilter) utcRange() (string, string) {
 	return from, to
 }
 
+func (f AnalyticsFilter) messageWindowBoundsUTC() (string, string) {
+	from, to := f.utcRange()
+	if f.From == "" {
+		from = ""
+	}
+	if f.To == "" {
+		to = ""
+	} else if t, err := time.Parse(time.RFC3339, to); err == nil {
+		to = t.Add(time.Second).Format(time.RFC3339)
+	}
+	return strings.TrimSuffix(from, "Z"), strings.TrimSuffix(to, "Z")
+}
+
+func analyticsMessageWindowPred(col, from, to string) (string, []any) {
+	var preds []string
+	var args []any
+	if from != "" {
+		preds = append(preds, col+" >= ?")
+		args = append(args, from)
+	}
+	if to != "" {
+		preds = append(preds, col+" < ?")
+		args = append(args, to)
+	}
+	if len(preds) == 0 {
+		return "", nil
+	}
+	return "(" + col + " IS NULL OR " + col + " = '' OR strftime('%Y', " + col + ") IS NULL OR (" + strings.Join(preds, " AND ") + "))", args
+}
+
+func (f AnalyticsFilter) toolSessionWindowSQL(dateCol, sessionID string) (string, []any) {
+	from, to := f.messageWindowBoundsUTC()
+	sessionPred, args := analyticsMessageWindowPred(dateCol, from, to)
+	if sessionPred == "" {
+		return "", nil
+	}
+	messagePred, messageArgs := analyticsMessageWindowPred("wm.timestamp", from, to)
+	return "(" + sessionPred + " OR EXISTS (SELECT 1 FROM messages wm WHERE wm.session_id = " + sessionID + " AND " + messagePred + "))", append(args, messageArgs...)
+}
+
+func sqliteAnalyticsMinuteKey() string {
+	return "COALESCE(strftime('%Y-%m-%dT%H:%M', m.timestamp), m.timestamp, '')"
+}
+
 // buildWhere returns a WHERE clause and args for common
 // analytics filters.
 func (f AnalyticsFilter) buildWhere(
@@ -3009,12 +3053,13 @@ func skillProjectBreakdowns(
 func analyticsToolsQuery(
 	placeholders string,
 	modelPred string,
+	windowPred string,
 	includeMessageMeta bool,
 ) string {
 	query := `SELECT tc.session_id, tc.category,
 			TRIM(COALESCE(tc.tool_name, '')), COUNT(*)`
 	if includeMessageMeta {
-		query += `, COALESCE(m.timestamp, '')`
+		query += `, MAX(COALESCE(m.timestamp, ''))`
 	}
 	query += `
 		FROM tool_calls tc`
@@ -3029,11 +3074,14 @@ func analyticsToolsQuery(
 		query += `
 			AND ` + modelPred
 	}
+	if windowPred != "" {
+		query += ` AND ` + windowPred
+	}
 	query += `
 		GROUP BY tc.session_id, tc.category,
 			TRIM(COALESCE(tc.tool_name, ''))`
 	if includeMessageMeta {
-		query += `, COALESCE(m.timestamp, '')`
+		query += `, ` + sqliteAnalyticsMinuteKey()
 	}
 	return query
 }
@@ -3041,6 +3089,7 @@ func analyticsToolsQuery(
 func analyticsSkillsQuery(
 	placeholders string,
 	modelPred string,
+	windowPred string,
 ) string {
 	query := `SELECT tc.session_id, TRIM(tc.skill_name), COUNT(*),
 			COALESCE(m.timestamp, '')
@@ -3052,6 +3101,9 @@ func analyticsSkillsQuery(
 	if modelPred != "" {
 		query += `
 			AND ` + modelPred
+	}
+	if windowPred != "" {
+		query += ` AND ` + windowPred
 	}
 	query += `
 		GROUP BY tc.session_id, TRIM(tc.skill_name),
@@ -3066,6 +3118,10 @@ func (db *DB) GetAnalyticsTools(
 ) (ToolsAnalyticsResponse, error) {
 	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhereWithoutDate()
+	if pred, windowArgs := f.toolSessionWindowSQL(dateCol, "sessions.id"); pred != "" {
+		where += " AND " + pred
+		args = append(args, windowArgs...)
+	}
 
 	// Fetch filtered session IDs and their metadata.
 	sessQ := `SELECT id, ` + dateCol + `, agent
@@ -3120,7 +3176,10 @@ func (db *DB) GetAnalyticsTools(
 				"m.model", f.Model,
 			)
 			chunkArgs = append(chunkArgs, modelArgs...)
-			q := analyticsToolsQuery(ph, modelPred, true)
+			from, to := f.messageWindowBoundsUTC()
+			windowPred, windowArgs := analyticsMessageWindowPred("m.timestamp", from, to)
+			chunkArgs = append(chunkArgs, windowArgs...)
+			q := analyticsToolsQuery(ph, modelPred, windowPred, true)
 			rows, qErr := db.getReader().QueryContext(
 				ctx, q, chunkArgs...,
 			)
@@ -3211,6 +3270,10 @@ func (db *DB) GetAnalyticsSkills(
 ) (SkillsAnalyticsResponse, error) {
 	dateCol := "COALESCE(NULLIF(started_at, ''), created_at)"
 	where, args := f.buildWhereWithoutDate()
+	if pred, windowArgs := f.toolSessionWindowSQL(dateCol, "sessions.id"); pred != "" {
+		where += " AND " + pred
+		args = append(args, windowArgs...)
+	}
 
 	sessQ := `SELECT id, ` + dateCol + `, agent, project
 		FROM sessions WHERE ` + where
@@ -3261,7 +3324,10 @@ func (db *DB) GetAnalyticsSkills(
 				"m.model", f.Model,
 			)
 			chunkArgs = append(chunkArgs, modelArgs...)
-			q := analyticsSkillsQuery(ph, modelPred)
+			from, to := f.messageWindowBoundsUTC()
+			windowPred, windowArgs := analyticsMessageWindowPred("m.timestamp", from, to)
+			chunkArgs = append(chunkArgs, windowArgs...)
+			q := analyticsSkillsQuery(ph, modelPred, windowPred)
 			rows, qErr := db.getReader().QueryContext(
 				ctx, q, chunkArgs...,
 			)
