@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -186,6 +187,112 @@ func TestValidateWatchBatchRejectsMalformedScope(t *testing.T) {
 	}
 }
 
+func seedWatchBatchUnrelatedSessions(
+	t *testing.T, database *db.DB, count int, prefix string,
+) {
+	t.Helper()
+	root := t.TempDir()
+	// These rows supply archive cardinality while changed-source ingestion stays real.
+	require.NoError(t, database.Update(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare(`INSERT INTO sessions (id, agent, project, machine, file_path, message_count, user_message_count) VALUES (?, 'claude', 'cold', 'local', ?, 1, 1)`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for i := range count {
+			id := fmt.Sprintf("%s%05d", prefix, i)
+			path := filepath.Join(root, fmt.Sprintf("%05d.jsonl", i))
+			if _, err := stmt.Exec(id, path); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+
+	var stored int
+	require.NoError(t, database.Reader().QueryRow(
+		"SELECT count(*) FROM sessions WHERE project = 'cold' AND agent = 'claude' AND machine = 'local' AND message_count = 1 AND user_message_count = 1 AND file_path IS NOT NULL",
+	).Scan(&stored))
+	require.Equal(t, count, stored)
+}
+
+func TestWatchBatchFixtureMatchesUpsertSession(t *testing.T) {
+	database := openTestDB(t)
+	seedWatchBatchUnrelatedSessions(t, database, 3, "candidate-")
+	referencePath := filepath.Join(t.TempDir(), "reference.jsonl")
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID: "reference", Agent: "claude", Project: "cold", Machine: "local",
+		FilePath: &referencePath, MessageCount: 1, UserMessageCount: 1,
+	}))
+
+	var stored int
+	require.NoError(t, database.Reader().QueryRow(
+		"SELECT count(*) FROM sessions WHERE project = 'cold' AND agent = 'claude' AND machine = 'local' AND message_count = 1 AND user_message_count = 1 AND file_path IS NOT NULL",
+	).Scan(&stored))
+	require.Equal(t, 4, stored)
+
+	read := func(id string) (map[string]any, string) {
+		rows, err := database.Reader().Query("SELECT * FROM sessions WHERE id = ?", id)
+		require.NoError(t, err)
+		defer rows.Close()
+
+		columns, err := rows.Columns()
+		require.NoError(t, err)
+		require.True(t, rows.Next())
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
+		for i := range values {
+			pointers[i] = &values[i]
+		}
+		require.NoError(t, rows.Scan(pointers...))
+		require.False(t, rows.Next())
+		require.NoError(t, rows.Err())
+
+		result := make(map[string]any, len(columns)-4)
+		var filePath string
+		for i, column := range columns {
+			switch column {
+			case "id":
+				value, ok := values[i].(string)
+				require.True(t, ok, "id must be text")
+				require.Equal(t, id, value)
+			case "file_path":
+				value, ok := values[i].(string)
+				require.True(t, ok, "file_path must be text")
+				filePath = value
+			case "created_at", "sync_marker":
+				value, ok := values[i].(string)
+				require.True(t, ok, "%s must be text", column)
+				_, err := time.Parse(time.RFC3339Nano, value)
+				require.NoError(t, err, "%s must be RFC3339Nano", column)
+			default:
+				result[column] = values[i]
+			}
+		}
+		return result, filePath
+	}
+
+	reference, _ := read("reference")
+	commonRoot := ""
+	paths := make(map[string]struct{}, 3)
+	for i := range 3 {
+		id := fmt.Sprintf("candidate-%05d", i)
+		candidate, path := read(id)
+		require.Equal(t, reference, candidate)
+		require.Equal(t, fmt.Sprintf("%05d.jsonl", i), filepath.Base(path))
+		root := filepath.Dir(path)
+		require.NotEmpty(t, root)
+		if commonRoot == "" {
+			commonRoot = root
+		} else {
+			require.Equal(t, commonRoot, root)
+		}
+		_, duplicate := paths[path]
+		require.False(t, duplicate)
+		paths[path] = struct{}{}
+	}
+}
+
 func TestSyncWatchBatchThenRunChangedPathCardinalityAndSerialization(t *testing.T) {
 	const agent parser.AgentType = "watch-batch-cardinality"
 	type outcome struct {
@@ -210,15 +317,7 @@ func TestSyncWatchBatchThenRunChangedPathCardinalityAndSerialization(t *testing.
 					}
 				},
 			)
-			coldRoot := t.TempDir()
-			for i := range unrelated {
-				unrelatedPath := filepath.Join(coldRoot, fmt.Sprintf("%05d.jsonl", i))
-				require.NoError(t, database.UpsertSession(db.Session{
-					ID: fmt.Sprintf("unrelated-%05d", i), Agent: "claude",
-					Project: "cold", Machine: "local", FilePath: &unrelatedPath,
-					MessageCount: 1, UserMessageCount: 1,
-				}))
-			}
+			seedWatchBatchUnrelatedSessions(t, database, unrelated, "unrelated-")
 
 			callbackEntered := make(chan struct{})
 			releaseCallback := make(chan struct{})
@@ -297,15 +396,7 @@ func TestSyncWatchBatchThenRunMissingPathTombstoneIsCardinalityBounded(t *testin
 				t.Context(), WatchBatch{Paths: []string{path}}, nil, func() error { return nil },
 			)
 			require.NoError(t, err)
-			coldRoot := t.TempDir()
-			for i := range unrelated {
-				unrelatedPath := filepath.Join(coldRoot, fmt.Sprintf("%05d.jsonl", i))
-				require.NoError(t, database.UpsertSession(db.Session{
-					ID: fmt.Sprintf("delete-unrelated-%05d", i), Agent: "claude",
-					Project: "cold", Machine: "local", FilePath: &unrelatedPath,
-					MessageCount: 1, UserMessageCount: 1,
-				}))
-			}
+			seedWatchBatchUnrelatedSessions(t, database, unrelated, "delete-unrelated-")
 			provider.changedPathCalls.Store(0)
 			provider.source = nil
 			require.NoError(t, os.Remove(path))
