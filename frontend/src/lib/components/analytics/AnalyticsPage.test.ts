@@ -118,6 +118,14 @@ describe("AnalyticsPage initial load", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("cancels the deferred load before a range change fetch", async () => {
+    const fetch = await start();
+    await selectRelativeRange(30);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("fails open at exactly 2000 ms", async () => {
     const fetch = await start();
     await vi.advanceTimersByTimeAsync(1999);
@@ -482,7 +490,7 @@ describe("AnalyticsPage refresh behavior", () => {
 
     expect(onMountBlock).not.toContain("analytics.fetchAll();");
     expect(source).toContain("const firstRun = !analyticsDateUrlInitRan");
-    expect(source).toContain("if (changed || firstRun)");
+    expect(source).toContain("if (changed || initialHydration)");
   });
 
   it("uses an Activity brush as a Sessions filter without replacing the chart window", async () => {

@@ -86,11 +86,13 @@ describe("ActivityTimeline", () => {
       granularity: "day",
       series: [],
     };
+    analytics.errors.activity = "stale activity error";
     const fetch = vi.spyOn(analytics, "fetchActivity").mockResolvedValue("ok");
     const component = mount(ActivityTimeline, { target: document.body, props: { deferInitialFetch: true } });
     await tick();
     expect(analytics.granularity).toBe("week");
     expect(analytics.activity).toBeNull();
+    expect(analytics.errors.activity).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
     const month = [...document.querySelectorAll<HTMLButtonElement>(".granularity-toggle button")].find((button) => button.textContent?.trim() === "Month");
     month!.click();

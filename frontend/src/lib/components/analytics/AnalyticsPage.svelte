@@ -78,6 +78,8 @@
   );
 
   function applyRange(sel: RangeSelection) {
+    cancelInitialLoad();
+    userDateSelectionPending = true;
     if (sel.mode === "relative" && sel.days > 0) {
       sessionDateIntentEstablished = true;
       analytics.setRollingWindow(sel.days);
@@ -316,6 +318,7 @@
   let analyticsDateUrlInitComplete = $state(false);
   let lastAnalyticsDateUrlSignature: string | null = $state(null);
   let sessionDateIntentEstablished = false;
+  let userDateSelectionPending = false;
   const INITIAL_LOAD_CEILING_MS = 2000;
   let initialLoadTimer: ReturnType<typeof setTimeout> | undefined;
   // Child mount effects run before the page's first-load effect.
@@ -342,6 +345,8 @@
       void analytics.fetchAll();
     }
   }
+
+  analytics.setFetchStartHandler(cancelInitialLoad);
 
   $effect(() => {
     if (initialLoadDeferred && !sessions.loading) {
@@ -486,6 +491,8 @@
       }
 
       const firstRun = !analyticsDateUrlInitRan;
+      const initialHydration = firstRun && !userDateSelectionPending;
+      userDateSelectionPending = false;
       const dateSignature = sessionAnalyticsDateUrlSignature(
         params,
         state,
@@ -496,7 +503,7 @@
       if (!state) {
         if (hasDateParams) {
           if (firstRun) {
-            startAnalyticsLoad(firstRun);
+            startAnalyticsLoad(initialHydration);
           }
           lastAnalyticsDateUrlSignature = dateSignature;
           analyticsDateUrlInitRan = true;
@@ -539,8 +546,8 @@
             if (sessionChanged) sessions.load();
           }
         }
-        if (changed || firstRun) {
-          startAnalyticsLoad(firstRun);
+        if (changed || initialHydration) {
+          startAnalyticsLoad(initialHydration);
         }
         lastAnalyticsDateUrlSignature = dateSignature;
         analyticsDateUrlInitRan = true;
@@ -556,8 +563,8 @@
         sessionChanged = syncSessionFiltersForDateState(state);
         yokedDates.updateFromPanel(state);
       }
-      if (changed || firstRun) {
-        startAnalyticsLoad(firstRun);
+      if (changed || initialHydration) {
+        startAnalyticsLoad(initialHydration);
       }
       if (sessionChanged && !firstRun) {
         sessions.load();
@@ -570,6 +577,7 @@
 
   onDestroy(() => {
     cancelInitialLoad();
+    analytics.setFetchStartHandler(undefined);
     analytics.cancelInFlightReads();
     const state = currentAnalyticsPanelDate();
     if (state) {

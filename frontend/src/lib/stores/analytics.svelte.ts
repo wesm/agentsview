@@ -143,6 +143,7 @@ class AnalyticsStore {
   private fetchAllVersion = 0;
   private activityScope: string | null = null;
   private abortControllers: Partial<Record<Panel, AbortController>> = {};
+  private fetchStartHandler: (() => void) | undefined;
   // Scope key of the cached `signals`: the Analytics-only filters (model plus
   // the heatmap drill-down) the cached data was fetched with. Used to drop the
   // cache when a fetch crosses the Analytics / Quality boundary, where those
@@ -178,6 +179,10 @@ class AnalyticsStore {
   markNewData(): void {
     if (this.lastUpdatedAt === null) return;
     this.hasNewData = true;
+  }
+
+  setFetchStartHandler(handler: (() => void) | undefined): void {
+    this.fetchStartHandler = handler;
   }
 
   private get effectiveAutomatedScope(): AutomatedScope {
@@ -447,6 +452,7 @@ class AnalyticsStore {
     onSuccess: (data: T) => void,
     hasExistingData: () => boolean = () => false,
   ): Promise<FetchResult> {
+    this.fetchStartHandler?.();
     const v = ++this.versions[panel];
     const signal = this.nextAbortSignal(panel);
     // Only show the skeleton when we don't already have data to

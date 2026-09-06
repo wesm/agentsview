@@ -52,6 +52,7 @@
         analytics.granularity = "week";
         // Clear day data until the parent releases the initial analytics load.
         analytics.activity = null;
+        analytics.errors.activity = null;
       } else {
         analytics.setGranularity("week");
       }
