@@ -18805,7 +18805,7 @@ func postFilterCountsContext(
 		if err = ctx.Err(); err != nil {
 			return
 		}
-		if m.Role == "user" && !m.IsSystem {
+		if m.Role == "user" && !m.IsSystem && m.SourceSubtype != parser.SourceSubtypeToolResult {
 			user++
 		}
 	}
@@ -18823,7 +18823,7 @@ func postFilterCountsContext(
 func chunkHasRealUserPrompt(msgs []parser.ParsedMessage) bool {
 	for _, m := range msgs {
 		if m.Role == parser.RoleUser && !m.IsSystem &&
-			m.Content != "" &&
+			m.SourceSubtype != parser.SourceSubtypeToolResult && m.Content != "" &&
 			!parser.IsSkippablePreviewCommand(m.Content) {
 			return true
 		}
@@ -18835,7 +18835,7 @@ func chunkHasRealUserPrompt(msgs []parser.ParsedMessage) bool {
 func countUserMsgs(msgs []parser.ParsedMessage) int {
 	n := 0
 	for _, m := range msgs {
-		if m.Role == parser.RoleUser {
+		if m.Role == parser.RoleUser && m.SourceSubtype != parser.SourceSubtypeToolResult {
 			n++
 		}
 	}

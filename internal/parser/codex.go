@@ -1822,7 +1822,7 @@ func (p *codexProvider) parseSessionSnapshotContext(
 		if err := contextErrEvery(ctx, i); err != nil {
 			return nil, nil, err
 		}
-		if m.Role == RoleUser && m.Content != "" {
+		if m.Role == RoleUser && m.SourceSubtype != SourceSubtypeToolResult && m.Content != "" {
 			userCount++
 		}
 	}

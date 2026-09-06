@@ -438,7 +438,10 @@ add an archived or maintained mirror without replacing the original identity.
   `flushPendingAgentResultsContext` in `internal/parser/codex.go`: it emitted
   unpaired agent results as unmarked user rows. Archive copies under
   `transcripts` discard those legacy user rows, including indistinguishable
-  prompts; version-100 rows use the tool-result marker.
+  prompts; version-100 rows use the tool-result marker. Reverified 2026-09-05
+  against the parser and archive classification paths: orphan notifications
+  retain their result text in full archives but do not count as user prompts
+  or supply the first-user text used for automation classification.
 
 ## TraeX (`traex`)
 

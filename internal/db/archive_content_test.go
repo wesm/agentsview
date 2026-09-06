@@ -1035,6 +1035,7 @@ func TestUsageArchiveClearsTextLeftByAnEarlierPolicy(t *testing.T) {
 	seed("batch")
 	seed("identity")
 	seed("rename")
+	seed("display-rename")
 	for _, id := range []string{"upsert", "metadata-update"} {
 		require.NoError(t, full.UpdateSessionSignals(id, SessionSignalUpdate{
 			ToolFailureSignalCount: 3, Outcome: "failure",
@@ -1092,6 +1093,7 @@ func TestUsageArchiveClearsTextLeftByAnEarlierPolicy(t *testing.T) {
 		"project",
 	))
 	require.NoError(t, database.RefreshSessionName("rename", &title))
+	require.NoError(t, database.RenameSession("display-rename", &title))
 
 	for _, id := range []string{"upsert", "metadata-update"} {
 		stored, err := database.GetSessionFull(context.Background(), id)
@@ -1108,7 +1110,7 @@ func TestUsageArchiveClearsTextLeftByAnEarlierPolicy(t *testing.T) {
 	}
 
 	for _, id := range []string{
-		"upsert", "replace", "incremental", "metadata-update", "batch", "identity", "rename",
+		"upsert", "replace", "incremental", "metadata-update", "batch", "identity", "rename", "display-rename",
 	} {
 		stored, err := database.GetSessionFull(context.Background(), id)
 		require.NoError(t, err)

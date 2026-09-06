@@ -5493,14 +5493,21 @@ func (db *DB) RenameSession(id string, displayName *string) error {
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	_, err := db.getWriter().Exec(
+	writer := db.getWriter()
+	_, err := writer.Exec(
 		`UPDATE sessions
 		 SET display_name = ?,
 		     local_modified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
 		 WHERE id = ? AND deleted_at IS NULL`,
 		displayName, id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if db.usageOnlyStorage() {
+		return clearUsageOnlyTextTx(writer, id)
+	}
+	return nil
 }
 
 // ListTrashedSessions returns sessions that have been soft-deleted.

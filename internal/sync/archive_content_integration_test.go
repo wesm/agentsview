@@ -676,3 +676,31 @@ func TestResyncCopiesDerivedTextOnlyOutsideUsagePolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestArchivePolicyOrphanToolResultsDoNotChangeAutomation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "rollout-orphan-prompts.jsonl")
+	prompt := "You are a code reviewer. Review the diff."
+	notification := `<subagent_notification>{"agent_id":"child-orphan","status":{"completed":"Finished successfully"}}</subagent_notification>`
+	require.NoError(t, os.WriteFile(path, []byte(testjsonl.JoinJSONL(
+		testjsonl.CodexSessionMetaJSON("orphan-prompts", "/workspace/project", "codex_cli_rs", "2026-09-05T10:00:00Z"),
+		testjsonl.CodexMsgJSON("user", prompt, "2026-09-05T10:00:01Z"),
+		testjsonl.CodexMsgJSON("user", notification, "2026-09-05T10:00:02Z"),
+	)), 0o600))
+	for _, policy := range []config.ArchiveContent{config.ArchiveContentFull, config.ArchiveContentTranscripts, config.ArchiveContentUsage} {
+		t.Run(string(policy), func(t *testing.T) {
+			database := dbtest.OpenTestDB(t)
+			engine := sync.NewEngine(database, sync.EngineConfig{
+				AgentDirs: map[parser.AgentType][]string{parser.AgentCodex: {root}},
+				Machine:   "local", ArchiveContent: policy,
+			})
+			t.Cleanup(engine.Close)
+			require.Equal(t, 1, engine.SyncAll(t.Context(), nil).Synced)
+			stored, err := database.GetSessionFull(t.Context(), "codex:orphan-prompts")
+			require.NoError(t, err)
+			require.NotNil(t, stored)
+			assert.Equal(t, 1, stored.UserMessageCount)
+			assert.True(t, stored.IsAutomated)
+		})
+	}
+}
