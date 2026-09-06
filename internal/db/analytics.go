@@ -231,6 +231,8 @@ func (f AnalyticsFilter) messageWindowBoundsUTC() (string, string) {
 	}
 	if f.To == "" {
 		to = ""
+	} else if f.To == "9999-12-31" {
+		to = ""
 	} else if t, err := time.Parse(time.RFC3339, to); err == nil {
 		to = t.Add(time.Second).Format(time.RFC3339)
 	}

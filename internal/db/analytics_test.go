@@ -5055,6 +5055,16 @@ func TestGetAnalyticsToolsExcludesOutOfRangeToolCallRowsInSQL(t *testing.T) {
 	t.Logf("SQL admitted tool call rows == %d", admitted)
 }
 
+func TestAnalyticsMessageWindowBoundsDoNotOverflowMaxDate(t *testing.T) {
+	from, to := (AnalyticsFilter{
+		From: "9999-12-31", To: "9999-12-31", Timezone: "UTC",
+	}).messageWindowBoundsUTC()
+	require.NotEmpty(t, from)
+	assert.Empty(t, to)
+	assert.NotContains(t, from, "10000")
+	t.Logf("max-date bounds: from=%s; to=%q", from, to)
+}
+
 func TestGetAnalyticsSkillsKeepsUTCPlus14BoundaryCall(t *testing.T) {
 	d := testDB(t)
 	insertSession(t, d, "boundary", "window", func(s *Session) { s.StartedAt = new("2023-01-01T00:00:00Z") })
