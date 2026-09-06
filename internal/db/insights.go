@@ -90,6 +90,12 @@ func buildInsightFilter(
 	return strings.Join(preds, " AND "), args
 }
 
+// InsightGenerationAvailable reports whether this archive can persist a
+// generated insight. Check before invoking an agent, not only when saving.
+func (db *DB) InsightGenerationAvailable() bool {
+	return !db.ReadOnly() && !db.usageOnlyStorage()
+}
+
 // InsertInsight inserts an insight and returns its ID.
 func (db *DB) InsertInsight(s Insight) (int64, error) {
 	if err := db.requireDerivedTextStorage("insights"); err != nil {
