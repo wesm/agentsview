@@ -82,10 +82,15 @@ describe("ActivityTimeline", () => {
     analytics.from = "2025-01-01";
     analytics.to = "2025-12-31";
     analytics.granularity = "day";
+    analytics.activity = {
+      granularity: "day",
+      series: [],
+    };
     const fetch = vi.spyOn(analytics, "fetchActivity").mockResolvedValue("ok");
     const component = mount(ActivityTimeline, { target: document.body, props: { deferInitialFetch: true } });
     await tick();
     expect(analytics.granularity).toBe("week");
+    expect(analytics.activity).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
     const month = [...document.querySelectorAll<HTMLButtonElement>(".granularity-toggle button")].find((button) => button.textContent?.trim() === "Month");
     month!.click();

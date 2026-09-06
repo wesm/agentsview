@@ -50,6 +50,8 @@
     if (dayViewDisabled && analytics.granularity === "day") {
       if (deferInitialFetch) {
         analytics.granularity = "week";
+        // Clear day data until the parent releases the initial analytics load.
+        analytics.activity = null;
       } else {
         analytics.setGranularity("week");
       }
