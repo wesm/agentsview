@@ -5017,7 +5017,7 @@ func TestGetAnalyticsToolsExcludesOutOfRangeToolCallRowsInSQL(t *testing.T) {
 	for i, id := range ids {
 		insertSession(t, d, id, "window", func(s *Session) { s.StartedAt = new(dates[i]) })
 		count := []int{2, 40, 40, 1}[i]
-		for n := 0; n < count; n++ {
+		for n := range count {
 			ts := dates[i]
 			if id == "fallback" {
 				ts = ""

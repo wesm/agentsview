@@ -12,7 +12,7 @@ import (
 func BenchmarkGetAnalyticsToolsYearRange(b *testing.B) {
 	d := testDB(b)
 	start := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
-	for day := 0; day < 1096; day++ {
+	for day := range 1096 {
 		id := fmt.Sprintf("day-%d", day)
 		ts := start.AddDate(0, 0, day)
 		require.NoError(b, d.UpsertSession(Session{ID: id, Project: "bench", Machine: "local", Agent: "claude", StartedAt: new(ts.Format(time.RFC3339)), MessageCount: 30}))
