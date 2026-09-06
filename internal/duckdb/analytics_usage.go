@@ -1834,6 +1834,7 @@ func (s *Store) GetAnalyticsTools(
 		query += `
 				GROUP BY tc.session_id, tc.category,
 					TRIM(COALESCE(tc.tool_name, '')), date_trunc('minute', m.timestamp)`
+		observeAnalyticsQuery(query)
 		rows, qErr := s.queryContext(ctx, query, args...)
 		if qErr != nil {
 			return qErr
@@ -3150,6 +3151,14 @@ func duckAnalyticsMessageWindowPred(col, from, to string) (string, []any) {
 		return "", nil
 	}
 	return "(" + col + " IS NULL OR (" + strings.Join(preds, " AND ") + "))", args
+}
+
+var analyticsQueryObserver func(string)
+
+func observeAnalyticsQuery(query string) {
+	if analyticsQueryObserver != nil {
+		analyticsQueryObserver(query)
+	}
 }
 
 func duckAnalyticsToolSessionWindow(f db.AnalyticsFilter) (string, []any) {

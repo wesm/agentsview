@@ -256,6 +256,14 @@ func analyticsMessageWindowPred(col, from, to string) (string, []any) {
 	return "(" + col + " IS NULL OR " + col + " = '' OR strftime('%Y', " + col + ") IS NULL OR (" + strings.Join(preds, " AND ") + "))", args
 }
 
+var analyticsQueryObserver func(string)
+
+func observeAnalyticsQuery(query string) {
+	if analyticsQueryObserver != nil {
+		analyticsQueryObserver(query)
+	}
+}
+
 func (f AnalyticsFilter) toolSessionWindowSQL(dateCol, sessionID string) (string, []any) {
 	from, to := f.messageWindowBoundsUTC()
 	sessionPred, args := analyticsMessageWindowPred(dateCol, from, to)
@@ -3182,6 +3190,7 @@ func (db *DB) GetAnalyticsTools(
 			windowPred, windowArgs := analyticsMessageWindowPred("m.timestamp", from, to)
 			chunkArgs = append(chunkArgs, windowArgs...)
 			q := analyticsToolsQuery(ph, modelPred, windowPred, true)
+			observeAnalyticsQuery(q)
 			rows, qErr := db.getReader().QueryContext(
 				ctx, q, chunkArgs...,
 			)
@@ -3330,6 +3339,7 @@ func (db *DB) GetAnalyticsSkills(
 			windowPred, windowArgs := analyticsMessageWindowPred("m.timestamp", from, to)
 			chunkArgs = append(chunkArgs, windowArgs...)
 			q := analyticsSkillsQuery(ph, modelPred, windowPred)
+			observeAnalyticsQuery(q)
 			rows, qErr := db.getReader().QueryContext(
 				ctx, q, chunkArgs...,
 			)
