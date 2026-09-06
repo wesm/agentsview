@@ -125,6 +125,32 @@ function appSourceSlice(startMarker: string, endMarker: string): string {
   return source.slice(start, end);
 }
 
+it("keeps the first analytics range for a window_days=90 deep link", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-06-20T12:00:00"));
+  stubAppDependencies();
+  vi.spyOn(sessions, "load").mockResolvedValue();
+  sessions.loading = true;
+  window.history.replaceState(null, "", "/sessions?window_days=90");
+  router.route = "sessions";
+  router.params = { window_days: "90" };
+  router.isRootPath = false;
+  const ranges: string[][] = [];
+  vi.mocked(analytics.fetchAll).mockImplementation(async () => {
+    ranges.push([analytics.from, analytics.to]);
+  });
+  component = mount(App, { target: document.body });
+  await flushEffects();
+  expect(analytics.fetchAll).not.toHaveBeenCalled();
+  sessions.loading = false;
+  await flushEffects();
+  await vi.advanceTimersByTimeAsync(0);
+  await flushEffects();
+  expect(ranges).toHaveLength(1);
+  expect(ranges[0]).toEqual(["2026-03-23", "2026-06-20"]);
+  expect(analytics.windowDays).toBe(90);
+});
+
 describe("App Recall availability", () => {
   it("opens Generated insights without querying the corpus on a read-only backend", async () => {
     vi.stubGlobal(

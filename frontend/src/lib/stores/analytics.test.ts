@@ -561,6 +561,23 @@ describe("AnalyticsStore activity uses full range", () => {
   });
 });
 
+describe("AnalyticsStore fetch start handler", () => {
+  it("runs only for full refreshes, not panel fetches", async () => {
+    const handler = vi.fn();
+    analytics.setFetchStartHandler(handler);
+
+    try {
+      await analytics.fetchActivity();
+      expect(handler).not.toHaveBeenCalled();
+
+      await analytics.fetchAll();
+      expect(handler).toHaveBeenCalledOnce();
+    } finally {
+      analytics.setFetchStartHandler(undefined);
+    }
+  });
+});
+
 describe("AnalyticsStore activity range selection", () => {
   it("filters dependent analytics and Sessions without changing the chart window", () => {
     const loadSessions = vi.spyOn(sessions, "load").mockResolvedValue();

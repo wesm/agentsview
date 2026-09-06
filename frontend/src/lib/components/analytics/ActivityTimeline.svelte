@@ -26,11 +26,12 @@
   type Metric = "messages" | "sessions";
   const MAX_DAY_RANGE = 120;
   interface Props {
+    deferInitialFetch?: boolean;
     onRangeSelect?: (from: string, to: string) => void;
     onRangeClear?: () => void;
   }
 
-  let { onRangeSelect, onRangeClear }: Props = $props();
+  let { onRangeSelect, onRangeClear, deferInitialFetch = false }: Props = $props();
 
   let metric = $state<Metric>("messages");
   let chartAreaWidth = $state(0);
@@ -47,7 +48,14 @@
 
   $effect(() => {
     if (dayViewDisabled && analytics.granularity === "day") {
-      analytics.setGranularity("week");
+      if (deferInitialFetch) {
+        analytics.granularity = "week";
+        // Clear day data until the parent releases the initial analytics load.
+        analytics.activity = null;
+        analytics.errors.activity = null;
+      } else {
+        analytics.setGranularity("week");
+      }
     }
   });
 
