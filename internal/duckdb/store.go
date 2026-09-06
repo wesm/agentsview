@@ -1288,8 +1288,8 @@ func (s *Store) collectContentSubstringMatches(
 			start, end := db.FTSSnippetRange(f.Pattern, body)
 			return duckContentSnippet(f, body, start, end)
 		}
-		off := max(db.CaseInsensitiveIndex(body, f.Pattern), 0)
-		return duckContentSnippet(f, body, off, min(off+len(f.Pattern), len(body)))
+		start, end, _ := db.CaseInsensitiveSpan(body, f.Pattern)
+		return duckContentSnippet(f, body, start, end)
 	})
 }
 

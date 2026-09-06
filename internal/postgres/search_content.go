@@ -585,15 +585,15 @@ func pgBuildSnippet(f db.ContentSearchFilter, body string, start, end int) strin
 
 // pgSubstringSnippet builds a substring-match snippet: it locates the
 // case-insensitive pattern (the ILIKE already matched, so it is present; fall
-// back to the start) and windows it. It uses db.CaseInsensitiveIndex so the
-// offset indexes body directly even when lowercasing would change byte length.
+// back to the start) and windows it. It uses db.CaseInsensitiveSpan so both
+// offsets index body directly even when lowercasing would change byte length.
 func pgSubstringSnippet(f db.ContentSearchFilter, body string) string {
 	if f.Mode == "fts" {
 		start, end := db.FTSSnippetRange(f.Pattern, body)
 		return pgBuildSnippet(f, body, start, end)
 	}
-	off := max(db.CaseInsensitiveIndex(body, f.Pattern), 0)
-	return pgBuildSnippet(f, body, off, min(off+len(f.Pattern), len(body)))
+	start, end, _ := db.CaseInsensitiveSpan(body, f.Pattern)
+	return pgBuildSnippet(f, body, start, end)
 }
 
 // literalPrefixPG returns the required literal prefix from a regex pattern,
