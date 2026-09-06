@@ -70,10 +70,16 @@ func TestBackfillIsAutomatedPGMatchingHashUsesBoundedEvidence(t *testing.T) {
 	}
 	_, err = ps.DB().ExecContext(ctx,
 		`INSERT INTO messages (session_id, ordinal, role, content)
-		 VALUES ($1, 0, 'user', $2)`,
+		 VALUES ($1, 1, 'user', $2)`,
 		"prefix-first-user", largePrefix,
 	)
 	require.NoError(t, err, "insert prefix-matching first user message")
+	_, err = ps.DB().ExecContext(ctx,
+		`INSERT INTO messages (session_id, ordinal, role, content, source_subtype)
+		 VALUES ($1, 0, 'user', 'Finished successfully', 'tool_result')`,
+		"prefix-first-user",
+	)
+	require.NoError(t, err, "insert orphan result before the first prompt")
 	_, err = ps.DB().ExecContext(ctx,
 		`INSERT INTO sync_metadata (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
